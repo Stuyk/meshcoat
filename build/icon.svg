@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <!-- Background Container (Color 1: #18181b) -->
+  <rect width="512" height="512" rx="112" fill="#18181b" />
+
+  <!-- Speaker Body (Color 2: #3b82f6) -->
+  <path d="M120 200 H168 L240 144 V368 L168 312 H120 C111.163 312 104 304.837 104 296 V216 C104 207.163 111.163 200 120 200 Z" fill="#3b82f6" />
+
+  <!-- List Rows -->
+  <!-- Row 1 (Color 3: #f4f4f5) -->
+  <circle cx="304" cy="184" r="14" fill="#f4f4f5" />
+  <rect x="344" y="172" width="96" height="24" rx="12" fill="#f4f4f5" />
+
+  <!-- Row 2: Active Track (Color 2: #3b82f6) -->
+  <circle cx="304" cy="256" r="14" fill="#3b82f6" />
+  <rect x="344" y="244" width="96" height="24" rx="12" fill="#3b82f6" />
+
+  <!-- Row 3 (Color 3: #f4f4f5) -->
+  <circle cx="304" cy="328" r="14" fill="#f4f4f5" />
+  <rect x="344" y="316" width="96" height="24" rx="12" fill="#f4f4f5" />
+</svg>

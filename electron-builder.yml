@@ -1,0 +1,85 @@
+appId: com.stuyk.slipsound
+productName: Slip Sound
+
+directories:
+  buildResources: build
+  output: dist
+
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+
+asarUnpack:
+  - resources/**
+  - node_modules/ffmpeg-static/**
+
+win:
+  executableName: Slip Sound
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  artifactName: ${productName}-Windows-Setup-${version}.${ext}
+
+portable:
+  artifactName: ${productName}-Windows-Portable-${version}.${ext}
+
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+    - target: tar.gz
+      arch:
+        - x64
+  icon: build/icon.png
+  category: Audio;AudioVideo;Utility;
+  maintainer: Stuyk
+  synopsis: Ultra-fast desktop audio sample manager and waveform audition tool
+  description: Instant audio library browsing, search, categorization, waveform region slicing, and drag-and-drop export into DAWs.
+  artifactName: ${productName}-Linux-${version}.${ext}
+
+appImage:
+  artifactName: ${productName}-Linux-${version}.${ext}
+
+deb:
+  artifactName: ${productName}-Linux-${version}.${ext}
+
+mac:
+  icon: build/icon.icns
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    - NSDocumentsFolderUsageDescription: Slip Sound requests access to your Documents folder to index audio samples.
+    - NSDownloadsFolderUsageDescription: Slip Sound requests access to your Downloads folder to index audio samples.
+  notarize: false
+  artifactName: ${productName}-macOS-${version}.${ext}
+
+dmg:
+  artifactName: ${productName}-macOS-${version}.${ext}
+
+npmRebuild: false
+
+publish:
+  provider: github
+  owner: stuyk
+  repo: slip-sound
+  releaseType: draft
