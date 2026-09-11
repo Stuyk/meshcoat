@@ -1,67 +1,57 @@
 <p align="center">
-  <img src="build/icon.png" alt="Slip Sound Icon" width="128" height="128" />
+  <img src="build/icon.png" alt="Slip Texture Paint Icon" width="128" height="128" />
 </p>
 
-<h1 align="center">Slip Sound</h1>
+<h1 align="center">Slip Texture Paint</h1>
 
 <p align="center">
-  <strong>Fast, brain-dead simple desktop audio sample manager.</strong>
+  <strong>Fast, focused 3D model texture painter for game developers and 3D artists.</strong>
 </p>
 
-Most sample organizers are bloated nightmares or require cloud accounts and subscriptions just to search files on your own hard drive.
+Most 3D texturing suites are bloated giants with multi-gigabyte installations, slow boot times, or steep subscription paywalls just to paint a texture on a low-poly mesh.
 
-Slip Sound is fast, local, and free. No accounts, no subscriptions, and no file caps. Just your sounds.
+Slip Texture Paint is fast, local, and free. Load your 3D model, choose your canvas resolution, and start painting directly on your surfaces in seconds. No cloud accounts, no subscriptions, no bloat. Just your models and your textures.
 
 <p align="center">
-  <a href="https://github.com/Stuyk/slip-sound/releases">
-    <img src="https://img.shields.io/badge/Download-Slip%20Sound-7c9eff?style=for-the-badge" alt="Download Slip Sound" />
+  <a href="https://github.com/stuyk/slip-texture-paint/releases">
+    <img src="https://img.shields.io/badge/Download-Slip%20Texture%20Paint-7c9eff?style=for-the-badge" alt="Download Slip Texture Paint" />
   </a>
-  <br />
-  <sub><a href="https://stuyk.github.io/slip-sound/">Landing page</a></sub>
-</p>
-
-<p align="center">
-  <img src="screenshots/01-library-browse.png" alt="Browsing a sound library" width="800" />
 </p>
 
 ## Core Philosophy
 
-Every folder you open gets its own SQLite database, saved right at that folder's root. Index once, then just open it again later, instant. Reindex only when you've actually added or changed files. No central catalog, no hidden app-data blob, the index travels with the folder.
+Texture painting should feel immediate, tactile, and frictionless. 
+
+Slip Texture Paint maps your brush strokes directly from 3D camera space into UV coordinates in real time using custom hardware-accelerated shaders. Every layer is non-destructive, composite results update at 60 FPS, and you can pull textures directly from any folder on your drive without importing them into an opaque proprietary asset database. When you're done, export a crisp PNG ready for Godot, Unity, Unreal Engine, or Blender.
 
 ## Performance
 
-- **170,000 files in ~2 minutes:** Recursive scan into local SQLite.
-- **Sub-0.2s search:** Instant fuzzy filtering across hundreds of thousands of rows.
-- **Near-instant playback:** Zero audio buffering lag.
-- **100% offline:** No tracking, no web services.
+- **Instant launch:** Boots in under a second with lightweight Electron, SolidJS, and Three.js.
+- **Hardware-accelerated UV projection:** Offscreen WebGL render targets project strokes and decals without CPU bottlenecks.
+- **Real-time 60 FPS viewport:** Smooth orbit, pan, zoom, and wireframe previews even during heavy paint strokes.
+- **Multi-resolution support:** Paint on canvas sizes from retro 512×512 up to high-detail 8192×8192.
+- **100% offline & private:** Zero telemetry, no user tracking, no network calls. Runs entirely on your local machine.
 
 ## What It Does
 
-- **Search & Auto-Categorize:** Filter by query, channels, duration, favorites, or category sidebar. Files get auto-tagged on index.
-- **Manual Category Overrides:** Click a category to reassign or clear it. Sticks through reindexes.
-- **Sortable Table:** Click any column header to sort.
-- **Favorites:** Star sounds, filter to favorites only.
-- **Waveform Preview:** Click-to-seek, auto-play toggle, drag to select and loop a region.
-- **Region Export & Drag-Out:** Export just the selected region, or drag it straight into another app.
-- **DAW Drag & Drop:** Drag one file or a whole multi-selection into Reaper, Ableton, FL Studio, Godot, Unity, etc.
-- **Batch Exporter:** WAV (16/24/32-bit) or OGG Vorbis, any sample rate, auto-numbered or lettered output names.
-- **Reveal in Folder:** Jump to any file in your system file manager.
-- **Remembers Where You Left Off:** Reopens your last library automatically.
-- **Keyboard-Driven:** Full mouse-free navigation.
-- **MCP Server (opt-in):** Let AI tools like Claude Desktop or Cursor search, tag, and export your library. Off by default, toggle it in Settings. See [MCP Server](#mcp-server).
-
-<p align="center">
-  <img src="screenshots/02-waveform-slicing.png" alt="Slicing a waveform region" width="800" />
-</p>
-<p align="center">
-  <img src="screenshots/03-instant-search.png" alt="Instant search filtering" width="800" />
-</p>
-<p align="center">
-  <img src="screenshots/04-category-browsing.png" alt="Browsing by category" width="800" />
-</p>
-<p align="center">
-  <img src="screenshots/05-batch-exporter.png" alt="Batch exporter" width="800" />
-</p>
+- **Direct 3D Surface Painting:** Paint directly onto 3D geometry with strokes and texture patterns automatically projected onto the model's UV layout.
+- **Non-Destructive Layer Stack:** Create, hide, reorder, adjust opacity, duplicate, and merge multiple paint layers with live composite blending.
+- **Versatile Tool Suite:**
+  - **Brush (`B`):** Freehand painting with customizable radius, hardness, opacity, spacing, and texture pattern projection.
+  - **Stamp (`T`):** Stamp textures or decals directly onto mesh surfaces at cursor hit points.
+  - **Eraser (`E`):** Erase layer contents with full opacity and edge hardness control.
+  - **Fill Bucket (`G`):** Flood fill active layers with solid colors, or confine fills strictly to selected faces.
+  - **Eyedropper (`I`):** Sample exact RGB colors directly from any point on the textured 3D model.
+  - **Face Selection (`V` / `Ctrl`):** Highlight faces with cyan outlines to restrict brush strokes and fills to specific geometry.
+- **Quick Face Masking (`Ctrl` + Click / Drag):** Hold <kbd>Ctrl</kbd> on **any tool** to click or sweep-drag across faces. All subsequent brush strokes, stamps, and fills are automatically confined to the highlighted selection. Hold <kbd>Ctrl</kbd>+<kbd>Shift</kbd> to deselect, or press <kbd>Esc</kbd> to clear.
+- **Integrated Texture Shelf:** Browse folders of PNG/JPG textures on your drive with a 2-wide shelf, instant search, and one-click decal selection. Remembers your last folder automatically.
+- **Lighting & View Modes:** Switch between Lit mode (directional + ambient lighting for depth) and Flat mode (unlit color view for pure texture painting).
+- **Wireframe Overlay (`W`):** Toggle wireframe overlay on the fly to inspect topology and UV islands while painting.
+- **Interactive Brush Gestures:** Adjust radius dynamically using <kbd>[</kbd> and <kbd>]</kbd> or by dragging <kbd>RMB</kbd>. Adjust hardness and opacity with <kbd>Shift</kbd> + <kbd>RMB</kbd> drag.
+- **Smooth 3D Navigation:** Standard DCC camera controls: <kbd>Alt</kbd>+<kbd>LMB</kbd> to orbit, <kbd>Alt</kbd>+<kbd>MMB</kbd> to pan, <kbd>Alt</kbd>+<kbd>RMB</kbd> / wheel to zoom, and <kbd>F</kbd> to frame the model.
+- **Format Support:** Loads `.obj`, `.gltf`, and `.glb` files with automatic UV validation.
+- **One-Click PNG Export:** Export the composite base color map directly to disk ready for your game engine or render pipeline.
+- **Undo / Redo:** Full multi-step history for paint strokes, layer edits, and fills (<kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd>).
 
 ## Quick Start
 
@@ -72,79 +62,66 @@ bun install
 bun run dev
 ```
 
-Point it at a sample folder (`Ctrl+O`). It indexes automatically and caches locally.
+Start a new project (`File` > `New Project`), pick your 3D model (`.obj`, `.glb`, or `.gltf`) and starting resolution (512 to 8192), and begin painting!
 
 ## Keybindings
 
 | Key | Action |
 | --- | --- |
-| `Space` | Play / Pause |
-| `↑` / `↓` | Previous / Next sound |
-| `Home` / `End` | Jump to top / bottom |
-| `Double Click` | Play immediately |
-| `Ctrl` + `Click` | Add/remove a sound from the multi-selection |
-| `Shift` + `Click` | Select every sound between the last click and this one |
-| `Ctrl` + `F` | Focus search |
-| `Ctrl` + `O` | Open folder |
-| `Ctrl` + `B` | Toggle category sidebar |
-| `Ctrl` + `E` | Export selection / region |
-| `Alt` + `A` | Toggle auto-play |
-| `?` | Interactive help guide |
+| `B` | Brush tool |
+| `T` | Stamp tool (place texture decal) |
+| `E` | Eraser tool |
+| `G` | Fill bucket (layer or selected faces) |
+| `I` | Eyedropper (sample surface color) |
+| `V` | Face selection tool |
+| `Ctrl` + Click / Drag | Select & highlight faces on any tool |
+| `Ctrl` + `Shift` + Drag | Deselect faces |
+| `Esc` | Clear face selection |
+| `[` / `]` | Decrease / increase brush radius |
+| `RMB` + Drag X | Interactively resize brush radius |
+| `Shift` + `RMB` + Drag Y | Interactively adjust opacity / hardness |
+| `Alt` + `LMB` (or `MMB`) | Orbit camera |
+| `Alt` + `MMB` (or `Shift` + `MMB`) | Pan camera |
+| `Alt` + `RMB` (or Wheel) | Zoom camera |
+| `F` | Focus / frame model in view |
+| `W` | Toggle wireframe overlay |
+| `Ctrl` + `Z` | Undo last stroke / action |
+| `Ctrl` + `Y` | Redo action |
+| `?` | Toggle quick guide & hotkeys |
 
-<p align="center">
-  <img src="screenshots/06-shortcuts-guide.png" alt="Keyboard shortcuts guide" width="800" />
-</p>
+## Model Preparation & UVs
 
-## MCP Server
+Slip Texture Paint paints directly into your model's UV layout:
 
-Slip Sound can run a local [Model Context Protocol](https://modelcontextprotocol.io) server so AI tools (Claude Desktop, Cursor, VS Code, etc.) can search, tag, and export your library directly. Off by default. Turn it on from **Settings** (gear icon, top right), where you can also copy the connection URL and bearer token.
-
-Bound to `127.0.0.1` only, with a random bearer token minted per launch and Origin/Host validation to block browser-based DNS-rebinding probes. Connection details (URL + token, ready to paste into an `mcpServers` config block) are also written to `mcp-connection.json` in the app's user data folder while it's running.
-
-**Tools exposed:**
-
-| Tool | What it does |
-| --- | --- |
-| `search_sounds` | Filter by filename, category, subcategory, channels, duration, favorite status |
-| `list_uncategorized_sounds` | Page through sounds still tagged "Uncategorized," for an agent to work through and tag |
-| `get_sound` | Full metadata for one file by path |
-| `get_categories` | Category/subcategory facet counts |
-| `open_library` | Open or switch to a folder |
-| `get_recent_libraries` | Recently opened folders |
-| `get_library_status` | Currently open folder + sound count |
-| `set_category` / `clear_category` | Manually tag or untag a sound |
-| `toggle_favorite` | Star / unstar a sound |
-| `export_sound` | Export (optionally trimmed) to WAV/OGG at any sample rate |
-| `reveal_in_folder` | Open the file's location in the system file manager |
-| `reindex_library` | Rescan the open folder for new/changed/removed files |
+1. **Single Mesh:** Ensure your model is joined into a single mesh object before export (in Blender: select all parts and press <kbd>Ctrl+J</kbd>).
+2. **Weld Seams:** Run *Mesh > Merge > By Distance* in Blender to prevent hairline gaps along seams.
+3. **Clean UV Unwrap:** Ensure faces have non-overlapping UV coordinates so brush strokes map cleanly to the intended surfaces without texture mirroring or bleeding.
+4. **Export Formats:** Export as `.obj`, `.glb`, or `.gltf`.
 
 ## Releases
 
-Every GitHub release ships a `SHA256SUMS-linux.txt` / `SHA256SUMS-windows.txt` alongside the binaries. Verify a download with:
-
-```bash
-sha256sum -c SHA256SUMS-linux.txt   # Linux
-certutil -hashfile slip-sound-Setup.exe SHA256   # Windows, compare against the .txt
-```
-
-Releases are driven entirely by `package.json`'s `version` field, no manual tagging. Every push to `main` builds and checks whether `vX.Y.Z` already has a GitHub release; if not, it creates the tag and a draft release automatically. Bump the version to cut a new release.
+Releases are driven by `package.json`'s `version` field. GitHub Actions automatically builds and publishes release binaries for Linux, Windows, and macOS.
 
 ## Building
 
 ```bash
 bun run build:linux  # AppImage, deb, tar.gz
 bun run build:win    # NSIS installer, portable exe
-bun run build:all    # Both
+bun run build:mac    # DMG, zip
+bun run build:all    # All targets
 ```
 
 ## Stack
 
-Electron 39, Node 22 (`node:sqlite`), SolidJS, Tailwind CSS v4, electron-vite, ffmpeg-static, `@modelcontextprotocol/sdk`, Bun.
+- **Runtime & Desktop Shell:** Electron 39, Node 22, Bun
+- **Frontend & State:** SolidJS, Tailwind CSS v4, Lucide Icons (`lucide-solid`)
+- **3D Graphics & Viewport:** Three.js, WebGL, custom GLSL projection shaders
+- **Build System:** electron-vite, Vite, TypeScript
 
 ## Alternative To
 
-A free, fast, local alternative to sample managers like Soundly, BaseHead, Soundminer, Resonic, AudioFinder, Sononym, and ADSR Sample Manager.
+A free, fast, local, and lightweight alternative to Substance 3D Painter, ArmorPaint, Marmoset Toolbag, or Blender's texture painting tab when you want to jump straight into painting textures without setup overhead.
 
 ## License
 
-GPL-3.0-or-later. See [LICENSE](LICENSE). Required by the bundled `ffmpeg-static` binary, which is built with `--enable-gpl`.
+GPL-3.0-or-later. See [LICENSE](LICENSE).
