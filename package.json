@@ -1,6 +1,6 @@
 {
-  "name": "slip-texture-paint",
-  "productName": "Slip Texture Paint",
+  "name": "meshcoat",
+  "productName": "MeshCoat",
   "version": "0.1.0",
   "description": "Focused 3D model and texture painter",
   "main": "./out/main/index.js",
@@ -9,9 +9,9 @@
   "private": true,
   "repository": {
     "type": "git",
-    "url": "https://github.com/stuyk/slip-texture-paint.git"
+    "url": "https://github.com/stuyk/meshcoat.git"
   },
-  "homepage": "https://github.com/stuyk/slip-texture-paint",
+  "homepage": "https://github.com/stuyk/meshcoat",
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
@@ -33,6 +33,7 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
+    "ag-psd": "^31.0.2",
     "lucide-solid": "^1.44.0",
     "solid-js": "^1.9.14",
     "three": "^0.185.1"

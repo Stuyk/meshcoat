@@ -5,15 +5,14 @@ import {
   XIcon,
   SearchIcon,
   CheckIcon,
-  StampIcon,
-  ChevronLeftIcon
+  StampIcon
 } from './icons'
+import { toAssetUrl } from '../utils/assetUrl'
 
 export default function TextureShelf(props: {
   textures: string[]
   onPickFolder: () => void
   onClearFolder: () => void
-  onClose?: () => void
 }) {
   const [searchQuery, setSearchQuery] = createSignal('')
 
@@ -54,16 +53,6 @@ export default function TextureShelf(props: {
               title="Clear loaded textures"
             >
               <XIcon size={13} />
-            </button>
-          </Show>
-
-          <Show when={props.onClose}>
-            <button
-              class="shelf-icon-btn"
-              onClick={props.onClose}
-              title="Close texture shelf"
-            >
-              <ChevronLeftIcon size={15} />
             </button>
           </Show>
         </div>
@@ -122,6 +111,25 @@ export default function TextureShelf(props: {
             }
           >
             <div class="shelf-grid">
+              {/* Solid Color / No Texture Card */}
+              <Show when={!searchQuery()}>
+                <button
+                  class="shelf-card shelf-card-solid"
+                  classList={{ selected: brush.texturePath() === null }}
+                  title="Solid Color (No Texture) - Hotkey: X"
+                  onClick={() => setTexturePath(null)}
+                >
+                  <div class="shelf-thumb-frame" style={{ "background-color": brush.color() }}>
+                    <Show when={brush.texturePath() === null}>
+                      <div class="shelf-selected-check">
+                        <CheckIcon size={11} strokeWidth={2.5} />
+                      </div>
+                    </Show>
+                  </div>
+                  <span class="shelf-card-name">Solid Color [X]</span>
+                </button>
+              </Show>
+
               <For each={filteredTextures()}>
                 {(path) => {
                   const isSelected = () => brush.texturePath() === path
@@ -138,7 +146,7 @@ export default function TextureShelf(props: {
                       }}
                     >
                       <div class="shelf-thumb-frame checkerboard-bg">
-                        <img src={window.api.assetUrl(path)} alt={filename()} />
+                        <img src={toAssetUrl(path)} alt={filename()} />
                         <Show when={isSelected()}>
                           <div class="shelf-selected-check">
                             <CheckIcon size={11} strokeWidth={2.5} />

@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="build/icon.png" alt="Slip Texture Paint Icon" width="128" height="128" />
+  <img src="build/icon.png" alt="MeshCoat Icon" width="128" height="128" />
 </p>
 
-<h1 align="center">Slip Texture Paint</h1>
+<h1 align="center">MeshCoat</h1>
 
 <p align="center">
   <strong>Fast, focused 3D model texture painter for game developers and 3D artists.</strong>
@@ -10,19 +10,28 @@
 
 Most 3D texturing suites are bloated giants with multi-gigabyte installations, slow boot times, or steep subscription paywalls just to paint a texture on a low-poly mesh.
 
-Slip Texture Paint is fast, local, and free. Load your 3D model, choose your canvas resolution, and start painting directly on your surfaces in seconds. No cloud accounts, no subscriptions, no bloat. Just your models and your textures.
+MeshCoat is fast, local, and free. Load your 3D model, choose your canvas resolution, and start painting directly on your surfaces in seconds. No cloud accounts, no subscriptions, no bloat. Just your models and your textures.
 
 <p align="center">
-  <a href="https://github.com/stuyk/slip-texture-paint/releases">
-    <img src="https://img.shields.io/badge/Download-Slip%20Texture%20Paint-7c9eff?style=for-the-badge" alt="Download Slip Texture Paint" />
+  <a href="https://github.com/stuyk/meshcoat/releases">
+    <img src="https://img.shields.io/badge/Download-MeshCoat-7c9eff?style=for-the-badge" alt="Download MeshCoat" />
   </a>
+</p>
+
+<p align="center">
+  <img src="screenshots/base-screenshot.png" alt="MeshCoat brush painting with stroke dynamics" width="49%" />
+  <img src="screenshots/texture-symetric-painting.png" alt="MeshCoat symmetry mirror painting" width="49%" />
+</p>
+<p align="center">
+  <img src="screenshots/texture-brushes.png" alt="MeshCoat material texture projection" width="49%" />
+  <img src="screenshots/texture-edge-creation-masking.png" alt="MeshCoat Edge Wear Wizard" width="49%" />
 </p>
 
 ## Core Philosophy
 
 Texture painting should feel immediate, tactile, and frictionless. 
 
-Slip Texture Paint maps your brush strokes directly from 3D camera space into UV coordinates in real time using custom hardware-accelerated shaders. Every layer is non-destructive, composite results update at 60 FPS, and you can pull textures directly from any folder on your drive without importing them into an opaque proprietary asset database. When you're done, export a crisp PNG ready for Godot, Unity, Unreal Engine, or Blender.
+MeshCoat maps your brush strokes directly from 3D camera space into UV coordinates in real time using custom hardware-accelerated shaders. Every layer is non-destructive, composite results update at 60 FPS, and you can pull textures directly from any folder on your drive without importing them into an opaque proprietary asset database. When you're done, export a crisp PNG ready for Godot, Unity, Unreal Engine, or Blender.
 
 ## Performance
 
@@ -91,7 +100,7 @@ Start a new project (`File` > `New Project`), pick your 3D model (`.obj`, `.glb`
 
 ## Model Preparation & UVs
 
-Slip Texture Paint paints directly into your model's UV layout:
+MeshCoat paints directly into your model's UV layout:
 
 1. **Single Mesh:** Ensure your model is joined into a single mesh object before export (in Blender: select all parts and press <kbd>Ctrl+J</kbd>).
 2. **Weld Seams:** Run *Mesh > Merge > By Distance* in Blender to prevent hairline gaps along seams.

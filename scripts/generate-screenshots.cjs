@@ -1,4 +1,3 @@
-
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -11,170 +10,147 @@ fs.mkdirSync(screenshotsDir, { recursive: true });
 require('../out/main/index.js');
 
 function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+// Simple base64 PNG checker texture used to populate the texture shelf without a folder dialog.
+const CHECKER_TEXTURE =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAFklEQVQYV2NkYGD4z0AEYBxVSF+FAAhBAQBSl/CXAAAAAElFTkSuQmCC';
 
 app.on('browser-window-created', (_, win) => {
   win.setSize(1440, 900);
   win.webContents.on('did-finish-load', async () => {
     try {
-      console.log('Window loaded. Ensuring folder is loaded...');
+      console.log('Window loaded. Waiting for default model + app hooks...');
       await win.webContents.executeJavaScript(`
         (async () => {
-          const cur = await window.api.getCurrentFolder();
-          if (!cur) {
-            await window.api.openFolder('/media/stuyk/Side2/sounds');
+          const start = Date.now();
+          while ((!window.__app || !window.__viewportHandle) && Date.now() - start < 15000) {
+            await new Promise(r => setTimeout(r, 100));
           }
         })()
       `);
+      await delay(2000);
 
-      // Wait for initial data load (facets, list, waveform)
-      await delay(3500);
-
-      // Select a sound that has an interesting waveform and category badge (#12 Cave Horn.wav at index 11)
-      await win.webContents.executeJavaScript(`
-        (() => {
-          const rows = document.querySelectorAll('.sound-row');
-          if (rows[11]) rows[11].dispatchEvent(new MouseEvent('click', { bubbles: true }));
-        })()
-      `);
-      await delay(1200);
-
-      // --- SCREENSHOT 1: Library Browse ---
-      console.log('Capturing 01-library-browse.png...');
+      // --- SCREENSHOT 1: Default viewport (test sphere, hero shot) ---
+      console.log('Capturing 01-viewport-hero.png...');
       let img = await win.webContents.capturePage();
-      fs.writeFileSync(path.join(screenshotsDir, '01-library-browse.png'), img.toPNG());
+      fs.writeFileSync(path.join(screenshotsDir, '01-viewport-hero.png'), img.toPNG());
 
-      // --- SCREENSHOT 2: Waveform Slicing ---
-      console.log('Setting up waveform slice...');
+      // --- SCREENSHOT 2: Brush painting stroke ---
+      console.log('Painting a brush stroke...');
       await win.webContents.executeJavaScript(`
         (() => {
-          const canvas = document.querySelector('canvas');
-          if (canvas) {
-            const rect = canvas.getBoundingClientRect();
-            const startX = rect.left + rect.width * 0.28;
-            const endX = rect.left + rect.width * 0.65;
-            const y = rect.top + rect.height * 0.5;
-
-            canvas.dispatchEvent(new MouseEvent('mousedown', { clientX: startX, clientY: y, bubbles: true }));
-            window.dispatchEvent(new MouseEvent('mousemove', { clientX: endX, clientY: y, bubbles: true }));
-            window.dispatchEvent(new MouseEvent('mouseup', { clientX: endX, clientY: y, bubbles: true }));
-          }
+          window.__app.setActiveTool('brush');
         })()
       `);
-      await delay(800);
-      console.log('Capturing 02-waveform-slicing.png...');
-      img = await win.webContents.capturePage();
-      fs.writeFileSync(path.join(screenshotsDir, '02-waveform-slicing.png'), img.toPNG());
-
-      // Clear slice
-      await win.webContents.executeJavaScript(`
-        (() => {
-          const clearBtn = document.querySelector('button[title*="Clear selection"], .waveform-clear-btn');
-          if (clearBtn) clearBtn.click();
-        })()
-      `);
-      await delay(400);
-
-      // --- SCREENSHOT 3: Instant Search ---
-      console.log('Performing search for laser sounds...');
-      await win.webContents.executeJavaScript(`
-        (() => {
-          const input = document.querySelector('.search-input');
-          if (input) {
-            input.focus();
-            input.value = 'laser';
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-          }
-        })()
-      `);
-      await delay(1200);
-      // Select the first laser sound
-      await win.webContents.executeJavaScript(`
-        (() => {
-          const rows = document.querySelectorAll('.sound-row');
-          if (rows[0]) rows[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
-        })()
-      `);
-      await delay(1000);
-      console.log('Capturing 03-instant-search.png...');
-      img = await win.webContents.capturePage();
-      fs.writeFileSync(path.join(screenshotsDir, '03-instant-search.png'), img.toPNG());
-
-      // --- SCREENSHOT 5: Batch Exporter (with laser sounds) ---
-      console.log('Selecting multiple sounds and opening batch export...');
-      await win.webContents.executeJavaScript(`
-        (() => {
-          const rows = document.querySelectorAll('.sound-row');
-          if (rows[0]) rows[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
-          if (rows[4]) rows[4].dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
-          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'e', ctrlKey: true, bubbles: true }));
-        })()
-      `);
-      await delay(1000);
-      console.log('Capturing 05-batch-exporter.png...');
-      img = await win.webContents.capturePage();
-      fs.writeFileSync(path.join(screenshotsDir, '05-batch-exporter.png'), img.toPNG());
-
-      // Close export modal
-      await win.webContents.executeJavaScript(`
-        (() => {
-          const closeBtn = document.querySelector('.modal-close-btn');
-          if (closeBtn) closeBtn.click();
-        })()
-      `);
+      await delay(300);
+      await paintStroke(win, 0.35, 0.5, 0.62, 0.42);
       await delay(500);
-
-      // --- SCREENSHOT 4: Category Filter ---
-      console.log('Clearing search and selecting Impacts category...');
-      await win.webContents.executeJavaScript(`
-        (() => {
-          // Clear search
-          const input = document.querySelector('.search-input');
-          if (input) {
-            input.value = '';
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-          }
-          // Click Impacts category header
-          const headers = Array.from(document.querySelectorAll('.accordion-header'));
-          const impactsHeader = headers.find(h => h.textContent.includes('Impacts'));
-          if (impactsHeader) {
-            impactsHeader.click();
-            const item = impactsHeader.closest('.category-accordion-item');
-            const chevron = item ? item.querySelector('.accordion-chevron-btn') : null;
-            if (chevron && !chevron.classList.contains('expanded')) {
-              chevron.click();
-            }
-          }
-        })()
-      `);
-      await delay(1400);
-      // Select first impact row
-      await win.webContents.executeJavaScript(`
-        (() => {
-          const rows = document.querySelectorAll('.sound-row');
-          if (rows[0]) rows[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
-        })()
-      `);
-      await delay(1000);
-      console.log('Capturing 04-category-browsing.png...');
+      console.log('Capturing 02-brush-painting.png...');
       img = await win.webContents.capturePage();
-      fs.writeFileSync(path.join(screenshotsDir, '04-category-browsing.png'), img.toPNG());
+      fs.writeFileSync(path.join(screenshotsDir, '02-brush-painting.png'), img.toPNG());
 
-      // --- SCREENSHOT 6: Shortcuts Guide ---
+      // --- SCREENSHOT 3: Texture shelf + stamp tool ---
+      console.log('Loading texture shelf and stamping...');
+      await win.webContents.executeJavaScript(`
+        (() => {
+          window.__app.setTextures(['${CHECKER_TEXTURE}']);
+        })()
+      `);
+      await delay(600);
+      await win.webContents.executeJavaScript(`
+        (() => {
+          const card = document.querySelector('.shelf-card');
+          if (card) card.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+          window.__app.setActiveTool('stamp');
+        })()
+      `);
+      await delay(300);
+      await paintStroke(win, 0.5, 0.5, 0.5, 0.5);
+      await delay(500);
+      console.log('Capturing 03-texture-stamp.png...');
+      img = await win.webContents.capturePage();
+      fs.writeFileSync(path.join(screenshotsDir, '03-texture-stamp.png'), img.toPNG());
+
+      // --- SCREENSHOT 4: Layers panel (split view) ---
+      console.log('Opening layers panel...');
+      await win.webContents.executeJavaScript(`
+        (() => {
+          window.__app.setRightPanelTab('split');
+        })()
+      `);
+      await delay(700);
+      console.log('Capturing 04-layers-panel.png...');
+      img = await win.webContents.capturePage();
+      fs.writeFileSync(path.join(screenshotsDir, '04-layers-panel.png'), img.toPNG());
+
+      // --- SCREENSHOT 5: Face selection / masking ---
+      console.log('Selecting faces...');
+      await win.webContents.executeJavaScript(`
+        (() => {
+          window.__app.setActiveTool('faceSelect');
+          window.__viewportHandle.selectAllFaces();
+        })()
+      `);
+      await delay(700);
+      console.log('Capturing 05-face-masking.png...');
+      img = await win.webContents.capturePage();
+      fs.writeFileSync(path.join(screenshotsDir, '05-face-masking.png'), img.toPNG());
+      await win.webContents.executeJavaScript(`
+        (() => { window.__viewportHandle.invertFaceSelection(); window.__viewportHandle.invertFaceSelection(); })()
+      `);
+
+      // --- SCREENSHOT 6: Fill bucket ---
+      console.log('Filling active layer...');
+      await win.webContents.executeJavaScript(`
+        (() => {
+          window.__app.setActiveTool('fill');
+          window.__viewportHandle.fillActive();
+        })()
+      `);
+      await delay(700);
+      console.log('Capturing 06-fill-bucket.png...');
+      img = await win.webContents.capturePage();
+      fs.writeFileSync(path.join(screenshotsDir, '06-fill-bucket.png'), img.toPNG());
+
+      // --- SCREENSHOT 7: Lighting modes + wireframe ---
+      console.log('Toggling flat lighting and wireframe...');
+      await win.webContents.executeJavaScript(`
+        (() => {
+          const flatBtn = document.querySelector('.segmented-lighting-btn[title^="Flat lighting"]');
+          if (flatBtn) flatBtn.click();
+          window.__app.toggleWireframe();
+        })()
+      `);
+      await delay(700);
+      console.log('Capturing 07-wireframe-flat.png...');
+      img = await win.webContents.capturePage();
+      fs.writeFileSync(path.join(screenshotsDir, '07-wireframe-flat.png'), img.toPNG());
+      await win.webContents.executeJavaScript(`
+        (() => {
+          const studioBtn = document.querySelector('.segmented-lighting-btn[title^="Studio lighting"]');
+          if (studioBtn) studioBtn.click();
+          window.__app.toggleWireframe();
+        })()
+      `);
+      await delay(300);
+
+      // --- SCREENSHOT 8: Help / shortcuts modal ---
       console.log('Opening shortcuts guide...');
       await win.webContents.executeJavaScript(`
         (() => {
           if (document.activeElement) document.activeElement.blur();
-          window.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }));
+          const btn = document.querySelector('.action-icon-btn[title*="Quick guide"]');
+          if (btn) btn.click();
         })()
       `);
-      await delay(1000);
-      console.log('Capturing 06-shortcuts-guide.png...');
+      await delay(700);
+      console.log('Capturing 08-shortcuts-guide.png...');
       img = await win.webContents.capturePage();
-      fs.writeFileSync(path.join(screenshotsDir, '06-shortcuts-guide.png'), img.toPNG());
+      fs.writeFileSync(path.join(screenshotsDir, '08-shortcuts-guide.png'), img.toPNG());
 
-      console.log('All 6 updated screenshots successfully captured!');
+      console.log('All 8 screenshots successfully captured!');
     } catch (err) {
       console.error('Error during capture:', err);
     } finally {
@@ -182,3 +158,19 @@ app.on('browser-window-created', (_, win) => {
     }
   });
 });
+
+async function paintStroke(win, x1, y1, x2, y2) {
+  await win.webContents.executeJavaScript(`
+    (() => {
+      const canvas = document.querySelector('canvas.viewport-canvas');
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const p1 = { x: rect.left + rect.width * ${x1}, y: rect.top + rect.height * ${y1} };
+      const p2 = { x: rect.left + rect.width * ${x2}, y: rect.top + rect.height * ${y2} };
+      canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: p1.x, clientY: p1.y, button: 0, bubbles: true }));
+      canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: (p1.x + p2.x) / 2, clientY: (p1.y + p2.y) / 2, bubbles: true }));
+      canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: p2.x, clientY: p2.y, bubbles: true }));
+      canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: p2.x, clientY: p2.y, button: 0, bubbles: true }));
+    })()
+  `);
+}

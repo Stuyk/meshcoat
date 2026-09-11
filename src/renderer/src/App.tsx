@@ -3,8 +3,12 @@ import * as THREE from 'three'
 import HelpModal from './components/HelpModal'
 import SettingsModal from './components/SettingsModal'
 import NewProjectModal from './components/NewProjectModal'
+import BrushManagerModal from './components/BrushManagerModal'
+import EdgeWearWizard from './components/EdgeWearWizard'
 import Viewport, { type ViewportHandle } from './viewport/Viewport'
 import TextureShelf from './components/TextureShelf'
+import StatusBar from './components/BottomDock'
+import { brushPresets, initBrushPresets } from './paint/brushPresets'
 import LayersTab from './components/LayersTab'
 import BrushSettingsTab from './components/BrushSettingsTab'
 import type { LightingMode } from './viewport/scene'
@@ -29,9 +33,19 @@ import {
   XIcon,
   RefreshCwIcon,
   MousePointerIcon,
-  ImagesIcon
+  AppIcon,
+  SparklesIcon,
+  LineIcon,
+  SymmetryIcon
 } from './components/icons'
-import { brush, setTexturePath, clearFaceSelection, type ToolMode } from './paint/brush'
+import {
+  brush,
+  setTexturePath,
+  clearFaceSelection,
+  setTextureScale,
+  stepRadius,
+  type ToolMode
+} from './paint/brush'
 import { DEFAULT_TEXTURE_SIZE, type TextureSize } from './paint/paintEngine'
 
 const LIGHTING_MODES: { mode: LightingMode; label: string; Icon: typeof StudioLightIcon }[] = [
@@ -42,32 +56,44 @@ const LIGHTING_MODES: { mode: LightingMode; label: string; Icon: typeof StudioLi
 
 type RightPanelTab = 'brush' | 'layers' | 'split'
 
-interface ToastNotice {
-  id: number
-  text: string
-  type: 'info' | 'success' | 'warning' | 'error'
-}
-
 export default function App() {
   const [activeTool, setActiveTool] = createSignal<ToolMode>('brush')
-  const [lightingMode, setLightingModeSignal] = createSignal<LightingMode>('studio')
-  const [wireframeVisible, setWireframeVisibleSignal] = createSignal(false)
   const [showHelp, setShowHelp] = createSignal(false)
   const [showSettings, setShowSettings] = createSignal(false)
-  const [toast, setToast] = createSignal<ToastNotice | null>(null)
+  const [lightingMode, setLightingModeSignal] = createSignal<LightingMode>('studio')
+  const [wireframeVisible, setWireframeVisibleSignal] = createSignal(false)
   const [textures, setTextures] = createSignal<string[]>([])
   const [layersVersion, setLayersVersion] = createSignal(0)
+  const currentLayerCount = () => {
+    void layersVersion()
+    return viewportHandle?.getLayerStack()?.layers.length ?? 1
+  }
+  const currentActiveLayerName = () => {
+    void layersVersion()
+    return viewportHandle?.getLayerStack()?.active?.name ?? 'Base'
+  }
+  const [toast, setToast] = createSignal<{ id: number; text: string; type: 'info' | 'success' | 'warning' | 'error' } | null>(null)
   const [showFileMenu, setShowFileMenu] = createSignal(false)
   const [showEditMenu, setShowEditMenu] = createSignal(false)
+  const [showEdgeWearWizard, setShowEdgeWearWizard] = createSignal(false)
   const [modelName, setModelName] = createSignal('Default Model')
   const [rightPanelTab, setRightPanelTab] = createSignal<RightPanelTab>('split')
   const [textureSize, setTextureSize] = createSignal<TextureSize>(DEFAULT_TEXTURE_SIZE)
   const [showNewProjectModal, setShowNewProjectModal] = createSignal(false)
-  const [showTextureShelf, setShowTextureShelf] = createSignal(true)
 
   let viewportHandle: ViewportHandle | undefined
   let colorPickerRef: HTMLInputElement | undefined
   let toastTimer: number | undefined
+  let lastFolderLoaded = false
+
+  async function ensureLastTextureFolderLoaded(): Promise<void> {
+    if (lastFolderLoaded || textures().length > 0) return
+    lastFolderLoaded = true
+    const paths = await window.api.loadLastTextureFolder()
+    if (paths && paths.length > 0) {
+      setTextures(paths)
+    }
+  }
 
   function showToast(text: string, type: 'info' | 'success' | 'warning' | 'error' = 'info', durationMs = 3500): void {
     if (toastTimer) clearTimeout(toastTimer)
@@ -88,7 +114,6 @@ export default function App() {
     const paths = await window.api.pickTextureFolder()
     if (paths) {
       setTextures(paths)
-      setShowTextureShelf(true)
       showToast(`Loaded ${paths.length} textures`, 'info')
     }
   }
@@ -96,7 +121,7 @@ export default function App() {
   function clearTextureFolder(): void {
     setTextures([])
     setTexturePath(null)
-    showToast('Cleared texture shelf', 'info')
+    showToast('Cleared texture drawer', 'info')
   }
 
   /** Import model via New Project wizard (sets both model and resolution). */
@@ -165,39 +190,146 @@ export default function App() {
     const stack = viewportHandle?.getLayerStack()
     const active = stack?.active
     if (active) {
-      active.engine.fill(new THREE.Color(brush.color()))
-      stack?.recomposite()
+      if (viewportHandle) {
+        viewportHandle.fillActive()
+      } else {
+        active.engine.fill(new THREE.Color(brush.color()))
+        stack?.recomposite()
+      }
       bumpLayers()
-      showToast(`Filled "${active.name}" with color`, 'info')
+      const hasTexture = Boolean(brush.texturePath())
+      const count = brush.selectedFaces().size
+      if (hasTexture) {
+        showToast(
+          count > 0
+            ? `Filled ${count} face(s) on "${active.name}" with texture`
+            : `Filled "${active.name}" with texture`,
+          'info'
+        )
+      } else {
+        showToast(
+          count > 0
+            ? `Filled ${count} face(s) on "${active.name}" with color`
+            : `Filled "${active.name}" with color`,
+          'info'
+        )
+      }
     }
   }
 
   function onKeyDown(e: KeyboardEvent): void {
-    if (showHelp() || showSettings() || showNewProjectModal()) return
+    if (showHelp() || showSettings() || showNewProjectModal() || brushPresets.isManagerOpen()) return
     // Don't trigger tool switching if typing in an input
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
 
+    const isCtrl = e.ctrlKey || e.metaKey
+
+    if (isCtrl) {
+      if (e.key.toLowerCase() === 'a') {
+        e.preventDefault()
+        viewportHandle?.selectAllFaces()
+        const count = viewportHandle?.getTotalFaces() ?? 0
+        if (count > 0) showToast(`Selected all ${count} faces`, 'info')
+        return
+      }
+      if (e.key.toLowerCase() === 'd') {
+        e.preventDefault()
+        clearFaceSelection()
+        showToast('Cleared face selection', 'info')
+        return
+      }
+      if (e.key.toLowerCase() === 'i') {
+        e.preventDefault()
+        viewportHandle?.invertFaceSelection()
+        showToast('Inverted face selection', 'info')
+        return
+      }
+      return
+    }
+
     switch (e.key.toLowerCase()) {
+      case '1':
       case 'b':
         setActiveTool('brush')
         break
-      case 't':
-        setActiveTool('stamp')
+      case 'l':
+        setActiveTool('line')
         break
+      case '2':
       case 'e':
         setActiveTool('eraser')
         break
+      case '3':
+      case 't':
+        setActiveTool('stamp')
+        break
+      case '4':
       case 'g':
         setActiveTool('fill')
         break
+      case '5':
       case 'i':
         setActiveTool('eyedropper')
         break
+      case '6':
       case 'v':
         setActiveTool('faceSelect')
         break
+      case 'r': {
+        if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault()
+          const delta = e.shiftKey ? -15 : 15
+          const next = (brush.brushRotation() + delta + 360) % 360
+          brush.setBrushRotation(next)
+          showToast(`Brush Angle: ${next}°`, 'info', 1000)
+        }
+        break
+      }
+      case 'x': {
+        if (e.altKey) {
+          const axes: ('off' | 'x' | 'y' | 'z')[] = ['off', 'x', 'y', 'z']
+          const next = axes[(axes.indexOf(brush.symmetryAxis()) + 1) % axes.length]
+          brush.setSymmetryAxis(next)
+          showToast(next !== 'off' ? `Symmetry: ${next.toUpperCase()} Axis` : 'Symmetry: OFF', 'info')
+          break
+        }
+        const stack = viewportHandle?.getLayerStack()
+        const activeLayer = stack?.active
+        if (activeLayer?.isMask) {
+          const current = brush.color().toLowerCase()
+          if (current === '#ffffff' || current === '#fff') {
+            brush.setColor('#000000')
+            showToast('Mask Color: Black (Hide)', 'info')
+          } else {
+            brush.setColor('#ffffff')
+            showToast('Mask Color: White (Reveal)', 'info')
+          }
+          break
+        }
+        if (brush.texturePath()) {
+          setTexturePath(null)
+          showToast('Switched to Solid Color mode', 'info')
+        } else {
+          showToast('Solid Color active', 'info')
+        }
+        break
+      }
       case 'escape':
         clearFaceSelection()
+        break
+      case '[':
+        if (activeTool() === 'fill') {
+          setTextureScale(Math.max(0.1, parseFloat((brush.textureScale() - 0.25).toFixed(2))))
+        } else {
+          stepRadius(-1)
+        }
+        break
+      case ']':
+        if (activeTool() === 'fill') {
+          setTextureScale(Math.min(10, parseFloat((brush.textureScale() + 0.25).toFixed(2))))
+        } else {
+          stepRadius(1)
+        }
         break
       case '?':
         setShowHelp((v) => !v)
@@ -206,13 +338,23 @@ export default function App() {
   }
 
   onMount(() => {
+    initBrushPresets()
     window.addEventListener('keydown', onKeyDown)
-    window.api.loadLastTextureFolder().then((paths) => {
-      if (paths && paths.length > 0) {
-        setTextures(paths)
-        setShowTextureShelf(true)
+    // Defer loading the texture folder so 3D viewport mounts and renders first
+    setTimeout(() => {
+      ensureLastTextureFolderLoaded()
+    }, 800)
+
+    if (typeof window !== 'undefined') {
+      ;(window as any).__app = {
+        setActiveTool,
+        setRightPanelTab,
+        setShowEdgeWearWizard,
+        toggleWireframe,
+        setTextures,
+        showToast
       }
-    })
+    }
   })
   onCleanup(() => window.removeEventListener('keydown', onKeyDown))
 
@@ -223,11 +365,8 @@ export default function App() {
         <div class="top-bar-left">
           {/* App Branding */}
           <div class="brand-badge-box">
-            <div class="brand-logo-gem">
-              <CubeIcon size={15} />
-            </div>
-            <span class="brand-title">Slip</span>
-            <span class="brand-version-pill">v0.1</span>
+            <AppIcon size={24} class="brand-app-icon" />
+            <span class="brand-title">MeshCoat</span>
           </div>
 
           {/* Menus */}
@@ -272,7 +411,7 @@ export default function App() {
                     <div class="menu-divider" />
                     <button class="menu-item" onClick={() => { setShowFileMenu(false); clearTextureFolder(); }}>
                       <RefreshCwIcon size={14} />
-                      <span>Clear Textures Shelf</span>
+                      <span>Clear Texture Drawer</span>
                     </button>
                   </Show>
                 </div>
@@ -298,8 +437,23 @@ export default function App() {
                     <span>Clear Active Layer</span>
                   </button>
                   <button class="menu-item" onClick={handleFillActiveLayer}>
-                    <span>Fill Active Layer with Color</span>
+                    <span>
+                      {brush.texturePath()
+                        ? (brush.selectedFaces().size > 0 ? 'Fill Selection with Texture' : 'Fill Active Layer with Texture')
+                        : (brush.selectedFaces().size > 0 ? 'Fill Selection with Color' : 'Fill Active Layer with Color')}
+                    </span>
                     <span class="menu-item-shortcut">G</span>
+                  </button>
+                  <div class="menu-divider" />
+                  <button
+                    class="menu-item"
+                    onClick={() => {
+                      setShowEditMenu(false)
+                      setShowEdgeWearWizard(true)
+                    }}
+                  >
+                    <SparklesIcon size={14} class="text-amber-400" />
+                    <span>Generate Edge Wear & Highlights...</span>
                   </button>
                   <div class="menu-divider" />
                   <button class="menu-item" onClick={() => { setShowEditMenu(false); frameCamera(); }}>
@@ -356,8 +510,45 @@ export default function App() {
             title="Toggle wireframe overlay (W)"
             onClick={toggleWireframe}
           >
-            <WireframeIcon size={15} />
+            <WireframeIcon size={24} />
           </button>
+
+          {/* Symmetry Mirror (Off, X, Y, Z) */}
+          <div class="symmetry-segmented-group" title="Symmetry Mirror (Alt+X to cycle / toggle)">
+            <button
+              class="action-icon-btn symmetry-btn"
+              classList={{ active: brush.symmetryEnabled() }}
+              title={`Symmetry: ${brush.symmetryAxis() === 'off' ? 'OFF' : brush.symmetryAxis().toUpperCase() + ' Axis'} (Alt+X to cycle)`}
+              onClick={() => {
+                const axes: ('off' | 'x' | 'y' | 'z')[] = ['off', 'x', 'y', 'z']
+                const next = axes[(axes.indexOf(brush.symmetryAxis()) + 1) % axes.length]
+                brush.setSymmetryAxis(next)
+                showToast(next !== 'off' ? `Symmetry: ${next.toUpperCase()} Axis` : 'Symmetry: OFF', 'info')
+              }}
+            >
+              <SymmetryIcon size={22} />
+              <span class="sym-badge">
+                {brush.symmetryAxis() === 'off' ? 'Off' : brush.symmetryAxis().toUpperCase()}
+              </span>
+            </button>
+            <div class="sym-axis-quick-row">
+              {(['x', 'y', 'z'] as const).map((axis) => (
+                <button
+                  type="button"
+                  class="sym-axis-mini-btn"
+                  classList={{ active: brush.symmetryAxis() === axis }}
+                  title={`Set Symmetry to ${axis.toUpperCase()} Axis`}
+                  onClick={() => {
+                    const next = brush.symmetryAxis() === axis ? 'off' : axis
+                    brush.setSymmetryAxis(next)
+                    showToast(next !== 'off' ? `Symmetry: ${next.toUpperCase()} Axis` : 'Symmetry: OFF', 'info')
+                  }}
+                >
+                  {axis.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          </div>
 
           {/* Focus / Frame Model Button */}
           <button
@@ -365,7 +556,7 @@ export default function App() {
             title="Frame model in center (F)"
             onClick={frameCamera}
           >
-            <FocusIcon size={15} />
+            <FocusIcon size={24} />
           </button>
 
           <div class="top-bar-vdivider" />
@@ -376,7 +567,7 @@ export default function App() {
             title="Settings"
             onClick={() => setShowSettings(true)}
           >
-            <SettingsIcon size={15} />
+            <SettingsIcon size={24} />
           </button>
 
           <button
@@ -384,7 +575,7 @@ export default function App() {
             title="Quick guide & hotkeys (?)"
             onClick={() => setShowHelp(true)}
           >
-            <HelpCircleIcon size={15} />
+            <HelpCircleIcon size={24} />
           </button>
         </div>
       </header>
@@ -401,8 +592,18 @@ export default function App() {
               title="Paint Brush (B)"
               onClick={() => setActiveTool('brush')}
             >
-              <BrushIcon size={18} />
+              <BrushIcon size={24} />
               <span class="tool-shortcut-chip">B</span>
+            </button>
+
+            <button
+              class="toolbar-tool-btn"
+              classList={{ active: activeTool() === 'line' }}
+              title="Line Tool (L) - drag straight strokes on 3D surface"
+              onClick={() => setActiveTool('line')}
+            >
+              <LineIcon size={24} />
+              <span class="tool-shortcut-chip">L</span>
             </button>
 
             <button
@@ -411,7 +612,7 @@ export default function App() {
               title="Texture Stamp (T)"
               onClick={() => setActiveTool('stamp')}
             >
-              <StampIcon size={18} />
+              <StampIcon size={24} />
               <span class="tool-shortcut-chip">T</span>
             </button>
 
@@ -421,7 +622,7 @@ export default function App() {
               title="Eraser (E)"
               onClick={() => setActiveTool('eraser')}
             >
-              <EraserIcon size={18} />
+              <EraserIcon size={24} />
               <span class="tool-shortcut-chip">E</span>
             </button>
 
@@ -431,7 +632,7 @@ export default function App() {
               title="Fill Bucket (G)"
               onClick={() => setActiveTool('fill')}
             >
-              <FillIcon size={18} />
+              <FillIcon size={24} />
               <span class="tool-shortcut-chip">G</span>
             </button>
           </div>
@@ -446,7 +647,7 @@ export default function App() {
               title="Color Eyedropper (I)"
               onClick={() => setActiveTool('eyedropper')}
             >
-              <EyedropperIcon size={18} />
+              <EyedropperIcon size={24} />
               <span class="tool-shortcut-chip">I</span>
             </button>
 
@@ -456,7 +657,7 @@ export default function App() {
               title="Face Select (V) - click/shift-click faces to confine strokes"
               onClick={() => setActiveTool('faceSelect')}
             >
-              <MousePointerIcon size={18} />
+              <MousePointerIcon size={24} />
               <span class="tool-shortcut-chip">V</span>
             </button>
           </div>
@@ -470,17 +671,24 @@ export default function App() {
               title="Frame Model / Center (F)"
               onClick={frameCamera}
             >
-              <FocusIcon size={18} />
+              <FocusIcon size={24} />
               <span class="tool-shortcut-chip">F</span>
             </button>
 
             <button
               class="toolbar-tool-btn"
-              classList={{ active: showTextureShelf() }}
-              title="Toggle Textures Shelf"
-              onClick={() => setShowTextureShelf(!showTextureShelf())}
+              classList={{ active: showEdgeWearWizard() }}
+              title="Edge Wear & Chipping Wizard"
+              onClick={() => {
+                if (showEdgeWearWizard()) {
+                  viewportHandle?.cancelEdgeWearPreview()
+                  setShowEdgeWearWizard(false)
+                } else {
+                  setShowEdgeWearWizard(true)
+                }
+              }}
             >
-              <ImagesIcon size={18} />
+              <SparklesIcon size={24} class="text-amber-400" />
             </button>
           </div>
 
@@ -502,20 +710,19 @@ export default function App() {
           </div>
         </nav>
 
-        {/* Vertical Texture Shelf (Next to Left Toolbar) */}
-        <Show when={showTextureShelf()}>
-          <TextureShelf
-            textures={textures()}
-            onPickFolder={pickTextureFolder}
-            onClearFolder={clearTextureFolder}
-            onClose={() => setShowTextureShelf(false)}
-          />
-        </Show>
+        {/* Vertical Texture Drawer (Next to Left Toolbar - Always Open) */}
+        <TextureShelf
+          textures={textures()}
+          onPickFolder={pickTextureFolder}
+          onClearFolder={clearTextureFolder}
+        />
 
         {/* 3D Viewport Area */}
         <main class="viewport">
           <Viewport
             tool={activeTool}
+            textures={textures()}
+            onToolChange={(t) => setActiveTool(t)}
             onReady={(h) => (viewportHandle = h)}
             onMissingUv={onMissingUv}
             onLayersChanged={bumpLayers}
@@ -536,86 +743,140 @@ export default function App() {
           </Show>
         </main>
 
-        {/* Right Sidebar Inspector (Brush & Layers) */}
-        <aside class="right-panel">
-          {/* Panel Navigation Tabs */}
-          <div class="right-panel-tab-bar">
-            <button
-              class="panel-view-tab"
-              classList={{ active: rightPanelTab() === 'brush' }}
-              onClick={() => setRightPanelTab('brush')}
-            >
-              <SlidersIcon size={14} />
-              <span>Brush</span>
-            </button>
+        {/* Right Sidebar Inspector (Brush & Layers or Edge Wear Wizard) */}
+        <aside class="right-panel" classList={{ 'edge-wear-active': showEdgeWearWizard() }}>
+          <Show
+            when={!showEdgeWearWizard()}
+            fallback={
+              <EdgeWearWizard
+                isOpen={showEdgeWearWizard()}
+                initialColor={brush.color()}
+                textures={textures()}
+                onClose={() => setShowEdgeWearWizard(false)}
+                onPreview={(params) => viewportHandle?.previewEdgeWear(params)}
+                onCancel={() => viewportHandle?.cancelEdgeWearPreview()}
+                onCommit={(params, asNewLayer) => {
+                  viewportHandle?.commitEdgeWear(params, asNewLayer)
+                  bumpLayers()
+                  showToast(asNewLayer ? 'Created "Edge Wear" layer' : 'Applied edge wear to active layer', 'success')
+                }}
+              />
+            }
+          >
+            {/* Panel Navigation Tabs */}
+            <div class="right-panel-tab-bar">
+              <button
+                class="panel-view-tab"
+                classList={{ active: rightPanelTab() === 'brush' }}
+                onClick={() => setRightPanelTab('brush')}
+              >
+                <SlidersIcon size={20} />
+                <span>Brush</span>
+              </button>
 
-            <button
-              class="panel-view-tab"
-              classList={{ active: rightPanelTab() === 'layers' }}
-              onClick={() => setRightPanelTab('layers')}
-            >
-              <LayersIcon size={14} />
-              <span>Layers</span>
-              <span class="tab-count-pill tabular">
-                {viewportHandle?.getLayerStack()?.layers.length ?? 1}
-              </span>
-            </button>
+              <button
+                class="panel-view-tab"
+                classList={{ active: rightPanelTab() === 'layers' }}
+                onClick={() => setRightPanelTab('layers')}
+              >
+                <LayersIcon size={20} />
+                <span>Layers</span>
+                <span class="tab-count-pill tabular">
+                  {currentLayerCount()}
+                </span>
+              </button>
 
-            <button
-              class="panel-view-tab"
-              classList={{ active: rightPanelTab() === 'split' }}
-              onClick={() => setRightPanelTab('split')}
-              title="View both Brush and Layers"
-            >
-              <span>Split</span>
-            </button>
-          </div>
+              <button
+                class="panel-view-tab"
+                classList={{ active: rightPanelTab() === 'split' }}
+                onClick={() => setRightPanelTab('split')}
+                title="View both Brush and Layers"
+              >
+                <span>Split</span>
+              </button>
+            </div>
 
-          {/* Panel Content Body */}
-          <div class="right-panel-scroll-body">
-            {/* Split View */}
-            <Show when={rightPanelTab() === 'split'}>
-              <section class="panel-collapsible-section">
-                <div class="panel-section-header">
-                  <div class="section-title-wrap">
-                    <SlidersIcon size={14} />
-                    <span>Brush Settings</span>
+            {/* Panel Content Body */}
+            <div class="right-panel-scroll-body">
+              {/* Split View */}
+              <Show when={rightPanelTab() === 'split'}>
+                <section class="panel-collapsible-section">
+                  <div class="panel-section-header">
+                    <div class="section-title-wrap">
+                      <SlidersIcon size={20} />
+                      <span>Brush Settings</span>
+                    </div>
                   </div>
-                </div>
-                <BrushSettingsTab activeTool={activeTool()} />
-              </section>
+                  <BrushSettingsTab
+                    activeTool={activeTool()}
+                    isMaskTarget={() => {
+                      void layersVersion()
+                      const a = viewportHandle?.getLayerStack()?.active
+                      return !!a?.isMask
+                    }}
+                  />
+                </section>
 
-              <section class="panel-collapsible-section layers-section">
-                <div class="panel-section-header">
-                  <div class="section-title-wrap">
-                    <LayersIcon size={14} />
-                    <span>Layers</span>
+                <section class="panel-collapsible-section layers-section">
+                  <div class="panel-section-header">
+                    <div class="section-title-wrap">
+                      <LayersIcon size={20} />
+                      <span>Layers</span>
+                    </div>
                   </div>
-                </div>
+                  <LayersTab
+                    getStack={() => viewportHandle?.getLayerStack()}
+                    version={layersVersion()}
+                    onChange={bumpLayers}
+                  />
+                </section>
+              </Show>
+
+              {/* Brush Only View */}
+              <Show when={rightPanelTab() === 'brush'}>
+                <BrushSettingsTab
+                  activeTool={activeTool()}
+                  isMaskTarget={() => {
+                    void layersVersion()
+                    const a = viewportHandle?.getLayerStack()?.active
+                    return !!a?.isMask
+                  }}
+                />
+              </Show>
+
+              {/* Layers Only View */}
+              <Show when={rightPanelTab() === 'layers'}>
                 <LayersTab
                   getStack={() => viewportHandle?.getLayerStack()}
                   version={layersVersion()}
                   onChange={bumpLayers}
                 />
-              </section>
-            </Show>
-
-            {/* Brush Only View */}
-            <Show when={rightPanelTab() === 'brush'}>
-              <BrushSettingsTab activeTool={activeTool()} />
-            </Show>
-
-            {/* Layers Only View */}
-            <Show when={rightPanelTab() === 'layers'}>
-              <LayersTab
-                getStack={() => viewportHandle?.getLayerStack()}
-                version={layersVersion()}
-                onChange={bumpLayers}
-              />
-            </Show>
-          </div>
+              </Show>
+            </div>
+          </Show>
         </aside>
       </div>
+
+      {/* Skinny Bottom Status & Hotkeys Bar (VS Code style) */}
+      <StatusBar
+        tool={activeTool()}
+        lightingMode={lightingMode()}
+        wireframeVisible={wireframeVisible()}
+        textureSize={textureSize()}
+        modelName={modelName()}
+        activeLayerName={currentActiveLayerName()}
+        layerCount={currentLayerCount()}
+        selectedFaceCount={brush.selectedFaces().size}
+        onToggleWireframe={toggleWireframe}
+        onCycleLighting={() => {
+          const modes: LightingMode[] = ['studio', 'flat', 'outdoor']
+          const nextIndex = (modes.indexOf(lightingMode()) + 1) % modes.length
+          selectLightingMode(modes[nextIndex])
+        }}
+        onOpenHelp={() => setShowHelp(true)}
+        onClearFaceSelection={clearFaceSelection}
+        onFrameCamera={frameCamera}
+      />
 
       {/* Modals */}
       <NewProjectModal
@@ -625,6 +886,10 @@ export default function App() {
       />
       <HelpModal isOpen={showHelp()} onClose={() => setShowHelp(false)} />
       <SettingsModal isOpen={showSettings()} onClose={() => setShowSettings(false)} />
+      <BrushManagerModal
+        isOpen={brushPresets.isManagerOpen()}
+        onClose={() => brushPresets.closeManager()}
+      />
     </div>
   )
 }

@@ -65,14 +65,25 @@ export class OrbitPanZoomControls {
   }
 
   private onPointerDown(e: PointerEvent): void {
-    if (!e.altKey) return
-    if (e.button === 0 || e.button === 1) {
-      this.dragging = e.button === 0 ? 'orbit' : 'pan'
-    } else if (e.button === 2) {
-      this.dragging = 'zoom'
+    const isMmb = e.button === 1
+    const isAlt = e.altKey
+
+    if (isMmb) {
+      this.dragging = e.shiftKey ? 'pan' : 'orbit'
+    } else if (isAlt) {
+      if (e.button === 0) {
+        this.dragging = 'orbit'
+      } else if (e.button === 1) {
+        this.dragging = 'pan'
+      } else if (e.button === 2) {
+        this.dragging = 'zoom'
+      } else {
+        return
+      }
     } else {
       return
     }
+
     e.preventDefault()
     this.lastX = e.clientX
     this.lastY = e.clientY
@@ -114,6 +125,10 @@ export class OrbitPanZoomControls {
   }
 
   private onWheel(e: WheelEvent): void {
+    if (e.shiftKey) {
+      // Shift+Wheel is reserved for brush radius / scale adjustment in viewport
+      return
+    }
     e.preventDefault()
     this.spherical.radius *= 1 + Math.sign(e.deltaY) * 0.1
     this.spherical.radius = Math.max(0.05, this.spherical.radius)
@@ -200,11 +215,13 @@ export function createScene(canvas: HTMLCanvasElement): SceneHandle {
   const camera = new THREE.PerspectiveCamera(50, 1, 0.01, 1000)
   camera.position.set(2, 1.5, 2.5)
 
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
-  // Supersampling beyond the display's own pixel ratio shrinks the visible
-  // width of any edge-antialiasing fringe (thin/grazing-angle silhouettes
-  // included) — a real reduction, not just a color trick.
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio * 1.5, 3))
+  const renderer = new THREE.WebGLRenderer({
+    canvas,
+    antialias: true,
+    powerPreference: 'high-performance',
+    precision: 'highp'
+  })
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.outputColorSpace = THREE.SRGBColorSpace
   renderer.toneMapping = THREE.ACESFilmicToneMapping
 

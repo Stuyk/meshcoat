@@ -40,20 +40,20 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
                 </div>
                 <div class="shortcut-rows">
                   <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>Alt</kbd>+<kbd>LMB</kbd></div>
-                    <span class="shortcut-action">Orbit (or MMB)</span>
+                    <div class="shortcut-keys"><kbd>MMB</kbd> / <kbd>Alt</kbd>+<kbd>LMB</kbd></div>
+                    <span class="shortcut-action">Orbit 3D view</span>
                   </div>
                   <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>Alt</kbd>+<kbd>MMB</kbd></div>
-                    <span class="shortcut-action">Pan (or Shift+MMB)</span>
+                    <div class="shortcut-keys"><kbd>Shift</kbd>+<kbd>MMB</kbd> / <kbd>Alt</kbd>+<kbd>MMB</kbd></div>
+                    <span class="shortcut-action">Pan 3D view</span>
                   </div>
                   <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>Alt</kbd>+<kbd>RMB</kbd></div>
-                    <span class="shortcut-action">Zoom (or wheel)</span>
+                    <div class="shortcut-keys"><kbd>Wheel</kbd> / <kbd>Alt</kbd>+<kbd>RMB</kbd></div>
+                    <span class="shortcut-action">Zoom in / out</span>
                   </div>
                   <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>F</kbd></div>
-                    <span class="shortcut-action">Focus selection / frame model</span>
+                    <div class="shortcut-keys"><kbd>F</kbd> / <kbd>Home</kbd></div>
+                    <span class="shortcut-action">Frame model in viewport</span>
                   </div>
                   <div class="shortcut-row">
                     <div class="shortcut-keys"><kbd>W</kbd></div>
@@ -65,56 +65,52 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
               <div class="help-card">
                 <div class="help-card-header">
                   <KeyboardIcon size={16} class="text-amber-400" />
-                  <h3>Brush & Tools</h3>
+                  <h3>Tools & Painting</h3>
                 </div>
                 <div class="shortcut-rows">
                   <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>B</kbd></div>
-                    <span class="shortcut-action">Brush</span>
+                    <div class="shortcut-keys"><kbd>1</kbd> / <kbd>B</kbd></div>
+                    <span class="shortcut-action">Brush tool</span>
                   </div>
                   <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>T</kbd></div>
-                    <span class="shortcut-action">Stamp (place selected texture as a decal)</span>
+                    <div class="shortcut-keys"><kbd>L</kbd></div>
+                    <span class="shortcut-action">Line tool (click & drag straight lines on surface)</span>
                   </div>
                   <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>E</kbd></div>
-                    <span class="shortcut-action">Eraser</span>
+                    <div class="shortcut-keys"><kbd>2</kbd> / <kbd>E</kbd></div>
+                    <span class="shortcut-action">Eraser tool (erases color, or conceals mask)</span>
                   </div>
                   <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>G</kbd></div>
-                    <span class="shortcut-action">Fill bucket</span>
+                    <div class="shortcut-keys"><kbd>3</kbd> / <kbd>T</kbd></div>
+                    <span class="shortcut-action">Stamp decal tool (square reticle)</span>
                   </div>
                   <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>I</kbd></div>
-                    <span class="shortcut-action">Eyedropper</span>
+                    <div class="shortcut-keys"><kbd>4</kbd> / <kbd>G</kbd></div>
+                    <span class="shortcut-action">Fill bucket (color or texture)</span>
                   </div>
                   <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>V</kbd></div>
+                    <div class="shortcut-keys"><kbd>5</kbd> / <kbd>I</kbd></div>
+                    <span class="shortcut-action">Eyedropper color picker</span>
+                  </div>
+                  <div class="shortcut-row">
+                    <div class="shortcut-keys"><kbd>6</kbd> / <kbd>V</kbd></div>
                     <span class="shortcut-action">Face selection tool</span>
                   </div>
                   <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>Ctrl</kbd>+Click / Drag</div>
-                    <span class="shortcut-action">Select & highlight faces (any tool)</span>
+                    <div class="shortcut-keys"><kbd>X</kbd></div>
+                    <span class="shortcut-action">Swap B/W on mask, or toggle Solid Color</span>
                   </div>
                   <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+Drag</div>
-                    <span class="shortcut-action">Deselect faces</span>
-                  </div>
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>Esc</kbd></div>
-                    <span class="shortcut-action">Clear face selection</span>
-                  </div>
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>[</kbd> <kbd>]</kbd></div>
-                    <span class="shortcut-action">Decrease / increase brush radius</span>
+                    <div class="shortcut-keys"><kbd>[</kbd> <kbd>]</kbd> / <kbd>Shift</kbd>+Wheel</div>
+                    <span class="shortcut-action">Step brush radius or fill scale</span>
                   </div>
                   <div class="shortcut-row">
                     <div class="shortcut-keys">RMB+Drag X</div>
-                    <span class="shortcut-action">Resize brush radius</span>
+                    <span class="shortcut-action">Interactive brush radius</span>
                   </div>
                   <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>Shift</kbd>+RMB+Drag Y</div>
-                    <span class="shortcut-action">Adjust opacity / hardness</span>
+                    <div class="shortcut-keys"><kbd>Shift</kbd>+RMB+Drag</div>
+                    <span class="shortcut-action">Adjust opacity & hardness</span>
                   </div>
                 </div>
               </div>
@@ -122,16 +118,32 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
               <div class="help-card">
                 <div class="help-card-header">
                   <KeyboardIcon size={16} class="text-emerald-400" />
-                  <h3>File & Edit</h3>
+                  <h3>Face Selection & Edit</h3>
                 </div>
                 <div class="shortcut-rows">
                   <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>Z</kbd></div>
-                    <span class="shortcut-action">Undo</span>
+                    <div class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>A</kbd></div>
+                    <span class="shortcut-action">Select all faces</span>
                   </div>
                   <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>Y</kbd></div>
-                    <span class="shortcut-action">Redo</span>
+                    <div class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>D</kbd> / <kbd>Esc</kbd></div>
+                    <span class="shortcut-action">Deselect all faces</span>
+                  </div>
+                  <div class="shortcut-row">
+                    <div class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>I</kbd></div>
+                    <span class="shortcut-action">Invert face selection</span>
+                  </div>
+                  <div class="shortcut-row">
+                    <div class="shortcut-keys"><kbd>Ctrl</kbd>+Drag</div>
+                    <span class="shortcut-action">Paint-select faces (any tool)</span>
+                  </div>
+                  <div class="shortcut-row">
+                    <div class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+Drag</div>
+                    <span class="shortcut-action">Deselect painted faces</span>
+                  </div>
+                  <div class="shortcut-row">
+                    <div class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Y</kbd></div>
+                    <span class="shortcut-action">Undo / Redo (Coming Soon)</span>
                   </div>
                   <div class="shortcut-row">
                     <div class="shortcut-keys"><kbd>?</kbd></div>

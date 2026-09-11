@@ -1,20 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
-  <!-- Background Container (Color 1: #18181b) -->
-  <rect width="512" height="512" rx="112" fill="#18181b" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="100%" height="100%">
+  <!-- Squircle background -->
+  <rect width="128" height="128" rx="28" fill="#1e2430" />
 
-  <!-- Speaker Body (Color 2: #3b82f6) -->
-  <path d="M120 200 H168 L240 144 V368 L168 312 H120 C111.163 312 104 304.837 104 296 V216 C104 207.163 111.163 200 120 200 Z" fill="#3b82f6" />
+  <!-- Centered 3D isometric box -->
+  <g transform="translate(18, 18) scale(1.64)">
+    <path fill="#3b82f6" d="m28 26.64l22.078-12.538c-.352-.352-.774-.633-1.289-.915l-16.523-9.42C30.813 2.946 29.406 2.5 28 2.5s-2.812.445-4.266 1.266L7.211 13.188c-.516.28-.937.562-1.29.914ZM26.406 53.5V29.453L4.4 16.891a7.8 7.8 0 0 0-.188 1.78V36.93c0 3.398 1.195 4.664 3.375 5.906l18.352 10.453c.164.094.304.164.468.211m3.188 0c.164-.047.304-.117.469-.21l18.351-10.454c2.18-1.242 3.375-2.508 3.375-5.906V18.672c0-.703-.07-1.266-.187-1.781L29.594 29.453Z" />
+  </g>
 
-  <!-- List Rows -->
-  <!-- Row 1 (Color 3: #f4f4f5) -->
-  <circle cx="304" cy="184" r="14" fill="#f4f4f5" />
-  <rect x="344" y="172" width="96" height="24" rx="12" fill="#f4f4f5" />
-
-  <!-- Row 2: Active Track (Color 2: #3b82f6) -->
-  <circle cx="304" cy="256" r="14" fill="#3b82f6" />
-  <rect x="344" y="244" width="96" height="24" rx="12" fill="#3b82f6" />
-
-  <!-- Row 3 (Color 3: #f4f4f5) -->
-  <circle cx="304" cy="328" r="14" fill="#f4f4f5" />
-  <rect x="344" y="316" width="96" height="24" rx="12" fill="#f4f4f5" />
+  <!-- Scaled-down paint brush in bottom-right corner with background outline -->
+  <g transform="translate(68, 68) scale(4.4)">
+    <!-- Background outline ring -->
+    <path fill="none" stroke="#161a24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M2 7a1 1 0 0 0 1 1h1v1.5c0 .827.673 1.5 1.5 1.5S7 10.327 7 9.5V8h1a1 1 0 0 0 1-1V6H2zm6.5-6H8v2a.5.5 0 0 1-1 0V1H6v1.5a.5.5 0 0 1-1 0V1H2.5a.5.5 0 0 0-.5.5V5h7V1.5a.5.5 0 0 0-.5-.5" />
+    <!-- Brush fill -->
+    <path fill="#f57c00" d="M2 7a1 1 0 0 0 1 1h1v1.5c0 .827.673 1.5 1.5 1.5S7 10.327 7 9.5V8h1a1 1 0 0 0 1-1V6H2zm6.5-6H8v2a.5.5 0 0 1-1 0V1H6v1.5a.5.5 0 0 1-1 0V1H2.5a.5.5 0 0 0-.5.5V5h7V1.5a.5.5 0 0 0-.5-.5" />
+  </g>
 </svg>

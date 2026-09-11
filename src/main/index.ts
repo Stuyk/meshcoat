@@ -1,7 +1,7 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, protocol, nativeImage, net } from 'electron'
 import { join, extname } from 'path'
 import { pathToFileURL } from 'url'
-import { readdir, writeFile } from 'fs/promises'
+import { readdir, writeFile, readFile } from 'fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { getRecentProjects, addRecentProject, removeRecentProject } from './recent'
@@ -19,11 +19,17 @@ protocol.registerSchemesAsPrivileged([
   }
 ])
 
+// Maximize GPU performance and uncap framerate
+app.commandLine.appendSwitch('ignore-gpu-blocklist')
+app.commandLine.appendSwitch('enable-gpu-rasterization')
+app.commandLine.appendSwitch('enable-zero-copy')
+app.commandLine.appendSwitch('disable-frame-rate-limit')
+
 let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    title: 'Slip Texture Paint',
+    title: 'MeshCoat',
     width: 1920,
     height: 1080,
     minWidth: 1280,
@@ -118,6 +124,39 @@ app.whenReady().then(() => {
     const base64 = dataUrl.replace(/^data:image\/png;base64,/, '')
     await writeFile(filePath, Buffer.from(base64, 'base64'))
     return true
+  })
+
+  ipcMain.handle('file:read-binary', async (_e, filePath: string) => {
+    try {
+      const buf = await readFile(filePath)
+      return new Uint8Array(buf)
+    } catch (err) {
+      console.error('Failed to read binary file:', filePath, err)
+      return null
+    }
+  })
+
+  ipcMain.handle('brushes:load', async () => {
+    try {
+      const p = join(app.getPath('userData'), 'brush-packs.json')
+      if (!existsSync(p)) return null
+      const data = await readFile(p, 'utf-8')
+      return JSON.parse(data)
+    } catch (err) {
+      console.error('Failed to load brush packs from disk:', err)
+      return null
+    }
+  })
+
+  ipcMain.handle('brushes:save', async (_e, packsJson: string) => {
+    try {
+      const p = join(app.getPath('userData'), 'brush-packs.json')
+      await writeFile(p, packsJson, 'utf-8')
+      return true
+    } catch (err) {
+      console.error('Failed to save brush packs to disk:', err)
+      return false
+    }
   })
 
   ipcMain.handle('project:recent', () => {

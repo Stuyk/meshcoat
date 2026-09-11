@@ -23,6 +23,15 @@ const api = {
     ipcRenderer.invoke('project:remove-recent', projectPath),
   revealInFolder: (path: string): void => ipcRenderer.send('shell:reveal', path),
   assetUrl: (filePath: string): string => {
+    if (
+      filePath.startsWith('data:') ||
+      filePath.startsWith('blob:') ||
+      filePath.startsWith('asset-file:') ||
+      filePath.startsWith('http:') ||
+      filePath.startsWith('https:')
+    ) {
+      return filePath
+    }
     const normalized = filePath.replace(/\\/g, '/').replace(/^\/+/, '')
     const encoded = normalized
       .split('/')
@@ -34,7 +43,12 @@ const api = {
   pickTextureFolder: (): Promise<string[] | null> => ipcRenderer.invoke('folder:pick-textures'),
   loadLastTextureFolder: (): Promise<string[] | null> => ipcRenderer.invoke('folder:load-last-textures'),
   savePng: (filePath: string, dataUrl: string): Promise<boolean> =>
-    ipcRenderer.invoke('file:save-png', filePath, dataUrl)
+    ipcRenderer.invoke('file:save-png', filePath, dataUrl),
+  readBinaryFile: (filePath: string): Promise<Uint8Array | null> =>
+    ipcRenderer.invoke('file:read-binary', filePath),
+  loadBrushPacks: (): Promise<any | null> => ipcRenderer.invoke('brushes:load'),
+  saveBrushPacks: (packsJson: string): Promise<boolean> =>
+    ipcRenderer.invoke('brushes:save', packsJson)
 }
 
 contextBridge.exposeInMainWorld('electron', electronAPI)

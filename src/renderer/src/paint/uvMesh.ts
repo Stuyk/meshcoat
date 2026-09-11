@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { computeEdgeCurvature } from './edgeCurvature'
 
 /**
  * Builds the UV-flattened representation of a mesh (spec section 4.1): a
@@ -91,7 +92,64 @@ export function buildUvMesh(mesh: THREE.Mesh): THREE.Mesh {
   geometry.setAttribute('aWorldPosition', new THREE.BufferAttribute(worldPos, 3))
   geometry.setAttribute('aWorldNormal', new THREE.BufferAttribute(worldNormal, 3))
 
+  const triangleCount = Math.floor(vertexCount / 3)
+  const { edgeDistances, edgeCurvatures } = computeEdgeCurvature(worldPos, triangleCount)
+  geometry.setAttribute('aEdgeDist', new THREE.BufferAttribute(edgeDistances, 3))
+  geometry.setAttribute('aEdgeCurvature', new THREE.BufferAttribute(edgeCurvatures, 3))
+
   const flatMesh = new THREE.Mesh(geometry)
   flatMesh.frustumCulled = false
   return flatMesh
 }
+
+/**
+ * Computes all face indices belonging to the same contiguous UV island as startFaceIndex.
+ * Connects triangles that share vertex UV coordinates within a precision tolerance.
+ */
+export function findUvIslandFaces(geometry: THREE.BufferGeometry, startFaceIndex: number): number[] {
+  const uvAttr = geometry.getAttribute('uv') as THREE.BufferAttribute | undefined
+  if (!uvAttr) return [startFaceIndex]
+
+  const totalFaces = Math.floor(uvAttr.count / 3)
+  if (startFaceIndex < 0 || startFaceIndex >= totalFaces) return [startFaceIndex]
+
+  // Map each quantized UV coordinate to face indices containing it
+  const uvToFaces = new Map<string, number[]>()
+  const uvKey = (u: number, v: number) => `${Math.round(u * 8000)}_${Math.round(v * 8000)}`
+
+  for (let f = 0; f < totalFaces; f++) {
+    const base = f * 3
+    for (let k = 0; k < 3; k++) {
+      const key = uvKey(uvAttr.getX(base + k), uvAttr.getY(base + k))
+      let list = uvToFaces.get(key)
+      if (!list) {
+        list = []
+        uvToFaces.set(key, list)
+      }
+      list.push(f)
+    }
+  }
+
+  // Flood fill / BFS from startFaceIndex
+  const island = new Set<number>([startFaceIndex])
+  const queue: number[] = [startFaceIndex]
+
+  while (queue.length > 0) {
+    const curr = queue.pop()!
+    const base = curr * 3
+    for (let k = 0; k < 3; k++) {
+      const key = uvKey(uvAttr.getX(base + k), uvAttr.getY(base + k))
+      const neighbors = uvToFaces.get(key)
+      if (!neighbors) continue
+      for (const n of neighbors) {
+        if (!island.has(n)) {
+          island.add(n)
+          queue.push(n)
+        }
+      }
+    }
+  }
+
+  return Array.from(island)
+}
+

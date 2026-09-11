@@ -42,7 +42,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         include:
           - os: ubuntu-latest
             platform: linux
@@ -50,6 +50,9 @@ jobs:
           - os: windows-latest
             platform: windows
             builder-flags: --win
+          - os: macos-latest
+            platform: mac
+            builder-flags: --mac
 
     steps:
       - name: Check out repository
@@ -93,7 +96,7 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          for f in *.AppImage *.deb *.tar.gz *.exe; do
+          for f in *.AppImage *.deb *.tar.gz *.exe *.dmg *.zip; do
             [[ "$f" == *__uninstaller.exe ]] && continue
             size=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f")
             echo "$f: $size bytes"
@@ -109,7 +112,7 @@ jobs:
         run: |
           shopt -s nullglob
           files=()
-          for f in *.AppImage *.deb *.tar.gz *.exe; do
+          for f in *.AppImage *.deb *.tar.gz *.exe *.dmg *.zip; do
             [[ "$f" == *__uninstaller.exe ]] && continue
             files+=("$f")
           done
@@ -123,12 +126,14 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: slip-sound-${{ matrix.platform }}-binaries
+          name: meshcoat-${{ matrix.platform }}-binaries
           path: |
             dist/*.AppImage
             dist/*.deb
             dist/*.tar.gz
             dist/*.exe
+            dist/*.dmg
+            dist/*.zip
             !dist/*__uninstaller.exe
             dist/latest*.yml
             dist/SHA256SUMS-*.txt
@@ -144,7 +149,7 @@ jobs:
       - name: Download all release assets
         uses: actions/download-artifact@v4
         with:
-          pattern: slip-sound-*-binaries
+          pattern: meshcoat-*-binaries
           path: dist
           merge-multiple: true
 
@@ -164,6 +169,8 @@ jobs:
             dist/*.deb
             dist/*.tar.gz
             dist/*.exe
+            dist/*.dmg
+            dist/*.zip
             !dist/*__uninstaller.exe
             dist/latest*.yml
             dist/SHA256SUMS-*.txt

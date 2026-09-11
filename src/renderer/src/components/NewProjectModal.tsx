@@ -1,13 +1,13 @@
 import { createSignal, onMount, onCleanup, Show, For } from 'solid-js'
-import { XIcon, CubeIcon, FolderOpenIcon, CheckIcon } from './icons'
+import { XIcon, CubeIcon, FolderOpenIcon, CheckIcon, AppIcon } from './icons'
 import { TEXTURE_SIZE_OPTIONS, DEFAULT_TEXTURE_SIZE, type TextureSize } from '../paint/paintEngine'
 
 const MODEL_EXTENSIONS = ['glb', 'gltf', 'obj']
 
 const SIZE_DESCRIPTIONS: Record<TextureSize, { label: string; desc: string }> = {
   512: { label: 'Low-Res (512×512)', desc: 'Fastest performance, ideal for testing' },
-  1024: { label: 'Standard (1024×1024)', desc: 'Balanced detail & speed (Recommended)' },
-  2048: { label: 'High-Res (2048×2048)', desc: 'Crisp textures, detailed models' },
+  1024: { label: 'Standard (1024×1024)', desc: 'Balanced detail & speed' },
+  2048: { label: 'High-Res (2048×2048)', desc: 'Crisp textures, detailed models (Recommended)' },
   4096: { label: 'Ultra 4K (4096×4096)', desc: 'Maximum sharpness for production assets' },
   8192: { label: 'Ultra 8K (8192×8192)', desc: 'Extreme detail, requires high VRAM' }
 }
@@ -77,7 +77,7 @@ export default function NewProjectModal(props: {
         <div class="modal-dialog new-project-dialog" onClick={(e) => e.stopPropagation()}>
           <header class="modal-header">
             <div class="modal-title-wrap">
-              <CubeIcon size={18} class="text-blue-400" />
+              <AppIcon size={20} />
               <h2 class="modal-title">New Project</h2>
             </div>
             <button class="modal-close-btn" onClick={close} title="Close (Esc)">

@@ -1,9 +1,10 @@
 import * as THREE from 'three'
 import { buildUvMesh } from './uvMesh'
 import { createPaintMaterial } from './paintShader'
+import { createEdgeWearMaterial } from './edgeWearShader'
 import type { SurfaceHit } from '../viewport/raycast'
 
-export const DEFAULT_TEXTURE_SIZE = 1024
+export const DEFAULT_TEXTURE_SIZE = 2048
 export const TEXTURE_SIZE_OPTIONS = [512, 1024, 2048, 4096, 8192] as const
 export type TextureSize = (typeof TEXTURE_SIZE_OPTIONS)[number]
 
@@ -88,11 +89,23 @@ export interface StrokeParams {
   color: THREE.Color
   alpha?: number
   brushTexture?: THREE.Texture | null
+  brushTipTexture?: THREE.Texture | null
   textureScale?: number
   /** true = Stamp tool (whole image projected flat, once per application); false = Texture Brush (world-space tiling). */
   stampMode?: boolean
+  /** Texture mapping mode: 'uv' (straightforward) or 'triplanar' (world triplanar). */
+  textureMapping?: 'uv' | 'triplanar' | 'tip' | number
   /** Confine this stroke to these triangles (spec: face selection — SurfaceHit.faceIndex), empty/undefined = unrestricted. */
   restrictFaces?: ReadonlySet<number> | null
+  /** Rotation angle in radians applied to the brush tip / stamp. */
+  angle?: number
+}
+
+export interface FillOptions {
+  color?: THREE.Color
+  alpha?: number
+  texture?: THREE.Texture | null
+  scale?: number
 }
 
 /**
@@ -257,19 +270,30 @@ export class PaintEngine {
     u.uBrushColor.value.set(params.color.r, params.color.g, params.color.b, params.alpha ?? 1)
     u.uBrushTexture.value = params.brushTexture ?? null
     u.uUseTexture.value = params.brushTexture ? 1 : 0
+    u.uBrushTipTexture.value = params.brushTipTexture ?? null
+    u.uUseTipTexture.value = params.brushTipTexture ? 1 : 0
     u.uTextureScale.value = params.textureScale ?? 1
     u.uStampMode.value = params.stampMode ? 1 : 0
+    let mappingMode = 0 // 0 = uv, 1 = triplanar
+    if (params.textureMapping === 'triplanar' || params.textureMapping === 1) {
+      mappingMode = 1
+    }
+    u.uTextureMapping.value = mappingMode
     u.uFillMode.value = 0
     const restrict = !!params.restrictFaces && params.restrictFaces.size > 0
     u.uRestrictFace.value = restrict ? 1 : 0
     if (restrict) this.setSelectionMask(params.restrictFaces)
 
-    if (params.stampMode) {
+    if (params.stampMode || !!params.brushTipTexture || (params.angle && params.angle !== 0)) {
       // Arbitrary but stable tangent basis for the stamp's local plane, built
       // from whichever world axis is least parallel to the surface normal.
       const up = Math.abs(hit.normal.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0)
       const tangent = new THREE.Vector3().crossVectors(up, hit.normal).normalize()
       const bitangent = new THREE.Vector3().crossVectors(hit.normal, tangent).normalize()
+      if (params.angle) {
+        tangent.applyAxisAngle(hit.normal, params.angle)
+        bitangent.applyAxisAngle(hit.normal, params.angle)
+      }
       u.uBrushTangent.value.copy(tangent)
       u.uBrushBitangent.value.copy(bitangent)
     }
@@ -285,37 +309,143 @@ export class PaintEngine {
     this.writeTarget = tmp
   }
 
-  /** Fills the whole active layer with a solid color (spec: bucket tool). */
-  fill(color: THREE.Color, alpha = 1): void {
-    const fillScene = new THREE.Scene()
-    // A fresh straight-alpha color source (not sampled from a premultiplied
-    // render target), so three's own premultipliedAlpha flag is exactly right.
-    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: alpha, premultipliedAlpha: true })
-    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat)
-    fillScene.add(quad)
-    const prevTarget = this.renderer.getRenderTarget()
-    this.renderer.setRenderTarget(this.writeTarget)
-    this.renderer.render(fillScene, this.orthoCamera)
-    this.renderer.setRenderTarget(prevTarget)
-    mat.dispose()
-    quad.geometry.dispose()
+  /** Computes the 2D UV bounding box [minU, minV, maxU, maxV] for a set of face indices. */
+  computeSelectionUvBounds(faces: ReadonlySet<number>): { minU: number; minV: number; maxU: number; maxV: number } {
+    const uvAttr = this.uvMesh.geometry.getAttribute('uv') as THREE.BufferAttribute | undefined
+    if (!uvAttr) return { minU: 0, minV: 0, maxU: 1, maxV: 1 }
 
-    const tmp = this.readTarget
-    this.readTarget = this.writeTarget
-    this.writeTarget = tmp
+    let minU = Infinity
+    let minV = Infinity
+    let maxU = -Infinity
+    let maxV = -Infinity
+
+    for (const face of faces) {
+      const base = face * 3
+      if (base < 0 || base + 2 >= uvAttr.count) continue
+      for (let k = 0; k < 3; k++) {
+        const u = uvAttr.getX(base + k)
+        const v = uvAttr.getY(base + k)
+        if (u < minU) minU = u
+        if (v < minV) minV = v
+        if (u > maxU) maxU = u
+        if (v > maxV) maxV = v
+      }
+    }
+
+    if (!isFinite(minU) || !isFinite(minV) || !isFinite(maxU) || !isFinite(maxV)) {
+      return { minU: 0, minV: 0, maxU: 1, maxV: 1 }
+    }
+
+    if (maxU - minU < 0.00001) maxU = minU + 1
+    if (maxV - minV < 0.00001) maxV = minV + 1
+
+    return { minU, minV, maxU, maxV }
   }
 
-  /** Fills only the given triangles (spec: bucket fill by face selection — SurfaceHit.faceIndex, multi-select). */
-  fillFaces(faces: ReadonlySet<number>, color: THREE.Color, alpha = 1): void {
+  /** Fills the whole active layer with color or pattern (spec: bucket tool across whole model). */
+  fill(options?: FillOptions | THREE.Color, legacyAlpha = 1): void {
+    let color: THREE.Color
+    let alpha: number
+    let texture: THREE.Texture | null = null
+    let scale = 1
+
+    if (options instanceof THREE.Color) {
+      color = options
+      alpha = legacyAlpha
+    } else if (options) {
+      color = options.color ?? new THREE.Color(0xffffff)
+      alpha = options.alpha ?? 1
+      texture = options.texture ?? null
+      scale = options.scale ?? 1
+    } else {
+      color = new THREE.Color(0xffffff)
+      alpha = 1
+    }
+
+    if (texture) {
+      const u = this.material.uniforms
+      u.uPrevTexture.value = this.readTarget.texture
+      u.uBrushColor.value.set(color.r, color.g, color.b, alpha)
+      u.uBrushOpacity.value = alpha
+      u.uFillMode.value = 1
+      u.uRestrictFace.value = 0 // Apply across whole model
+      u.uUseTexture.value = 1
+      u.uBrushTexture.value = texture
+      u.uFillBounds.value.set(0, 0, 1, 1) // Whole UV space
+      u.uFillScale.value = scale
+      u.uStampMode.value = 0
+
+      const prevTarget = this.renderer.getRenderTarget()
+      this.renderer.setRenderTarget(this.writeTarget)
+      this.renderer.render(this.orthoScene, this.orthoCamera)
+      this.renderer.setRenderTarget(prevTarget)
+      this.dilate(this.writeTarget)
+
+      u.uFillMode.value = 0
+      u.uRestrictFace.value = 0
+      u.uUseTexture.value = 0
+      u.uBrushTexture.value = null
+
+      const tmp = this.readTarget
+      this.readTarget = this.writeTarget
+      this.writeTarget = tmp
+    } else {
+      const fillScene = new THREE.Scene()
+      const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: alpha, premultipliedAlpha: true })
+      const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat)
+      fillScene.add(quad)
+      const prevTarget = this.renderer.getRenderTarget()
+      this.renderer.setRenderTarget(this.writeTarget)
+      this.renderer.render(fillScene, this.orthoCamera)
+      this.renderer.setRenderTarget(prevTarget)
+      mat.dispose()
+      quad.geometry.dispose()
+
+      const tmp = this.readTarget
+      this.readTarget = this.writeTarget
+      this.writeTarget = tmp
+    }
+  }
+
+  /** Fills only the given triangles (spec: bucket fill by face selection, best-effort texture mapping). */
+  fillFaces(
+    faces: ReadonlySet<number>,
+    options?: FillOptions | THREE.Color,
+    legacyAlpha = 1
+  ): void {
     if (faces.size === 0) return
+
+    let color: THREE.Color
+    let alpha: number
+    let texture: THREE.Texture | null = null
+    let scale = 1
+
+    if (options instanceof THREE.Color) {
+      color = options
+      alpha = legacyAlpha
+    } else if (options) {
+      color = options.color ?? new THREE.Color(0xffffff)
+      alpha = options.alpha ?? 1
+      texture = options.texture ?? null
+      scale = options.scale ?? 1
+    } else {
+      color = new THREE.Color(0xffffff)
+      alpha = 1
+    }
+
     this.setSelectionMask(faces)
+    const bounds = this.computeSelectionUvBounds(faces)
+
     const u = this.material.uniforms
     u.uPrevTexture.value = this.readTarget.texture
     u.uBrushColor.value.set(color.r, color.g, color.b, alpha)
-    u.uBrushOpacity.value = 1
+    u.uBrushOpacity.value = alpha
     u.uFillMode.value = 1
     u.uRestrictFace.value = 1
-    u.uUseTexture.value = 0
+    u.uUseTexture.value = texture ? 1 : 0
+    u.uBrushTexture.value = texture
+    u.uFillBounds.value.set(bounds.minU, bounds.minV, bounds.maxU, bounds.maxV)
+    u.uFillScale.value = scale
     u.uStampMode.value = 0
 
     const prevTarget = this.renderer.getRenderTarget()
@@ -326,6 +456,8 @@ export class PaintEngine {
 
     u.uFillMode.value = 0
     u.uRestrictFace.value = 0
+    u.uUseTexture.value = 0
+    u.uBrushTexture.value = null
 
     const tmp = this.readTarget
     this.readTarget = this.writeTarget
@@ -415,15 +547,139 @@ export class PaintEngine {
     return new THREE.Color(buffer[0] / a, buffer[1] / a, buffer[2] / a)
   }
 
+  /** Inverts the RGB color of the current target (useful for inverting layer masks). */
+  invert(): void {
+    const invertMat = new THREE.ShaderMaterial({
+      uniforms: { tSrc: { value: this.readTarget.texture } },
+      vertexShader: /* glsl */ `
+        varying vec2 vUv;
+        void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform sampler2D tSrc;
+        varying vec2 vUv;
+        void main() {
+          vec4 col = texture2D(tSrc, vUv);
+          gl_FragColor = vec4(vec3(1.0) - col.rgb, col.a);
+        }
+      `,
+      depthTest: false,
+      depthWrite: false
+    })
+    const prevTarget = this.renderer.getRenderTarget()
+    this.renderer.setRenderTarget(this.writeTarget)
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), invertMat)
+    const scene = new THREE.Scene()
+    scene.add(quad)
+    this.renderer.render(scene, this.orthoCamera)
+    this.renderer.setRenderTarget(prevTarget)
+    invertMat.dispose()
+    quad.geometry.dispose()
+
+    const tmp = this.readTarget
+    this.readTarget = this.writeTarget
+    this.writeTarget = tmp
+  }
+
+  private edgeWearMaterial?: THREE.ShaderMaterial
+
+  /** Generates procedural edge wear across detected sharp ridges. */
+  applyEdgeWear(options: EdgeWearParams): void {
+    if (!this.edgeWearMaterial) {
+      this.edgeWearMaterial = createEdgeWearMaterial()
+    }
+
+    const u = this.edgeWearMaterial.uniforms
+    u.tSource.value = this.readTarget.texture
+    if (typeof options.color === 'string') {
+      u.uColor.value.set(options.color)
+    } else {
+      u.uColor.value.copy(options.color)
+    }
+    u.uOpacity.value = options.opacity ?? 1.0
+    u.uWearWidth.value = options.wearWidth
+    u.uThreshold.value = 1.0 - Math.cos(options.thresholdAngle * (Math.PI / 180))
+    u.uNoiseScale.value = options.noiseScale
+    u.uRoughness.value = options.roughness
+    u.uAmount.value = options.amount
+    u.uContrast.value = options.contrast
+    u.uSeed.value = options.seed ?? 0.0
+    u.tWearTexture.value = options.texture ?? null
+    u.uUseWearTexture.value = options.texture ? 1 : 0
+    u.uTextureScale.value = options.textureScale ?? 1.0
+    u.uTextureMapping.value = options.textureMapping === 'triplanar' ? 1 : 0
+
+    const prevMaterial = this.uvMesh.material
+    this.uvMesh.material = this.edgeWearMaterial
+
+    const prevTarget = this.renderer.getRenderTarget()
+    this.renderer.setRenderTarget(this.writeTarget)
+    this.renderer.render(this.orthoScene, this.orthoCamera)
+    this.renderer.setRenderTarget(prevTarget)
+    this.dilate(this.writeTarget)
+
+    this.uvMesh.material = prevMaterial
+
+    const tmp = this.readTarget
+    this.readTarget = this.writeTarget
+    this.writeTarget = tmp
+  }
+
+  /** Copies content from a source render target into this engine's read target. */
+  copyFrom(sourceTarget: THREE.WebGLRenderTarget): void {
+    const copyMat = new THREE.MeshBasicMaterial({ map: sourceTarget.texture, depthTest: false })
+    const prevTarget = this.renderer.getRenderTarget()
+    this.renderer.setRenderTarget(this.readTarget)
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), copyMat)
+    const scene = new THREE.Scene()
+    scene.add(quad)
+    this.renderer.render(scene, this.orthoCamera)
+    this.renderer.setRenderTarget(prevTarget)
+    copyMat.dispose()
+    quad.geometry.dispose()
+  }
+
+  /** Creates a snapshot clone of the current readTarget so preview can be reverted. */
+  createSnapshot(): THREE.WebGLRenderTarget {
+    const snapshot = createRenderTarget(this.textureSize)
+    const copyMat = new THREE.MeshBasicMaterial({ map: this.readTarget.texture, depthTest: false })
+    const prevTarget = this.renderer.getRenderTarget()
+    this.renderer.setRenderTarget(snapshot)
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), copyMat)
+    const scene = new THREE.Scene()
+    scene.add(quad)
+    this.renderer.render(scene, this.orthoCamera)
+    this.renderer.setRenderTarget(prevTarget)
+    copyMat.dispose()
+    quad.geometry.dispose()
+    return snapshot
+  }
+
   dispose(): void {
     this.targetA.dispose()
     this.targetB.dispose()
     this.material.dispose()
+    this.edgeWearMaterial?.dispose()
     this.uvMesh.geometry.dispose()
     this.coverageMask.dispose()
     this.dilateMaterial.dispose()
     this.dilateQuad.geometry.dispose()
     this.scratchDilateTarget?.dispose()
   }
+}
+
+export interface EdgeWearParams {
+  color: THREE.Color | string
+  opacity?: number
+  wearWidth: number
+  thresholdAngle: number // degrees (e.g. 15 to 90)
+  noiseScale: number // e.g. 5 to 60
+  roughness: number // e.g. 0 to 1
+  amount: number // e.g. 0 to 1
+  contrast: number // e.g. 0 to 1
+  seed?: number
+  texture?: THREE.Texture | null
+  textureScale?: number
+  textureMapping?: 'uv' | 'triplanar'
 }
 

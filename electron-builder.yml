@@ -1,5 +1,5 @@
-appId: com.stuyk.slipsound
-productName: Slip Sound
+appId: com.stuyk.meshcoat
+productName: MeshCoat
 
 directories:
   buildResources: build
@@ -15,10 +15,9 @@ files:
 
 asarUnpack:
   - resources/**
-  - node_modules/ffmpeg-static/**
 
 win:
-  executableName: Slip Sound
+  executableName: MeshCoat
   icon: build/icon.ico
   target:
     - target: nsis
@@ -52,10 +51,10 @@ linux:
       arch:
         - x64
   icon: build/icon.png
-  category: Audio;AudioVideo;Utility;
+  category: Graphics;3DGraphics;Development;
   maintainer: Stuyk
-  synopsis: Ultra-fast desktop audio sample manager and waveform audition tool
-  description: Instant audio library browsing, search, categorization, waveform region slicing, and drag-and-drop export into DAWs.
+  synopsis: Focused 3D model and texture painter
+  description: Fast, local 3D model texture painting tool with hardware-accelerated UV projection and non-destructive layer stack.
   artifactName: ${productName}-Linux-${version}.${ext}
 
 appImage:
@@ -68,8 +67,8 @@ mac:
   icon: build/icon.icns
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
-    - NSDocumentsFolderUsageDescription: Slip Sound requests access to your Documents folder to index audio samples.
-    - NSDownloadsFolderUsageDescription: Slip Sound requests access to your Downloads folder to index audio samples.
+    - NSDocumentsFolderUsageDescription: MeshCoat requests access to your Documents folder to load and save 3D models and textures.
+    - NSDownloadsFolderUsageDescription: MeshCoat requests access to your Downloads folder to load and save 3D models and textures.
   notarize: false
   artifactName: ${productName}-macOS-${version}.${ext}
 
@@ -81,5 +80,5 @@ npmRebuild: false
 publish:
   provider: github
   owner: stuyk
-  repo: slip-sound
+  repo: meshcoat
   releaseType: draft

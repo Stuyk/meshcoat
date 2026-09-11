@@ -29,15 +29,21 @@ const fragmentShader = /* glsl */ `
   uniform sampler2D uBrushTexture;
   uniform float uUseTexture;
   uniform float uTextureScale;
+  uniform sampler2D uBrushTipTexture;
+  uniform float uUseTipTexture;
   uniform float uStampMode;
   uniform vec3 uBrushTangent;
   uniform vec3 uBrushBitangent;
   // Face selection (spec: select faces, paint/fill only within them).
   uniform float uRestrictFace;
-  // Fill mode: paints uBrushColor at full uBrushOpacity everywhere the face
+  // Fill mode: paints uBrushColor / uBrushTexture at full uBrushOpacity everywhere the face
   // restriction allows, ignoring brush position/falloff/facing — used by
-  // PaintEngine.fillFaces for a flat bucket fill of the selected faces.
+  // PaintEngine.fillFaces / fill for a bucket fill of the selected faces or whole model.
   uniform float uFillMode;
+  uniform vec4 uFillBounds;
+  uniform float uFillScale;
+  // 0 = Surface UV (straightforward), 1 = World Triplanar
+  uniform float uTextureMapping;
 
   varying vec3 vWorldPosition;
   varying vec3 vWorldNormal;
@@ -63,33 +69,57 @@ const fragmentShader = /* glsl */ `
     float falloff = 1.0 - smoothstep(edge0, uBrushRadius, dist);
     falloff *= step(0.0, facing);
 
-    // Texture Brush: triplanar world-space projection so the material tiles
-    // seamlessly and stays anchored to the surface regardless of stroke path.
-    vec3 n = abs(normalize(vWorldNormal));
-    vec2 uvX = vWorldPosition.zy / uTextureScale;
-    vec2 uvY = vWorldPosition.xz / uTextureScale;
-    vec2 uvZ = vWorldPosition.xy / uTextureScale;
-    vec2 triUv = n.x >= n.y && n.x >= n.z ? uvX : (n.y >= n.z ? uvY : uvZ);
-
-    // Stamp tool: the whole image projected flat onto the brush's own local
-    // tangent plane, centered and sized to the brush radius, like pressing a
-    // rubber stamp onto the surface rather than tiling a material.
+    // 1. Local tangent stamp coordinates for brush tip or stamp tool
     float lu = dot(rel, uBrushTangent) / uBrushRadius * 0.5 + 0.5;
     float lv = dot(rel, uBrushBitangent) / uBrushRadius * 0.5 + 0.5;
     vec2 stampUv = vec2(lu, lv);
     float inStamp = step(0.0, stampUv.x) * step(stampUv.x, 1.0) * step(0.0, stampUv.y) * step(stampUv.y, 1.0);
 
-    vec2 texUv = mix(triUv, stampUv, uStampMode);
+    // Tip mask: alpha of the custom ABR or preset brush tip
+    vec4 tipSample = texture2D(uBrushTipTexture, stampUv);
+    float tipAlpha = tipSample.a * inStamp;
+    float tipMask = mix(1.0, tipAlpha, uUseTipTexture * (1.0 - uFillMode));
+
+    // 2. Texture Shelf / Material Pattern:
+    // Triplanar or Surface UV projection
+    vec3 n = abs(normalize(vWorldNormal));
+    vec2 uvX = vWorldPosition.zy / max(uTextureScale, 0.0001);
+    vec2 uvY = vWorldPosition.xz / max(uTextureScale, 0.0001);
+    vec2 uvZ = vWorldPosition.xy / max(uTextureScale, 0.0001);
+    vec2 triUv = n.x >= n.y && n.x >= n.z ? uvX : (n.y >= n.z ? uvY : uvZ);
+    vec2 surfaceUv = vUv * max(uTextureScale, 0.0001);
+
+    // Shelf texture projection: 0 = surface UV, 1 = triplanar
+    vec2 patUv = uTextureMapping > 0.5 ? triUv : surfaceUv;
+    // In Stamp tool mode, project the shelf texture decal directly flat on the stamp tangent plane
+    vec2 strokeTexUv = mix(patUv, stampUv, uStampMode);
+
+    // Fill UV
+    vec2 boundsMin = uFillBounds.xy;
+    vec2 boundsSize = max(uFillBounds.zw - uFillBounds.xy, vec2(0.00001));
+    vec2 fillUv = ((vUv - boundsMin) / boundsSize) * max(uFillScale, 0.0001);
+
+    vec2 texUv = mix(strokeTexUv, fillUv, uFillMode);
     vec4 texSample = texture2D(uBrushTexture, texUv);
-    float texMask = mix(1.0, texSample.a, uUseTexture);
-    // A pure stamp only paints inside its own square, not the whole falloff circle.
-    texMask = mix(texMask, texMask * inStamp, uStampMode * uUseTexture);
+
+    // Paint color: shelf texture (tinted by uBrushColor) or just uBrushColor
     vec3 paintColor = mix(uBrushColor.rgb, texSample.rgb * uBrushColor.rgb, uUseTexture);
 
     float faceMask = mix(1.0, vSelected, uRestrictFace);
 
-    float strength = mix(falloff * uBrushOpacity * texMask, uBrushOpacity, uFillMode) * faceMask;
-    float outAlpha = mix(prev.a, uBrushColor.a, strength);
+    // Stroke falloff: if a custom tip or stamp is active, its alpha mask shapes the stroke;
+    // otherwise, use spherical smoothstep falloff:
+    float strokeFalloff = mix(falloff, step(0.0, facing), max(uStampMode, uUseTipTexture));
+
+    // Decal mask in stamp tool mode
+    float stampDecalMask = mix(1.0, inStamp, uStampMode * (1.0 - uFillMode));
+    float texMask = mix(1.0, texSample.a * stampDecalMask, uUseTexture);
+
+    float fillAlpha = uBrushOpacity * mix(1.0, texSample.a, uUseTexture);
+    float strength = mix(strokeFalloff * uBrushOpacity * tipMask * texMask, fillAlpha, uFillMode) * faceMask;
+
+    float targetAlpha = uBrushColor.a * mix(1.0, texSample.a, uUseTexture);
+    float outAlpha = mix(prev.a, targetAlpha, strength);
     vec3 outColor = mix(prev.rgb, paintColor, strength);
     gl_FragColor = vec4(outColor * outAlpha, outAlpha);
   }
@@ -105,12 +135,17 @@ export interface PaintUniforms {
   uBrushOpacity: THREE.IUniform<number>
   uBrushTexture: THREE.IUniform<THREE.Texture | null>
   uUseTexture: THREE.IUniform<number>
+  uBrushTipTexture: THREE.IUniform<THREE.Texture | null>
+  uUseTipTexture: THREE.IUniform<number>
   uTextureScale: THREE.IUniform<number>
   uStampMode: THREE.IUniform<number>
   uBrushTangent: THREE.IUniform<THREE.Vector3>
   uBrushBitangent: THREE.IUniform<THREE.Vector3>
   uRestrictFace: THREE.IUniform<number>
   uFillMode: THREE.IUniform<number>
+  uFillBounds: THREE.IUniform<THREE.Vector4>
+  uFillScale: THREE.IUniform<number>
+  uTextureMapping: THREE.IUniform<number>
 }
 
 export function createPaintMaterial(): THREE.ShaderMaterial & { uniforms: PaintUniforms } {
@@ -124,12 +159,17 @@ export function createPaintMaterial(): THREE.ShaderMaterial & { uniforms: PaintU
     uBrushOpacity: { value: 1 },
     uBrushTexture: { value: null },
     uUseTexture: { value: 0 },
+    uBrushTipTexture: { value: null },
+    uUseTipTexture: { value: 0 },
     uTextureScale: { value: 1 },
     uStampMode: { value: 0 },
     uBrushTangent: { value: new THREE.Vector3(1, 0, 0) },
     uBrushBitangent: { value: new THREE.Vector3(0, 1, 0) },
     uRestrictFace: { value: 0 },
-    uFillMode: { value: 0 }
+    uFillMode: { value: 0 },
+    uFillBounds: { value: new THREE.Vector4(0, 0, 1, 1) },
+    uFillScale: { value: 1 },
+    uTextureMapping: { value: 0 }
   }
 
   return new THREE.ShaderMaterial({
