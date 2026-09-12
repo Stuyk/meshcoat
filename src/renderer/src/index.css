@@ -4913,7 +4913,7 @@ kbd {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 2px 2px 4px 2px;
+  padding: 2px 2px 6px 2px;
 }
 
 .layers-count-badge {
@@ -4930,10 +4930,10 @@ kbd {
 }
 
 .layers-tool-icon-btn {
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
-  min-height: 34px;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4964,7 +4964,7 @@ kbd {
 .layers-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
 }
 
 .layer-item-container {
@@ -4974,12 +4974,12 @@ kbd {
 }
 
 .layer-item-container.is-clipped-wrapper {
-  padding-left: 20px;
+  padding-left: 18px;
 }
 
 .layer-clip-guide {
   position: absolute;
-  left: 6px;
+  left: 5px;
   top: 0;
   bottom: 50%;
   width: 14px;
@@ -4989,10 +4989,10 @@ kbd {
 .layer-clip-guide .tree-stem {
   position: absolute;
   left: 4px;
-  top: -8px;
+  top: -9px;
   bottom: 0;
   width: 2px;
-  background: rgba(168, 85, 247, 0.45);
+  background: rgba(168, 85, 247, 0.4);
   border-radius: 1px;
 }
 
@@ -5000,22 +5000,37 @@ kbd {
   position: absolute;
   left: 4px;
   bottom: 0;
-  width: 10px;
+  width: 9px;
   height: 2px;
-  background: rgba(168, 85, 247, 0.45);
+  background: rgba(168, 85, 247, 0.4);
   border-radius: 1px;
 }
 
+/* --- Card shell: flat surface, active state reads via a left accent bar
+   instead of a glow, so the list stays calm even with many layers. --- */
 .layer-card {
+  position: relative;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  padding: 8px 10px;
+  border-radius: 10px;
+  padding: 9px 11px 9px 13px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  transition: all 100ms ease;
+  gap: 8px;
+  transition: background 120ms ease, border-color 120ms ease;
   cursor: pointer;
+}
+
+.layer-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 120ms ease;
 }
 
 .layer-card:hover {
@@ -5024,34 +5039,39 @@ kbd {
 }
 
 .layer-card.active {
-  border-color: var(--accent-primary);
-  background: rgba(59, 130, 246, 0.08);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  background: var(--bg-surface-hover);
+  border-color: var(--border-default);
+}
+
+.layer-card.active::before {
+  background: var(--accent-primary);
+}
+
+.layer-card.is-mask::before {
+  background: rgba(168, 85, 247, 0.35);
+}
+
+.layer-card.is-mask.active::before {
+  background: #a855f7;
 }
 
 .layer-card.is-mask {
-  background: rgba(36, 20, 56, 0.4);
-  border-color: rgba(168, 85, 247, 0.35);
+  background: rgba(36, 20, 56, 0.32);
+  border-color: rgba(168, 85, 247, 0.25);
 }
 
 .layer-card.is-mask:hover {
-  background: rgba(48, 28, 76, 0.55);
-  border-color: rgba(168, 85, 247, 0.55);
+  background: rgba(44, 26, 68, 0.45);
+  border-color: rgba(168, 85, 247, 0.4);
 }
 
 .layer-card.is-mask.active {
-  border-color: #a855f7;
-  background: rgba(168, 85, 247, 0.15);
-  box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.45), 0 2px 8px rgba(0, 0, 0, 0.25);
+  background: rgba(168, 85, 247, 0.12);
+  border-color: rgba(168, 85, 247, 0.4);
 }
 
 .layer-card.is-clipped {
-  border-left: 3px solid #a855f7;
-  background: rgba(24, 24, 38, 0.65);
-}
-
-.layer-card.is-clipped:hover {
-  background: rgba(30, 30, 48, 0.8);
+  background: rgba(20, 20, 30, 0.5);
 }
 
 .layer-card.hidden {
@@ -5061,14 +5081,14 @@ kbd {
 .layer-card-main {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
 }
 
 .layer-vis-btn {
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
-  min-height: 32px;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  min-height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -5088,18 +5108,23 @@ kbd {
 
 .layer-vis-btn.is-hidden {
   color: var(--text-muted);
+  opacity: 0.6;
 }
 
 .layer-preview-thumb {
-  width: 44px;
-  height: 44px;
-  min-width: 44px;
-  border-radius: 6px;
+  width: 46px;
+  height: 46px;
+  min-width: 46px;
+  border-radius: 7px;
   border: 1px solid var(--border-subtle);
   overflow: hidden;
   flex-shrink: 0;
   position: relative;
   transition: border-color 0.12s ease;
+}
+
+.layer-card.active .layer-preview-thumb {
+  border-color: rgba(255, 255, 255, 0.25);
 }
 
 .layer-preview-thumb img {
@@ -5110,7 +5135,7 @@ kbd {
 }
 
 .layer-preview-thumb.is-mask-thumb {
-  border-color: rgba(168, 85, 247, 0.45);
+  border-color: rgba(168, 85, 247, 0.4);
   background: #0b0c10;
 }
 
@@ -5118,9 +5143,9 @@ kbd {
   position: absolute;
   bottom: 0;
   right: 0;
-  width: 18px;
-  height: 18px;
-  background: rgba(168, 85, 247, 0.9);
+  width: 15px;
+  height: 15px;
+  background: rgba(168, 85, 247, 0.92);
   border-top-left-radius: 5px;
   color: #ffffff;
   display: flex;
@@ -5131,12 +5156,16 @@ kbd {
 .layer-name-wrap {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .layer-name-label {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
 }
 
 .layer-clip-tag-icon {
@@ -5148,7 +5177,8 @@ kbd {
 
 .layer-name-text {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: -0.1px;
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5157,22 +5187,21 @@ kbd {
 
 .layer-card.is-mask .layer-name-text {
   color: #f3e8ff;
-  font-weight: 600;
 }
 
 .layer-type-badge {
   font-size: 9px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   padding: 1px 5px;
   border-radius: 4px;
   flex-shrink: 0;
-  line-height: 1.4;
+  line-height: 1.5;
 }
 
 .layer-type-badge.mask {
-  background: rgba(168, 85, 247, 0.2);
-  border: 1px solid rgba(168, 85, 247, 0.5);
+  background: rgba(168, 85, 247, 0.18);
+  border: 1px solid rgba(168, 85, 247, 0.4);
   color: #d8b4fe;
 }
 
@@ -5202,10 +5231,10 @@ kbd {
 }
 
 .layer-rename-confirm {
-  width: 26px;
-  height: 26px;
-  min-width: 26px;
-  min-height: 26px;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -5217,24 +5246,25 @@ kbd {
 }
 
 .layer-rename-btn {
-  width: 26px;
-  height: 26px;
-  min-width: 26px;
-  min-height: 26px;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: transparent;
   border: none;
   color: var(--text-muted);
-  border-radius: 4px;
+  border-radius: 5px;
   opacity: 0;
+  flex-shrink: 0;
   transition: opacity 100ms ease;
   cursor: pointer;
 }
 
 .layer-card:hover .layer-rename-btn {
-  opacity: 0.8;
+  opacity: 0.75;
 }
 
 .layer-rename-btn:hover {
@@ -5243,22 +5273,43 @@ kbd {
   background: var(--bg-panel);
 }
 
-/* Opacity Row */
+/* Blend Mode + Opacity / Strength Row */
 .layer-opacity-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 2px;
+  gap: 7px;
+  padding-left: 35px;
 }
 
 .layer-opacity-label {
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--text-muted);
-  min-width: 48px;
+  min-width: 44px;
+  flex-shrink: 0;
+}
+
+.layer-blend-select {
+  flex: 0 1 96px;
+  min-width: 0;
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+  padding: 3px 5px;
+  height: 22px;
+  cursor: pointer;
+  transition: all 80ms ease;
+}
+
+.layer-blend-select:hover {
+  border-color: var(--border-focus);
+  color: var(--text-primary);
 }
 
 .layer-opacity-slider {
   flex: 1;
+  min-width: 0;
   accent-color: var(--accent-primary);
   height: 4px;
   border-radius: 2px;
@@ -5270,33 +5321,35 @@ kbd {
 }
 
 .layer-opacity-val {
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--text-secondary);
-  width: 32px;
+  width: 30px;
   text-align: right;
   font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
 }
 
-/* Icon Action Bar (Pro-app style) */
+/* Icon Action Bar — compact, single visual weight, grouped by divider */
 .layer-actions-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 5px;
-  padding-top: 6px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 3px;
+  padding: 7px 0 0 35px;
+  margin-top: 1px;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .layer-action-btn {
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
-  min-height: 34px;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  min-height: 26px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-subtle);
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: 6px;
   color: var(--text-secondary);
   cursor: pointer;
@@ -5305,9 +5358,9 @@ kbd {
 }
 
 .layer-action-btn:hover:not(:disabled) {
-  background: var(--bg-surface-hover);
+  background: var(--bg-panel);
   color: var(--text-primary);
-  border-color: var(--border-default);
+  border-color: var(--border-subtle);
 }
 
 .layer-action-btn:disabled {
@@ -5316,35 +5369,37 @@ kbd {
 }
 
 .layer-action-btn.accent {
-  background: rgba(168, 85, 247, 0.15);
-  border-color: rgba(168, 85, 247, 0.35);
   color: #c084fc;
 }
 
+.layer-action-btn.accent.active {
+  background: rgba(168, 85, 247, 0.18);
+  border-color: rgba(168, 85, 247, 0.4);
+}
+
 .layer-action-btn.accent:hover:not(:disabled) {
-  background: rgba(168, 85, 247, 0.3);
-  border-color: #a855f7;
+  background: rgba(168, 85, 247, 0.22);
+  border-color: rgba(168, 85, 247, 0.4);
   color: #f3e8ff;
 }
 
 .layer-action-btn.preview-active {
-  background: rgba(168, 85, 247, 0.35) !important;
-  border-color: #a855f7 !important;
+  background: rgba(168, 85, 247, 0.28) !important;
+  border-color: rgba(168, 85, 247, 0.5) !important;
   color: #ffffff !important;
-  box-shadow: 0 0 6px rgba(168, 85, 247, 0.4);
 }
 
 .layer-action-btn.danger:hover:not(:disabled) {
   background: var(--danger-subtle);
   color: var(--danger);
-  border-color: rgba(239, 68, 68, 0.4);
+  border-color: rgba(239, 68, 68, 0.35);
 }
 
 .layer-action-divider {
   width: 1px;
-  height: 22px;
-  background: rgba(255, 255, 255, 0.12);
-  margin: 0 2px;
+  height: 18px;
+  background: var(--border-subtle);
+  margin: 0 3px;
   flex-shrink: 0;
 }
 

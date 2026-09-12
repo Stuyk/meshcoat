@@ -134,6 +134,13 @@ export class PaintEngine {
   readonly baseColor: THREE.Color
   readonly baseAlpha: number
   readonly textureSize: number
+  /** Bumped on every content-changing operation — cheap way for consumers
+   * (e.g. layer thumbnails) to know whether they need to re-render/re-encode
+   * without redoing that work unconditionally on every unrelated change. */
+  private _contentVersion = 0
+  get contentVersion(): number {
+    return this._contentVersion
+  }
 
   constructor(
     renderer: THREE.WebGLRenderer,
@@ -317,6 +324,7 @@ export class PaintEngine {
     const tmp = this.readTarget
     this.readTarget = this.writeTarget
     this.writeTarget = tmp
+    this._contentVersion++
   }
 
   /** Fills the whole active layer with color or pattern (spec: bucket tool across whole model). */
@@ -381,6 +389,7 @@ export class PaintEngine {
       this.readTarget = this.writeTarget
       this.writeTarget = tmp
     }
+    this._contentVersion++
   }
 
   /** Fills only the given triangles (spec: bucket fill by face selection, best-effort texture mapping). */
@@ -436,6 +445,7 @@ export class PaintEngine {
     const tmp = this.readTarget
     this.readTarget = this.writeTarget
     this.writeTarget = tmp
+    this._contentVersion++
   }
 
   /**
@@ -468,6 +478,7 @@ export class PaintEngine {
     const tmp = other.readTarget
     other.readTarget = other.writeTarget
     other.writeTarget = tmp
+    other._contentVersion++
   }
 
   /** Copies this layer's content onto another PaintEngine buffer (for duplication). */
@@ -492,6 +503,7 @@ export class PaintEngine {
     const tmp = other.readTarget
     other.readTarget = other.writeTarget
     other.writeTarget = tmp
+    other._contentVersion++
   }
 
   /** Clears this layer's buffer back to baseColor / baseAlpha. */
@@ -507,6 +519,7 @@ export class PaintEngine {
     this.renderer.clear(true, true, true)
     this.renderer.setClearColor(prevClearColor, prevClearAlpha)
     this.renderer.setRenderTarget(prevTarget)
+    this._contentVersion++
   }
 
   /** Reads back the pixel color at a given UV (spec: eyedropper). */
@@ -553,6 +566,7 @@ export class PaintEngine {
     const tmp = this.readTarget
     this.readTarget = this.writeTarget
     this.writeTarget = tmp
+    this._contentVersion++
   }
 
   private edgeWearMaterial?: THREE.ShaderMaterial
@@ -597,6 +611,7 @@ export class PaintEngine {
     const tmp = this.readTarget
     this.readTarget = this.writeTarget
     this.writeTarget = tmp
+    this._contentVersion++
   }
 
   /** Copies content from a source render target into this engine's read target. */
@@ -611,6 +626,7 @@ export class PaintEngine {
     this.renderer.setRenderTarget(prevTarget)
     copyMat.dispose()
     quad.geometry.dispose()
+    this._contentVersion++
   }
 
   /** Creates a snapshot clone of the current readTarget so preview can be reverted. */
@@ -629,6 +645,42 @@ export class PaintEngine {
     return snapshot
   }
 
+  /**
+   * Reads this layer's pixels back to a plain CPU buffer — used for undo
+   * history instead of createSnapshot()'s GPU render-target clone. History
+   * can pile up dozens of these per layer; keeping them in system RAM instead
+   * of VRAM avoids the GPU memory pressure (and the silent allocation
+   * failures / context-loss risk that comes with it) that a large canvas
+   * with several layers would otherwise hit almost immediately.
+   */
+  createCpuSnapshot(): CpuPixelSnapshot {
+    const size = this.textureSize
+    const data = new Uint8Array(size * size * 4)
+    this.renderer.readRenderTargetPixels(this.readTarget, 0, 0, size, size, data)
+    return { size, data }
+  }
+
+  /** Restores this layer's content from a createCpuSnapshot() buffer. */
+  restoreFromCpuSnapshot(snapshot: CpuPixelSnapshot): void {
+    const tex = new THREE.DataTexture(snapshot.data, snapshot.size, snapshot.size, THREE.RGBAFormat, THREE.UnsignedByteType)
+    tex.colorSpace = THREE.SRGBColorSpace
+    tex.needsUpdate = true
+
+    const copyMat = new THREE.MeshBasicMaterial({ map: tex, depthTest: false })
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), copyMat)
+    const scene = new THREE.Scene()
+    scene.add(quad)
+    const prevTarget = this.renderer.getRenderTarget()
+    this.renderer.setRenderTarget(this.readTarget)
+    this.renderer.render(scene, this.orthoCamera)
+    this.renderer.setRenderTarget(prevTarget)
+
+    copyMat.dispose()
+    quad.geometry.dispose()
+    tex.dispose()
+    this._contentVersion++
+  }
+
   dispose(): void {
     this.targetA.dispose()
     this.targetB.dispose()
@@ -640,6 +692,12 @@ export class PaintEngine {
     this.dilateQuad.geometry.dispose()
     this.scratchDilateTarget?.dispose()
   }
+}
+
+/** Plain CPU-side copy of one layer's pixels — see createCpuSnapshot(). */
+export interface CpuPixelSnapshot {
+  size: number
+  data: Uint8Array
 }
 
 export interface EdgeWearParams {

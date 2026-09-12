@@ -1,5 +1,28 @@
 # Changelog
 
+## v1.0.2
+
+### Added
+- **Layer blend modes**: every standard blend mode (Normal, Multiply, Screen, Overlay, Darken, Lighten, Color Dodge/Burn, Hard/Soft Light, Difference, Exclusion, Linear Burn/Dodge, Subtract, Divide, Hue, Saturation, Color, Luminosity) via a proper per-pixel compositing shader, with full undo/redo support. Selectable from a compact dropdown on each (non-mask) layer row.
+
+### Changed
+- Redesigned layer cards: flatter surfaces, a left accent bar for the active layer instead of a glow/box-shadow, tighter icon and button sizing throughout, and better-aligned opacity/blend/action rows.
+- Undo history snapshots moved from GPU render targets to CPU (system RAM) buffers, and the memory budget that caps history depth was raised accordingly (RAM tolerates overshoot far better than VRAM, with no driver-level context-loss risk).
+- `recomposite()` (the per-layer compositing pass) now reuses persistent GPU objects instead of allocating a new Scene/Mesh/Material per layer per call — this ran on every paint dab and every opacity/visibility tick.
+- Layer thumbnails now cache per layer and only re-render/re-encode when that specific layer's content actually changed, instead of regenerating every layer's thumbnail on any unrelated change.
+- Opacity/visibility slider drags now record one undo step per gesture (on drag start) instead of one per tick.
+- Texture Shelf is now virtualized — only the rows near the visible viewport are mounted, so a folder of thousands of textures loads and scrolls instantly instead of mounting/decoding every image up front.
+- Several rarely-used modules (Help/Settings/New Project/Brush Manager modals, the Edge Wear Wizard, and the GLTF/OBJ model loaders) are now lazy-loaded instead of bundled into the app's initial parse, shaving real weight off boot time.
+- Removed the Chromium flag that disabled the frame-rate limit — it was uncapping the render loop entirely, pinning the GPU at 100% even with a static scene at idle.
+- `PaintEngine`'s coverage-mask GPU pass is now built lazily on first actual paint/fill/edge-wear, instead of for every layer at creation time.
+
+### Fixed
+- **Layers panel fully rebuilt itself on every change**: the layer list cloned a fresh object per layer on every update, which made Solid's reconciliation treat every row as brand-new and tear down/rebuild the entire panel's DOM (every card, thumbnail, and input) on any layer mutation — including mid-drag on the opacity slider, which silently ended the drag by replacing the element under the pointer. Layer objects are now stable references, so only what actually changed re-renders.
+- A memory-budget floor for undo history could still force gigabyte-plus snapshots on a large canvas with several layers regardless of the configured cap, risking silent allocation failures — the cap is now purely budget-driven with a floor of 1.
+- Several `LayerStack` mutators recorded an undo snapshot before checking whether the action would actually do anything, so an invalid/no-op call (e.g. a stale id) still consumed a history slot and a GPU/CPU snapshot.
+- Selecting a texture while painting a mask layer reset paint color to white even though masks never use textures, silently changing the mask's hide/reveal color out from under the user.
+- The "Used" texture tab tracked textures on mere selection (browsing) rather than actual use, and the README overstated its behavior; both now reflect real paint/stamp/fill usage.
+
 ## v1.0.1
 
 ### Added

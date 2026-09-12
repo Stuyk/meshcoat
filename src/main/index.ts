@@ -19,11 +19,16 @@ protocol.registerSchemesAsPrivileged([
   }
 ])
 
-// Maximize GPU performance and uncap framerate
+// GPU rasterization tuning. Deliberately NOT disabling the frame-rate limit —
+// that uncaps rendering from vsync entirely, so a static scene (the render
+// loop always redraws, no dirty-check) gets pushed at however many hundred/
+// thousand FPS the GPU can physically produce, pinning it at 100% even at
+// idle. Normal vsync-capped rendering (60/144Hz, whatever the display is) is
+// what a desktop app should do; the uncapped mode is a benchmarking flag, not
+// a performance win.
 app.commandLine.appendSwitch('ignore-gpu-blocklist')
 app.commandLine.appendSwitch('enable-gpu-rasterization')
 app.commandLine.appendSwitch('enable-zero-copy')
-app.commandLine.appendSwitch('disable-frame-rate-limit')
 
 let mainWindow: BrowserWindow | null = null
 

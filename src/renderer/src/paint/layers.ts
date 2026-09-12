@@ -4,11 +4,12 @@ import {
   configurePremultipliedSourceMaterial,
   DEFAULT_TEXTURE_SIZE,
   type FillOptions,
-  type EdgeWearParams
+  type EdgeWearParams,
+  type CpuPixelSnapshot
 } from './paintEngine'
-import { createMaskCompositeMaterial } from './maskCompositeShader'
 import { renderThumbnail } from './thumbnail'
 import { HistoryManager } from './history'
+import { createBlendCompositeMaterial, blendModeIndex, type BlendMode } from './blendShader'
 
 let nextId = 1
 
@@ -19,7 +20,9 @@ export interface LayerSnapshot {
   opacity: number
   isMask?: boolean
   clippedToMaskId?: number
-  rt: THREE.WebGLRenderTarget
+  blendMode?: BlendMode
+  /** CPU-side pixel buffer (system RAM, not GPU/VRAM) — see PaintEngine.createCpuSnapshot(). */
+  pixels: CpuPixelSnapshot
 }
 
 export interface StackSnapshot {
@@ -36,6 +39,9 @@ export interface Layer {
   isMask?: boolean
   clippedToMaskId?: number
   previewMaskOnModel?: boolean
+  /** How this layer's color composites onto the layers below it. Ignored for
+   * mask layers, which always modulate via their own grayscale coverage. */
+  blendMode?: BlendMode
 }
 
 /**
@@ -50,7 +56,24 @@ export class LayerStack {
   private renderer: THREE.WebGLRenderer
   private mesh: THREE.Mesh
   private orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
-  private maskMaterial?: THREE.ShaderMaterial
+  // recomposite() runs on every paint dab and every opacity/visibility tick —
+  // these are reused across calls instead of allocating a fresh Scene/Mesh/
+  // Material/Map per layer per call, which otherwise churns the GC hard
+  // during an ordinary painting session.
+  private recompositeScene = new THREE.Scene()
+  private recompositeQuadGeometry = new THREE.PlaneGeometry(2, 2)
+  private recompositePlainMaterial = new THREE.MeshBasicMaterial()
+  private recompositeQuad: THREE.Mesh
+  private maskMapScratch = new Map<number, Layer>()
+  /** Per-layer blend-mode compositing (see blendShader.ts) needs to read the
+   * accumulated backdrop *and* write the new one in the same pass, which a
+   * single accumulating target can't do — these two scratch buffers ping-pong
+   * layer by layer, and the final result is blitted into compositeTarget
+   * (kept as a single stable object since it's referenced elsewhere as the
+   * mesh's material.map). */
+  private blendMaterial: ReturnType<typeof createBlendCompositeMaterial>
+  private scratchA: THREE.WebGLRenderTarget
+  private scratchB: THREE.WebGLRenderTarget
   readonly textureSize: number
   /** Undo/redo history for this layer stack. Assigned once construction finishes. */
   history!: HistoryManager
@@ -59,13 +82,20 @@ export class LayerStack {
     this.renderer = renderer
     this.mesh = mesh
     this.textureSize = textureSize
-    this.compositeTarget = new THREE.WebGLRenderTarget(textureSize, textureSize, {
+    const targetOpts = {
       format: THREE.RGBAFormat,
       type: THREE.UnsignedByteType,
       colorSpace: THREE.SRGBColorSpace,
       minFilter: THREE.LinearFilter,
       magFilter: THREE.LinearFilter
-    })
+    } as const
+    this.compositeTarget = new THREE.WebGLRenderTarget(textureSize, textureSize, targetOpts)
+    this.scratchA = new THREE.WebGLRenderTarget(textureSize, textureSize, targetOpts)
+    this.scratchB = new THREE.WebGLRenderTarget(textureSize, textureSize, targetOpts)
+    this.blendMaterial = createBlendCompositeMaterial()
+    this.recompositeQuad = new THREE.Mesh(this.recompositeQuadGeometry, this.recompositePlainMaterial)
+    this.recompositeScene.add(this.recompositeQuad)
+
     this.addLayer('Background')
     this.recomposite()
     this.history = new HistoryManager(this)
@@ -221,11 +251,27 @@ export class LayerStack {
     }
   }
 
-  setOpacity(id: number, opacity: number): void {
+  /**
+   * `record` defaults to true for a single atomic change; pass false while a
+   * continuous drag (e.g. an opacity slider) is already recording once at
+   * drag-start, so every intermediate tick doesn't push its own full-stack
+   * snapshot (and the CPU-readback cost that comes with it — see history.ts).
+   */
+  setOpacity(id: number, opacity: number, record = true): void {
     const layer = this.layers.find((l) => l.id === id)
     if (layer) {
-      this.history?.record()
+      if (record) this.history?.record()
       layer.opacity = opacity
+      this.recomposite()
+    }
+  }
+
+  /** Sets how a (non-mask) layer's color composites onto the layers below it. */
+  setBlendMode(id: number, mode: BlendMode): void {
+    const layer = this.layers.find((l) => l.id === id)
+    if (layer && layer.blendMode !== mode) {
+      this.history?.record()
+      layer.blendMode = mode
       this.recomposite()
     }
   }
@@ -282,7 +328,8 @@ export class LayerStack {
       opacity: source.opacity,
       engine,
       isMask: source.isMask,
-      clippedToMaskId: source.clippedToMaskId
+      clippedToMaskId: source.clippedToMaskId,
+      blendMode: source.blendMode
     }
     this.layers.splice(index + 1, 0, layer)
     this.activeId = layer.id
@@ -322,7 +369,13 @@ export class LayerStack {
     }
   }
 
-  /** Re-renders the visible, opacity-weighted stack into the shared composite target. */
+  /**
+   * Re-renders the visible, opacity/blend-mode-weighted stack into the shared
+   * composite target. Ping-pongs through two scratch buffers (each layer's
+   * blend mode needs to read the accumulated backdrop and write a new one in
+   * the same pass — a single accumulating target can't do that), then blits
+   * the final result into the stable public compositeTarget.
+   */
   recomposite(): void {
     const prevAutoClear = this.renderer.autoClear
     const prevTarget = this.renderer.getRenderTarget()
@@ -330,16 +383,44 @@ export class LayerStack {
     this.renderer.getClearColor(prevClearColor)
     const prevClearAlpha = this.renderer.getClearAlpha()
     this.renderer.autoClear = false
-    this.renderer.setRenderTarget(this.compositeTarget)
     this.renderer.setClearColor(0x000000, 0)
-    this.renderer.clear(true, true, true)
-    this.renderer.setClearColor(prevClearColor, prevClearAlpha)
 
-    const maskMap = new Map<number, Layer>()
+    this.renderer.setRenderTarget(this.scratchA)
+    this.renderer.clear(true, true, true)
+    this.renderer.setRenderTarget(this.scratchB)
+    this.renderer.clear(true, true, true)
+
+    const maskMap = this.maskMapScratch
+    maskMap.clear()
     for (const l of this.layers) {
       if (l.isMask) {
         maskMap.set(l.id, l)
       }
+    }
+
+    let backdrop = this.scratchA
+    let target = this.scratchB
+    this.recompositeQuad.material = this.blendMaterial
+    const u = this.blendMaterial.uniforms
+
+    const drawLayer = (sourceTexture: THREE.Texture, opacity: number, blendMode: BlendMode | undefined, mask?: Layer): void => {
+      u.tBackdrop.value = backdrop.texture
+      u.tSource.value = sourceTexture
+      u.uOpacity.value = opacity
+      u.uBlendMode.value = blendModeIndex(blendMode)
+      if (mask) {
+        u.uUseMask.value = 1
+        u.tMask.value = mask.engine.texture
+        u.uMaskOpacity.value = mask.opacity
+      } else {
+        u.uUseMask.value = 0
+        u.tMask.value = null
+      }
+      this.renderer.setRenderTarget(target)
+      this.renderer.render(this.recompositeScene, this.orthoCamera)
+      const tmp = backdrop
+      backdrop = target
+      target = tmp
     }
 
     for (let i = 0; i < this.layers.length; i++) {
@@ -348,18 +429,12 @@ export class LayerStack {
 
       // If this is a Mask Layer:
       if (layer.isMask) {
+        // Mask layers don't render on top of the composite as opaque sheets —
+        // they modulate the layer(s) below them — except when the user has
+        // asked to inspect the raw mask buffer directly on the model.
         if (layer.previewMaskOnModel) {
-          const mat = new THREE.MeshBasicMaterial({ map: layer.engine.texture })
-          configurePremultipliedSourceMaterial(mat, layer.opacity)
-          const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat)
-          const scene = new THREE.Scene()
-          scene.add(quad)
-          this.renderer.render(scene, this.orthoCamera)
-          mat.dispose()
-          quad.geometry.dispose()
+          drawLayer(layer.engine.texture, layer.opacity, 'normal')
         }
-        // Mask layers don't render on top of the composite image as opaque sheets;
-        // they modulate the layer(s) below them.
         continue
       }
 
@@ -370,31 +445,23 @@ export class LayerStack {
         ? maskMap.get(layer.clippedToMaskId)
         : undefined
 
-      if (maskLayer && maskLayer.visible) {
-        if (!this.maskMaterial) {
-          this.maskMaterial = createMaskCompositeMaterial()
-        }
-        const u = this.maskMaterial.uniforms
-        u.tSource.value = layer.engine.texture
-        u.tMask.value = maskLayer.engine.texture
-        u.uOpacity.value = layer.opacity * maskLayer.opacity
-        const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.maskMaterial)
-        const scene = new THREE.Scene()
-        scene.add(quad)
-        this.renderer.render(scene, this.orthoCamera)
-        quad.geometry.dispose()
-      } else {
-        const mat = new THREE.MeshBasicMaterial({ map: layer.engine.texture })
-        configurePremultipliedSourceMaterial(mat, layer.opacity)
-        const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat)
-        const scene = new THREE.Scene()
-        scene.add(quad)
-        this.renderer.render(scene, this.orthoCamera)
-        mat.dispose()
-        quad.geometry.dispose()
-      }
+      drawLayer(
+        layer.engine.texture,
+        layer.opacity,
+        layer.blendMode,
+        maskLayer && maskLayer.visible ? maskLayer : undefined
+      )
     }
 
+    // Blit the final ping-pong result into the stable public composite target.
+    this.recompositeQuad.material = this.recompositePlainMaterial
+    this.recompositePlainMaterial.map = backdrop.texture
+    configurePremultipliedSourceMaterial(this.recompositePlainMaterial, 1)
+    this.renderer.setRenderTarget(this.compositeTarget)
+    this.renderer.clear(true, true, true)
+    this.renderer.render(this.recompositeScene, this.orthoCamera)
+
+    this.renderer.setClearColor(prevClearColor, prevClearAlpha)
     this.renderer.setRenderTarget(prevTarget)
     this.renderer.autoClear = prevAutoClear
   }
@@ -479,7 +546,7 @@ export class LayerStack {
     }
   }
 
-  /** Captures a full GPU-side snapshot of every layer's pixel content plus stack metadata. */
+  /** Captures every layer's pixel content (to CPU RAM, not GPU) plus stack metadata. */
   captureState(): StackSnapshot {
     return {
       activeId: this.activeId,
@@ -490,7 +557,8 @@ export class LayerStack {
         opacity: l.opacity,
         isMask: l.isMask,
         clippedToMaskId: l.clippedToMaskId,
-        rt: l.engine.createSnapshot()
+        blendMode: l.blendMode,
+        pixels: l.engine.createCpuSnapshot()
       }))
     }
   }
@@ -511,15 +579,17 @@ export class LayerStack {
           opacity: snap.opacity,
           engine: new PaintEngine(this.renderer, this.mesh, null, this.textureSize),
           isMask: snap.isMask,
-          clippedToMaskId: snap.clippedToMaskId
+          clippedToMaskId: snap.clippedToMaskId,
+          blendMode: snap.blendMode
         }
       }
-      layer.engine.copyFrom(snap.rt)
+      layer.engine.restoreFromCpuSnapshot(snap.pixels)
       layer.name = snap.name
       layer.visible = snap.visible
       layer.opacity = snap.opacity
       layer.isMask = snap.isMask
       layer.clippedToMaskId = snap.clippedToMaskId
+      layer.blendMode = snap.blendMode
       restored.push(layer)
     }
     // Anything left in `existing` was created after this snapshot and undone away.
@@ -531,15 +601,18 @@ export class LayerStack {
     this.recomposite()
   }
 
-  /** Frees the GPU render targets held by a captured snapshot. */
-  disposeSnapshot(state: StackSnapshot): void {
-    for (const l of state.layers) l.rt.dispose()
-  }
+  /** No GPU resources to free for a CPU-side snapshot — kept for symmetry with
+   * the history manager's call sites and to make dropping the reference explicit. */
+  disposeSnapshot(_state: StackSnapshot): void {}
 
   dispose(): void {
     this.history?.dispose()
     this.previewSnapshot?.dispose()
-    this.maskMaterial?.dispose()
+    this.blendMaterial.dispose()
+    this.recompositeQuadGeometry.dispose()
+    this.recompositePlainMaterial.dispose()
+    this.scratchA.dispose()
+    this.scratchB.dispose()
     for (const layer of this.layers) {
       layer.engine.dispose()
     }
