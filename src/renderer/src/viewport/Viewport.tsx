@@ -21,15 +21,24 @@ import {
   type ToolMode,
   type SymmetryAxis
 } from '../paint/brush'
-import { LayerStack } from '../paint/layers'
+import { LayerStack, type StackSnapshot } from '../paint/layers'
 import { type FillOptions, type EdgeWearParams } from '../paint/paintEngine'
+import { OcclusionDepthPass } from '../paint/occlusionDepth'
 import { renderTargetToPngDataUrl } from '../paint/exportTexture'
 import { toAssetUrl } from '../utils/assetUrl'
 import { findUvIslandFaces } from '../paint/uvMesh'
+import type { MeshCoatProject } from '../utils/projectSerializer'
 import RadialPieMenu from '../components/RadialPieMenu'
 
 export interface ViewportHandle {
-  loadFromUrl: (url: string, extension: string, textureSize?: number) => Promise<void>
+  loadFromUrl: (
+    url: string,
+    extension: string,
+    textureSize?: number,
+    initialTextureUrl?: string | null
+  ) => Promise<void>
+  loadDefaultModel: (textureSize?: number) => Promise<void>
+  loadProject: (project: MeshCoatProject, snapshot: StackSnapshot) => Promise<void>
   focusModel: () => void
   getLayerStack: () => LayerStack | undefined
   exportBaseColorPng: () => string | undefined
@@ -422,6 +431,7 @@ export default function Viewport(props: {
   let rafId = 0
   let painting = false
   let lastStampPos: THREE.Vector3 | null = null
+  let occlusionPass: OcclusionDepthPass | undefined
   let brushTexture: THREE.Texture | null = null
   let brushTipTexture: THREE.Texture | null = null
   const textureLoader = new THREE.TextureLoader()
@@ -665,7 +675,12 @@ export default function Viewport(props: {
     sceneHandle.controls.focus(sphere.center, sphere.radius || 1)
   }
 
-  async function loadFromUrl(url: string, extension: string, textureSize?: number): Promise<void> {
+  async function loadFromUrl(
+    url: string,
+    extension: string,
+    textureSize?: number,
+    initialTextureUrl?: string | null
+  ): Promise<void> {
     if (!sceneHandle) return
     const model = await loadModel(url, extension)
     if (model.meshes.length > 1) {
@@ -688,7 +703,63 @@ export default function Viewport(props: {
     if (!symmetryGuide) symmetryGuide = createSymmetryGuide()
     model.root.add(symmetryGuide.group)
     symmetryGuide.update(brush.symmetryAxis(), model)
+
+    if (initialTextureUrl && layerStack && layerStack.layers.length > 0) {
+      try {
+        const texLoader = new THREE.TextureLoader()
+        const tex = await texLoader.loadAsync(initialTextureUrl)
+        tex.colorSpace = THREE.SRGBColorSpace
+        const baseLayer = layerStack.layers[0]
+        baseLayer.engine.fill({ texture: tex })
+        layerStack.recomposite()
+        props.onLayersChanged?.()
+      } catch (err) {
+        console.error('Failed to load initial image texture:', err)
+      }
+    }
+
     if (model.missingUv.length > 0) props.onMissingUv?.(model.missingUv)
+  }
+
+  async function loadDefaultModel(textureSize?: number): Promise<void> {
+    if (!sceneHandle) return
+    const model = createDefaultTestModel()
+    clearCurrentModel()
+    currentModel = model
+    sceneHandle.scene.add(model.root)
+    frameModel(model)
+    setupLayers(model, textureSize)
+    setupWireframe(model)
+    if (!symmetryGuide) symmetryGuide = createSymmetryGuide()
+    model.root.add(symmetryGuide.group)
+    symmetryGuide.update(brush.symmetryAxis(), model)
+    props.onLayersChanged?.()
+  }
+
+  async function loadProject(project: MeshCoatProject, snapshot: StackSnapshot): Promise<void> {
+    if (!sceneHandle) return
+    let model: LoadedModel
+    if (project.modelPath) {
+      const ext = project.modelPath.split('.').pop() || 'glb'
+      const url = window.api.assetUrl(project.modelPath)
+      model = await loadModel(url, ext)
+    } else {
+      model = createDefaultTestModel()
+    }
+    clearCurrentModel()
+    currentModel = model
+    sceneHandle.scene.add(model.root)
+    frameModel(model)
+    setupLayers(model, project.textureSize)
+    setupWireframe(model)
+    if (!symmetryGuide) symmetryGuide = createSymmetryGuide()
+    model.root.add(symmetryGuide.group)
+    symmetryGuide.update(brush.symmetryAxis(), model)
+
+    if (layerStack) {
+      layerStack.restoreState(snapshot)
+    }
+    props.onLayersChanged?.()
   }
 
   function updateHoverFace(faceIndex: number): void {
@@ -846,6 +917,25 @@ export default function Viewport(props: {
     } else if (tool === 'brush' || tool === 'stamp' || tool === 'eraser') {
       const isMask = !!layer.isMask
       const engine = layer.engine
+
+      let occlusion:
+        | { depthTexture: THREE.Texture; viewProjMatrix: THREE.Matrix4; viewMatrix: THREE.Matrix4; near: number; far: number }
+        | null = null
+      if (sceneHandle) {
+        if (!occlusionPass) occlusionPass = new OcclusionDepthPass()
+        occlusionPass.capture(sceneHandle.renderer, sceneHandle.scene, sceneHandle.camera)
+        const viewProjMatrix = new THREE.Matrix4().multiplyMatrices(
+          sceneHandle.camera.projectionMatrix,
+          sceneHandle.camera.matrixWorldInverse
+        )
+        occlusion = {
+          depthTexture: occlusionPass.depthTexture,
+          viewProjMatrix,
+          viewMatrix: sceneHandle.camera.matrixWorldInverse.clone(),
+          near: sceneHandle.camera.near,
+          far: sceneHandle.camera.far
+        }
+      }
       const color = isMask
         ? (tool === 'eraser' ? new THREE.Color(0x000000) : new THREE.Color(brush.color()))
         : (tool === 'eraser' ? engine.baseColor : new THREE.Color(brush.color()))
@@ -889,7 +979,8 @@ export default function Viewport(props: {
         stampMode: tool === 'stamp',
         textureMapping: brush.textureMapping(),
         restrictFaces,
-        angle: strokeAngle
+        angle: strokeAngle,
+        occlusion
       })
 
       if (brush.symmetryEnabled()) {
@@ -907,7 +998,8 @@ export default function Viewport(props: {
             stampMode: tool === 'stamp',
             textureMapping: brush.textureMapping(),
             restrictFaces,
-            angle: -strokeAngle
+            angle: -strokeAngle,
+            occlusion
           })
         }
       }
@@ -1246,9 +1338,9 @@ export default function Viewport(props: {
   function onWheel(e: WheelEvent): void {
     if (e.shiftKey) {
       e.preventDefault()
-      if (props.tool() === 'fill') {
+      if (props.tool() === 'fill' || (props.tool() === 'brush' && brush.texturePath())) {
         const delta = e.deltaY < 0 ? 0.25 : -0.25
-        setTextureScale(Math.max(0.1, parseFloat((brush.textureScale() + delta).toFixed(2))))
+        setTextureScale(Math.max(0, Math.min(16, parseFloat((brush.textureScale() + delta).toFixed(2)))))
       } else {
         stepRadius(e.deltaY < 0 ? 1 : -1)
       }
@@ -1260,9 +1352,19 @@ export default function Viewport(props: {
     const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')
     if (isInput) return
 
-    if (e.code === 'Space' && !e.repeat && !pieMenu()) {
+    if (e.code === 'Space' && !e.repeat) {
       e.preventDefault()
-      setPieMenu({ x: lastClientX, y: lastClientY })
+      if (pieMenu()) {
+        setPieMenu(null)
+      } else {
+        setPieMenu({ x: lastClientX, y: lastClientY })
+      }
+      return
+    }
+
+    if (e.key === 'Escape' && pieMenu()) {
+      e.preventDefault()
+      setPieMenu(null)
       return
     }
 
@@ -1282,12 +1384,6 @@ export default function Viewport(props: {
     } else if (e.key.toLowerCase() === 'w') {
       setWireframeVisible(!wireframeVisible)
       props.onWireframeChanged?.(wireframeVisible)
-    }
-  }
-
-  function onKeyUp(e: KeyboardEvent): void {
-    if (e.code === 'Space' && pieMenu()) {
-      setPieMenu(null)
     }
   }
 
@@ -1328,7 +1424,6 @@ export default function Viewport(props: {
     symmetryGuide.update(brush.symmetryAxis(), testModel)
 
     window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('keyup', onKeyUp)
     canvasRef.addEventListener('pointermove', onPointerMove)
     canvasRef.addEventListener('pointerdown', onPointerDown, { capture: true })
     canvasRef.addEventListener('dblclick', onDblClick)
@@ -1340,6 +1435,8 @@ export default function Viewport(props: {
 
     const handle: ViewportHandle = {
       loadFromUrl,
+      loadDefaultModel,
+      loadProject,
       focusModel: () => currentModel && frameModel(currentModel),
       getLayerStack: () => layerStack,
       exportBaseColorPng: () => {
@@ -1480,8 +1577,8 @@ export default function Viewport(props: {
 
   onCleanup(() => {
     cancelAnimationFrame(rafId)
+    occlusionPass?.dispose()
     window.removeEventListener('keydown', onKeyDown)
-    window.removeEventListener('keyup', onKeyUp)
     window.removeEventListener('pointermove', onPointerMove)
     window.removeEventListener('pointerup', onPointerUp)
     canvasRef?.removeEventListener('pointermove', onPointerMove)
@@ -1520,20 +1617,20 @@ export default function Viewport(props: {
 
   return (
     <>
-      <canvas ref={canvasRef} class={`viewport-canvas tool-${props.tool()}`} />
+      <canvas ref={canvasRef} class={`absolute inset-0 w-full h-full block tool-${props.tool()}`} />
       <Show when={props.tool() === 'eyedropper' && eyedropperPreview().visible}>
         <div
-          class="eyedropper-floating-preview"
+          class="fixed z-50 pointer-events-none flex items-center gap-2 px-2.5 py-1 bg-zinc-900/95 border border-zinc-700/80 rounded-lg shadow-xl shadow-black/60 backdrop-blur-sm select-none"
           style={{
             left: `${eyedropperPreview().x}px`,
             top: `${eyedropperPreview().y}px`
           }}
         >
           <div
-            class="eyedropper-preview-swatch"
+            class="w-4 h-4 rounded border border-white/40 shadow-inner flex-shrink-0"
             style={{ 'background-color': eyedropperPreview().color }}
           />
-          <span class="eyedropper-preview-hex">{eyedropperPreview().color}</span>
+          <span class="font-mono text-xs text-zinc-200 tabular-nums">{eyedropperPreview().color}</span>
         </div>
       </Show>
       <Show when={pieMenu()}>

@@ -134,7 +134,7 @@ export function setSpacing(v: number): void {
 
 /** World units per texture repeat for the texture brush's world-space tiling. */
 export function setTextureScale(v: number): void {
-  setTextureScaleRaw(clamp(v, 0.01, 50))
+  setTextureScaleRaw(clamp(v, 0, 50))
 }
 
 /** Multiplicative step so '[' / ']' feel consistent at any current size (spec section 2). */

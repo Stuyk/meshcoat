@@ -1,5 +1,6 @@
-import { createSignal, onMount, onCleanup, Show, For } from 'solid-js'
-import { XIcon, CubeIcon, FolderOpenIcon, CheckIcon, AppIcon } from './icons'
+import { createSignal, Show, For } from 'solid-js'
+import { Modal, Button } from './ui'
+import { CubeIcon, FolderOpenIcon, CheckIcon, AppIcon } from './icons'
 import { TEXTURE_SIZE_OPTIONS, DEFAULT_TEXTURE_SIZE, type TextureSize } from '../paint/paintEngine'
 
 const MODEL_EXTENSIONS = ['glb', 'gltf', 'obj']
@@ -59,127 +60,141 @@ export default function NewProjectModal(props: {
     }
   }
 
-  function onKeyDown(e: KeyboardEvent): void {
-    if (e.key === 'Escape' && props.isOpen) {
-      e.preventDefault()
-      close()
-    }
-  }
-
-  onMount(() => window.addEventListener('keydown', onKeyDown))
-  onCleanup(() => window.removeEventListener('keydown', onKeyDown))
-
   const filename = () => modelPath()?.split('/').pop() ?? ''
 
   return (
-    <Show when={props.isOpen}>
-      <div class="modal-backdrop" onClick={close}>
-        <div class="modal-dialog new-project-dialog" onClick={(e) => e.stopPropagation()}>
-          <header class="modal-header">
-            <div class="modal-title-wrap">
-              <AppIcon size={20} />
-              <h2 class="modal-title">New Project</h2>
-            </div>
-            <button class="modal-close-btn" onClick={close} title="Close (Esc)">
-              <XIcon size={16} />
-            </button>
-          </header>
+    <Modal
+      isOpen={props.isOpen}
+      onClose={close}
+      title="New Project"
+      icon={(p) => <AppIcon size={p.size} />}
+      size="lg"
+      footer={
+        <>
+          <Button variant="ghost" onClick={close} disabled={importing()}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            disabled={!modelPath() || importing()}
+            onClick={runImport}
+          >
+            {importing() ? 'Loading Model...' : 'Create Project'}
+          </Button>
+        </>
+      }
+    >
+      {/* Step 1: Model Selection */}
+      <div class="space-y-2">
+        <label class="flex items-center gap-2 text-xs font-semibold text-zinc-200">
+          <span class="w-5 h-5 rounded-md bg-blue-600/30 text-blue-400 flex items-center justify-center text-[11px] font-mono">
+            1
+          </span>
+          Select 3D Model
+        </label>
 
-          <div class="modal-body new-project-body">
-            {/* Step 1: Model Selection */}
-            <div class="wizard-section">
-              <label class="wizard-section-title">
-                <span class="step-num">1</span> Select 3D Model
-              </label>
-
-              <Show
-                when={modelPath()}
-                fallback={
-                  <div class="wizard-dropzone" onClick={browse}>
-                    <div class="wizard-dropzone-icon">
-                      <FolderOpenIcon size={24} />
-                    </div>
-                    <div class="wizard-dropzone-text">
-                      <span class="dropzone-headline">Choose a 3D model file</span>
-                      <span class="dropzone-subline">Supports .glb, .gltf, and .obj formats with UVs</span>
-                    </div>
-                    <button class="btn-flat btn-primary" style={{ 'pointer-events': 'none' }}>
-                      Browse Files
-                    </button>
-                  </div>
-                }
-              >
-                <div class="selected-model-card">
-                  <div class="model-card-icon">
-                    <CubeIcon size={22} />
-                  </div>
-                  <div class="model-card-info">
-                    <span class="model-card-filename">{filename()}</span>
-                    <span class="model-card-path" title={modelPath()!}>{modelPath()}</span>
-                  </div>
-                  <button class="btn-flat btn-ghost" onClick={browse} disabled={importing()}>
-                    Change
-                  </button>
-                </div>
-              </Show>
-            </div>
-
-            {/* Step 2: Canvas Resolution */}
-            <div class="wizard-section">
-              <label class="wizard-section-title">
-                <span class="step-num">2</span> Canvas Resolution
-              </label>
-              <span class="wizard-section-desc">
-                Choose the paintable texture resolution. Higher resolutions provide more detail but use more memory.
-              </span>
-
-              <div class="resolution-cards-grid">
-                <For each={TEXTURE_SIZE_OPTIONS}>
-                  {(size) => {
-                    const info = SIZE_DESCRIPTIONS[size]
-                    const isSelected = () => textureSize() === size
-                    return (
-                      <div
-                        class="resolution-card"
-                        classList={{ selected: isSelected() }}
-                        onClick={() => setTextureSize(size)}
-                      >
-                        <div class="res-card-header">
-                          <span class="res-card-dim">{size} × {size}</span>
-                          <Show when={isSelected()}>
-                            <span class="res-check-icon"><CheckIcon size={14} /></span>
-                          </Show>
-                        </div>
-                        <span class="res-card-desc">{info?.desc ?? ''}</span>
-                      </div>
-                    )
-                  }}
-                </For>
-              </div>
-            </div>
-
-            {/* Error Message */}
-            <Show when={error()}>
-              <div class="wizard-error-banner">
-                <span>{error()}</span>
-              </div>
-            </Show>
-          </div>
-
-          <footer class="modal-footer">
-            <button class="btn-flat btn-ghost" onClick={close} disabled={importing()}>
-              Cancel
-            </button>
-            <button
-              class="btn-flat btn-primary"
-              disabled={!modelPath() || importing()}
-              onClick={runImport}
+        <Show
+          when={modelPath()}
+          fallback={
+            <div
+              onClick={browse}
+              class="flex flex-col items-center justify-center p-6 border-2 border-dashed border-zinc-700 hover:border-blue-500/70 rounded-xl bg-zinc-950/40 hover:bg-zinc-850/40 transition-all cursor-pointer group"
             >
-              {importing() ? 'Loading Model...' : 'Create Project'}
-            </button>
-          </footer>
+              <div class="p-3 rounded-md bg-zinc-800/80 text-zinc-400 group-hover:text-blue-400 group-hover:scale-105 transition-all mb-3">
+                <FolderOpenIcon size={24} />
+              </div>
+              <span class="text-xs font-semibold text-zinc-200 mb-1">
+                Choose a 3D model file
+              </span>
+              <span class="text-[11px] text-zinc-500 mb-3">
+                Supports .glb, .gltf, and .obj formats with UVs
+              </span>
+              <Button variant="primary" size="xs">
+                Browse Files
+              </Button>
+            </div>
+          }
+        >
+          <div class="flex items-center justify-between p-3.5 bg-zinc-950/60 border border-zinc-800 rounded-xl">
+            <div class="flex items-center gap-3 min-w-0">
+              <div class="p-2 rounded-lg bg-blue-600/20 text-blue-400 flex-shrink-0">
+                <CubeIcon size={20} />
+              </div>
+              <div class="flex flex-col min-w-0">
+                <span class="text-xs font-semibold text-zinc-100 truncate">
+                  {filename()}
+                </span>
+                <span class="text-[11px] text-zinc-500 font-mono truncate" title={modelPath()!}>
+                  {modelPath()}
+                </span>
+              </div>
+            </div>
+            <Button variant="ghost" size="xs" onClick={browse} disabled={importing()}>
+              Change
+            </Button>
+          </div>
+        </Show>
+      </div>
+
+      {/* Step 2: Canvas Resolution */}
+      <div class="space-y-2 pt-2">
+        <div class="flex flex-col">
+          <label class="flex items-center gap-2 text-xs font-semibold text-zinc-200">
+            <span class="w-5 h-5 rounded-md bg-blue-600/30 text-blue-400 flex items-center justify-center text-[11px] font-mono">
+              2
+            </span>
+            Canvas Resolution
+          </label>
+          <span class="text-[11px] text-zinc-500 ml-7">
+            Choose the paintable texture resolution. Higher resolutions provide more detail but use more VRAM.
+          </span>
+        </div>
+
+        <div class="grid grid-cols-1 gap-2 pt-1">
+          <For each={TEXTURE_SIZE_OPTIONS}>
+            {(size) => {
+              const info = SIZE_DESCRIPTIONS[size]
+              const isSelected = () => textureSize() === size
+              return (
+                <div
+                  onClick={() => setTextureSize(size)}
+                  class={`flex items-center justify-between p-3 rounded-lg border transition-all cursor-pointer ${
+                    isSelected()
+                      ? 'bg-blue-600/10 border-blue-500/60 text-zinc-100 shadow-xs'
+                      : 'bg-zinc-950/40 border-zinc-800 hover:border-zinc-700 text-zinc-300'
+                  }`}
+                >
+                  <div class="flex flex-col">
+                    <div class="flex items-center gap-2 font-mono text-xs font-semibold text-zinc-200">
+                      <span>{size} × {size}</span>
+                      {size === 2048 && (
+                        <span class="px-1.5 py-0.2 rounded bg-blue-950 border border-blue-800/80 text-[10px] text-blue-300 font-sans font-normal">
+                          Recommended
+                        </span>
+                      )}
+                    </div>
+                    <span class="text-[11px] text-zinc-500 mt-0.5">
+                      {info?.desc ?? ''}
+                    </span>
+                  </div>
+                  <Show when={isSelected()}>
+                    <div class="w-5 h-5 rounded-md bg-blue-600 text-white flex items-center justify-center">
+                      <CheckIcon size={12} />
+                    </div>
+                  </Show>
+                </div>
+              )
+            }}
+          </For>
         </div>
       </div>
-    </Show>
+
+      {/* Error Banner */}
+      <Show when={error()}>
+        <div class="p-3 bg-red-950/50 border border-red-800/80 rounded-lg text-xs text-red-300">
+          {error()}
+        </div>
+      </Show>
+    </Modal>
   )
 }

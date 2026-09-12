@@ -10,6 +10,7 @@ import {
   RefreshCwIcon,
   SlidersIcon
 } from './icons'
+import { Button, IconButton, Slider, SegmentedControl } from './ui'
 import type { EdgeWearParams } from '../paint/paintEngine'
 
 export interface EdgeWearWizardProps {
@@ -98,30 +99,28 @@ const METAL_COLORS = [
 const WEATHER_COLORS = [
   { name: 'Rust Red', hex: '#b91c1c' },
   { name: 'Deep Rust', hex: '#78350f' },
-  { name: 'Dirt / Earth', hex: '#451a03' },
-  { name: 'Charcoal Grime', hex: '#1f2937' },
-  { name: 'Chalk White', hex: '#ffffff' },
-  { name: 'Primer Gray', hex: '#64748b' }
+  { name: 'Verdigris', hex: '#14b8a6' },
+  { name: 'Patina Green', hex: '#059669' },
+  { name: 'Dirt Brown', hex: '#451a03' },
+  { name: 'Dark Soot', hex: '#1c1917' }
 ]
 
 export default function EdgeWearWizard(props: EdgeWearWizardProps) {
-  // Navigation Tabs: 'material' or 'tuning'
   const [activeTab, setActiveTab] = createSignal<'material' | 'tuning'>('material')
 
-  const [threshold, setThreshold] = createSignal(28)
-  const [wearWidth, setWearWidth] = createSignal(0.05)
-  const [noiseScale, setNoiseScale] = createSignal(25)
-  const [roughness, setRoughness] = createSignal(0.65)
-  const [amount, setAmount] = createSignal(0.7)
-  const [contrast, setContrast] = createSignal(0.55)
-  const [seed, setSeed] = createSignal(0)
-  const [color, setColor] = createSignal(props.initialColor || '#d1d5db')
+  const [threshold, setThreshold] = createSignal(25)
+  const [wearWidth, setWearWidth] = createSignal(0.06)
+  const [noiseScale, setNoiseScale] = createSignal(28)
+  const [roughness, setRoughness] = createSignal(0.7)
+  const [amount, setAmount] = createSignal(0.75)
+  const [contrast, setContrast] = createSignal(0.7)
+  const [seed, setSeed] = createSignal(1)
+  const [color, setColor] = createSignal(props.initialColor ?? '#f3f4f6')
   const [opacity, setOpacity] = createSignal(1.0)
   const [asNewLayer, setAsNewLayer] = createSignal(true)
   const [livePreview, setLivePreview] = createSignal(true)
   const [activePreset, setActivePreset] = createSignal<string>('Chipped Paint')
 
-  // Material Mode: 'color' or 'texture'
   const [materialMode, setMaterialMode] = createSignal<'color' | 'texture'>('color')
   const [selectedTexturePath, setSelectedTexturePath] = createSignal<string | null>(null)
   const [textureScale, setTextureScale] = createSignal(1.0)
@@ -160,7 +159,6 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
     }
   }
 
-  // Reload THREE.Texture when texture path changes
   createEffect(() => {
     const path = selectedTexturePath()
     if (!path || materialMode() !== 'texture') {
@@ -180,7 +178,6 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
     })
   })
 
-  // Trigger preview when wizard opens
   createEffect(() => {
     if (props.isOpen) {
       triggerPreview()
@@ -256,57 +253,65 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
   onCleanup(() => window.removeEventListener('keydown', onKeyDown))
 
   return (
-    <div class="edge-wear-wizard-panel">
+    <div class="flex flex-col h-full bg-zinc-900/90 text-xs text-zinc-300 select-none">
       {/* Top Banner Header */}
-      <div class="edge-wear-wizard-header">
-        <div class="wizard-header-left">
-          <div class="edge-wear-header-icon">
-            <SparklesIcon size={16} class="text-amber-400" />
+      <div class="h-11 px-3.5 flex items-center justify-between border-b border-zinc-800 bg-zinc-950/60 flex-shrink-0">
+        <div class="flex items-center gap-2.5">
+          <div class="p-1 rounded-lg bg-amber-500/20 text-amber-400">
+            <SparklesIcon size={16} />
           </div>
-          <div>
-            <h3 class="wizard-header-title">Edge Wear Wizard</h3>
-            <p class="wizard-header-subtitle">Procedural Ridge & Chipping Generator</p>
+          <div class="flex flex-col">
+            <span class="text-xs font-semibold text-zinc-100">Edge Wear Wizard</span>
+            <span class="text-[10px] text-zinc-500">Procedural Ridge & Chipping</span>
           </div>
         </div>
-        <button class="modal-close-btn" onClick={handleClose} title="Cancel & Close (Esc)">
-          <XIcon size={15} />
-        </button>
+        <IconButton size="xs" variant="ghost" onClick={handleClose} title="Cancel (Esc)">
+          <XIcon size={14} />
+        </IconButton>
       </div>
 
-      {/* Subheader Wizard Navigation Tabs */}
-      <div class="wizard-nav-tabs">
+      {/* Wizard Navigation Tabs */}
+      <div class="flex items-center border-b border-zinc-800 bg-zinc-950/40 p-1 gap-1 flex-shrink-0">
         <button
-          class="wizard-nav-tab"
-          classList={{ active: activeTab() === 'material' }}
+          type="button"
           onClick={() => setActiveTab('material')}
+          class={`flex-1 flex items-center justify-center gap-1.5 h-7 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+            activeTab() === 'material'
+              ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-xs'
+              : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/50'
+          }`}
         >
-          <PaletteIcon size={14} />
-          <span>Wear Material</span>
+          <PaletteIcon size={13} />
+          <span>Material</span>
         </button>
         <button
-          class="wizard-nav-tab"
-          classList={{ active: activeTab() === 'tuning' }}
+          type="button"
           onClick={() => setActiveTab('tuning')}
+          class={`flex-1 flex items-center justify-center gap-1.5 h-7 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+            activeTab() === 'tuning'
+              ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-xs'
+              : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/50'
+          }`}
         >
-          <SlidersIcon size={14} />
-          <span>Ridge & Noise Tuning</span>
+          <SlidersIcon size={13} />
+          <span>Ridge & Noise</span>
         </button>
       </div>
 
       {/* Wizard Scrollable Body */}
-      <div class="edge-wear-wizard-scroll-body">
+      <div class="flex-1 overflow-y-auto p-3 space-y-4">
         {/* ============================================================ */}
         {/* TAB 1: WEAR MATERIAL & STYLE                                 */}
         {/* ============================================================ */}
         <Show when={activeTab() === 'material'}>
           {/* Active Material Hero Card */}
-          <div class="wizard-hero-card">
-            <div class="hero-preview-box checkerboard-bg">
+          <div class="p-3 bg-zinc-950/60 border border-zinc-800/80 rounded-xl flex items-center gap-3">
+            <div class="w-12 h-12 rounded-xl checkerboard-bg border border-zinc-750 flex items-center justify-center overflow-hidden flex-shrink-0">
               <Show
                 when={materialMode() === 'texture' && selectedTexturePath()}
                 fallback={
                   <div
-                    class="hero-color-swatch"
+                    class="w-full h-full"
                     style={{
                       background: color(),
                       opacity: opacity()
@@ -317,546 +322,463 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
                 <img
                   src={window.api.assetUrl(selectedTexturePath()!)}
                   alt="Wear pattern"
-                  class="hero-texture-img"
+                  class="w-full h-full object-cover"
                   style={{ opacity: opacity() }}
                 />
               </Show>
             </div>
 
-            <div class="hero-info-column">
-              <div class="hero-mode-badge-row">
-                <span class="hero-mode-pill">
-                  {materialMode() === 'color' ? 'Solid Color Mode' : 'Texture Pattern Mode'}
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between gap-1 mb-1">
+                <span class="text-[10px] font-mono uppercase text-zinc-500">
+                  {materialMode() === 'color' ? 'Solid Color' : 'Texture Pattern'}
                 </span>
-                <span class="hero-opacity-pill tabular">{Math.round(opacity() * 100)}%</span>
+                <span class="font-mono text-[10px] text-zinc-400 tabular-nums">
+                  {Math.round(opacity() * 100)}%
+                </span>
               </div>
-
-              <div class="hero-title-text" title={materialMode() === 'color' ? color() : (selectedTexturePath()?.split('/').pop() ?? 'No texture')}>
+              <span class="text-xs font-semibold text-zinc-200 truncate block mb-1.5">
                 {materialMode() === 'color'
                   ? color().toUpperCase()
                   : (selectedTexturePath()?.split('/').pop() ?? 'No Texture Selected')}
-              </div>
-
-              {/* Mode Toggle Switch */}
-              <div class="wizard-mode-pills hero-mode-switch">
-                <button
-                  class="mode-pill-btn"
-                  classList={{ active: materialMode() === 'color' }}
-                  onClick={() => {
-                    setMaterialMode('color')
-                    triggerPreview()
-                  }}
-                >
-                  <PaletteIcon size={13} />
-                  <span>Solid Color</span>
-                </button>
-                <button
-                  class="mode-pill-btn"
-                  classList={{ active: materialMode() === 'texture' }}
-                  onClick={() => {
-                    setMaterialMode('texture')
-                    if (!selectedTexturePath() && allTextures().length > 0) {
-                      setSelectedTexturePath(allTextures()[0])
-                    }
-                    triggerPreview()
-                  }}
-                >
-                  <ImagesIcon size={13} />
-                  <span>Texture Pattern</span>
-                </button>
-              </div>
+              </span>
+              <SegmentedControl
+                size="xs"
+                options={[
+                  { value: 'color', label: 'Solid Color', icon: (p) => <PaletteIcon size={p.size} /> },
+                  { value: 'texture', label: 'Texture', icon: (p) => <ImagesIcon size={p.size} /> }
+                ]}
+                value={materialMode()}
+                onChange={(m) => {
+                  setMaterialMode(m)
+                  if (m === 'texture' && !selectedTexturePath() && allTextures().length > 0) {
+                    setSelectedTexturePath(allTextures()[0])
+                  }
+                  triggerPreview()
+                }}
+                class="w-full"
+              />
             </div>
           </div>
 
           {/* Solid Color Mode Controls */}
           <Show when={materialMode() === 'color'}>
-            <section class="wizard-section-card">
-              <div class="wizard-section-card-header">
-                <span class="wizard-section-title">Metallic Colors</span>
-              </div>
-              <div class="color-palette-grid-spacious">
-                <For each={METAL_COLORS}>
-                  {(item) => (
-                    <button
-                      class="palette-chip-btn-spacious"
-                      classList={{ active: color().toLowerCase() === item.hex.toLowerCase() }}
-                      onClick={() => {
-                        setColor(item.hex)
-                        setActivePreset('')
-                        triggerPreview()
-                      }}
-                      title={item.name}
-                    >
-                      <span class="chip-circle-large" style={{ background: item.hex }} />
-                      <span class="chip-name">{item.name}</span>
-                    </button>
-                  )}
-                </For>
-              </div>
-
-              <div class="wizard-section-card-header" style={{ 'margin-top': '8px' }}>
-                <span class="wizard-section-title">Weathering & Corrosion</span>
-              </div>
-              <div class="color-palette-grid-spacious">
-                <For each={WEATHER_COLORS}>
-                  {(item) => (
-                    <button
-                      class="palette-chip-btn-spacious"
-                      classList={{ active: color().toLowerCase() === item.hex.toLowerCase() }}
-                      onClick={() => {
-                        setColor(item.hex)
-                        setActivePreset('')
-                        triggerPreview()
-                      }}
-                      title={item.name}
-                    >
-                      <span class="chip-circle-large" style={{ background: item.hex }} />
-                      <span class="chip-name">{item.name}</span>
-                    </button>
-                  )}
-                </For>
-              </div>
-
-              {/* Custom Color Picker & Opacity */}
-              <div class="material-controls-row">
-                <div class="custom-color-picker-wrap">
-                  <span class="setting-inline-label">Custom Color</span>
-                  <button
-                    class="color-hex-badge-large tabular"
-                    onClick={() => colorPickerRef?.click()}
-                    title="Click to open system color picker"
-                  >
-                    <span class="color-preview-chip-large" style={{ background: color() }} />
-                    <span>{color().toUpperCase()}</span>
-                  </button>
-                  <input
-                    ref={colorPickerRef}
-                    type="color"
-                    class="sr-only-picker"
-                    value={color()}
-                    onInput={(e) => {
-                      setColor(e.currentTarget.value)
-                      setActivePreset('')
-                      triggerPreview()
+            <div class="space-y-3">
+              <div class="space-y-1.5">
+                <span class="text-[11px] font-semibold text-zinc-400">Metallic Presets</span>
+                <div class="grid grid-cols-3 gap-1.5">
+                  <For each={METAL_COLORS}>
+                    {(item) => {
+                      const isActive = () => color().toLowerCase() === item.hex.toLowerCase()
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setColor(item.hex)
+                            setActivePreset('')
+                            triggerPreview()
+                          }}
+                          class={`flex items-center gap-2 p-1.5 rounded-lg border text-left transition-colors cursor-pointer ${
+                            isActive()
+                              ? 'bg-zinc-800 text-zinc-100 border-zinc-600'
+                              : 'bg-zinc-950/40 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 border-zinc-800'
+                          }`}
+                        >
+                          <span class="w-3.5 h-3.5 rounded-full border border-white/20 flex-shrink-0" style={{ background: item.hex }} />
+                          <span class="text-[11px] font-medium truncate">{item.name}</span>
+                        </button>
+                      )
                     }}
-                  />
-                </div>
-
-                <div class="opacity-slider-wrap">
-                  <div class="setting-header-row">
-                    <span class="setting-title">Opacity</span>
-                    <span class="setting-val-badge tabular">{Math.round(opacity() * 100)}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    class="custom-slider"
-                    min="0.05"
-                    max="1.0"
-                    step="0.05"
-                    value={opacity()}
-                    onInput={(e) => {
-                      setOpacity(parseFloat(e.currentTarget.value))
-                      handleSliderChange()
-                    }}
-                  />
+                  </For>
                 </div>
               </div>
-            </section>
+
+              <div class="space-y-1.5">
+                <span class="text-[11px] font-semibold text-zinc-400">Corrosion & Weathering</span>
+                <div class="grid grid-cols-3 gap-1.5">
+                  <For each={WEATHER_COLORS}>
+                    {(item) => {
+                      const isActive = () => color().toLowerCase() === item.hex.toLowerCase()
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setColor(item.hex)
+                            setActivePreset('')
+                            triggerPreview()
+                          }}
+                          class={`flex items-center gap-2 p-1.5 rounded-lg border text-left transition-colors cursor-pointer ${
+                            isActive()
+                              ? 'bg-zinc-800 text-zinc-100 border-zinc-600'
+                              : 'bg-zinc-950/40 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 border-zinc-800'
+                          }`}
+                        >
+                          <span class="w-3.5 h-3.5 rounded-full border border-white/20 flex-shrink-0" style={{ background: item.hex }} />
+                          <span class="text-[11px] font-medium truncate">{item.name}</span>
+                        </button>
+                      )
+                    }}
+                  </For>
+                </div>
+              </div>
+
+              {/* Custom Color & Opacity Row */}
+              <div class="flex items-center gap-2 p-2 bg-zinc-950/40 border border-zinc-800 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => colorPickerRef?.click()}
+                  class="flex items-center gap-2 flex-1 cursor-pointer"
+                >
+                  <span class="w-5 h-5 rounded-md border border-white/20" style={{ background: color() }} />
+                  <span class="font-mono text-xs text-zinc-200">{color().toUpperCase()}</span>
+                </button>
+                <input
+                  ref={colorPickerRef}
+                  type="color"
+                  class="sr-only"
+                  value={color()}
+                  onInput={(e) => {
+                    setColor(e.currentTarget.value)
+                    setActivePreset('')
+                    triggerPreview()
+                  }}
+                />
+              </div>
+
+              <Slider
+                label="Wear Opacity"
+                value={opacity()}
+                min={0.05}
+                max={1.0}
+                step={0.05}
+                onChange={(v) => {
+                  setOpacity(v)
+                  handleSliderChange()
+                }}
+                displayValue={(v) => `${Math.round(v * 100)}%`}
+              />
+            </div>
           </Show>
 
           {/* Texture Pattern Mode Controls */}
           <Show when={materialMode() === 'texture'}>
-            <section class="wizard-section-card">
-              <div class="texture-selector-header">
-                <span class="wizard-section-title">Available Textures</span>
-                <button class="browse-texture-btn" onClick={browseForTexture} title="Load image file from computer">
-                  <FolderOpenIcon size={14} />
-                  <span>Browse File...</span>
-                </button>
+            <div class="space-y-3">
+              <div class="flex items-center justify-between">
+                <span class="text-[11px] font-semibold text-zinc-400">Available Textures</span>
+                <Button variant="ghost" size="xs" onClick={browseForTexture}>
+                  <FolderOpenIcon size={12} />
+                  <span>Browse...</span>
+                </Button>
               </div>
 
-              {/* Available Textures Grid - Generous 2 columns */}
               <Show
                 when={allTextures().length > 0}
                 fallback={
-                  <div class="wizard-empty-textures" onClick={browseForTexture}>
-                    <FolderOpenIcon size={28} class="text-blue-400" />
-                    <span class="empty-title">No Textures Loaded</span>
-                    <span class="empty-desc">Click here to browse and import any image file (PNG, JPG, WebP)</span>
+                  <div
+                    onClick={browseForTexture}
+                    class="p-4 border border-dashed border-zinc-800 hover:border-zinc-700 rounded-xl text-center bg-zinc-950/40 cursor-pointer"
+                  >
+                    <FolderOpenIcon size={20} class="mx-auto text-blue-400 mb-1" />
+                    <span class="text-xs font-medium text-zinc-300 block">No Textures Loaded</span>
+                    <span class="text-[10px] text-zinc-500 block">Click to import image files</span>
                   </div>
                 }
               >
-                <div class="wizard-texture-grid-spacious">
+                <div class="grid grid-cols-2 gap-2 max-h-44 overflow-y-auto p-1 border border-zinc-800 rounded-xl bg-zinc-950/30">
                   <For each={allTextures()}>
-                    {(path) => (
-                      <button
-                        class="wizard-texture-card-spacious"
-                        classList={{ active: selectedTexturePath() === path }}
-                        onClick={() => {
-                          setSelectedTexturePath(path)
-                          triggerPreview()
-                        }}
-                        title={path.split('/').pop() ?? path}
-                      >
-                        <img src={window.api.assetUrl(path)} alt="" class="texture-card-img-spacious" />
-                        <span class="texture-card-name-spacious">{path.split('/').pop()}</span>
-                      </button>
-                    )}
+                    {(path) => {
+                      const isSelected = () => selectedTexturePath() === path
+                      const filename = path.split('/').pop() ?? path
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedTexturePath(path)
+                            triggerPreview()
+                          }}
+                          class={`flex items-center gap-2 p-1.5 rounded-lg border text-left transition-all cursor-pointer ${
+                            isSelected()
+                              ? 'bg-blue-600/20 border-blue-500/70 shadow-xs'
+                              : 'bg-zinc-900/60 border-zinc-800 hover:border-zinc-700'
+                          }`}
+                        >
+                          <div class="w-8 h-8 rounded checkerboard-bg overflow-hidden flex-shrink-0">
+                            <img src={window.api.assetUrl(path)} alt="" class="w-full h-full object-cover" />
+                          </div>
+                          <span class="text-[11px] font-medium text-zinc-300 truncate" title={filename}>
+                            {filename}
+                          </span>
+                        </button>
+                      )
+                    }}
                   </For>
                 </div>
               </Show>
 
-              {/* Texture Projection & Tiling Options */}
-              <div class="texture-options-box">
-                <div class="texture-option-row">
-                  <div class="projection-label-group">
-                    <span class="setting-title">Texture Projection</span>
-                    <span class="setting-desc-subtle">
-                      {textureMapping() === 'triplanar'
-                        ? 'World Triplanar (Seamless 3D projection across UV island seams)'
-                        : 'UV Mapping (Follows mesh 2D UV unwrapping)'}
-                    </span>
-                  </div>
-                  <div class="segmented-control-mini">
-                    <button
-                      class="segmented-btn-mini"
-                      classList={{ active: textureMapping() === 'triplanar' }}
-                      onClick={() => {
-                        setTextureMapping('triplanar')
-                        triggerPreview()
-                      }}
-                    >
-                      Triplanar
-                    </button>
-                    <button
-                      class="segmented-btn-mini"
-                      classList={{ active: textureMapping() === 'uv' }}
-                      onClick={() => {
-                        setTextureMapping('uv')
-                        triggerPreview()
-                      }}
-                    >
-                      UV Islands
-                    </button>
-                  </div>
-                </div>
-
-                <div class="setting-group" style={{ 'margin-top': '8px' }}>
-                  <div class="setting-header-row">
-                    <span class="setting-title">Pattern Scale</span>
-                    <span class="setting-val-badge tabular">{textureScale().toFixed(2)}×</span>
-                  </div>
-                  <input
-                    type="range"
-                    class="custom-slider"
-                    min="0.1"
-                    max="5.0"
-                    step="0.1"
-                    value={textureScale()}
-                    onInput={(e) => {
-                      setTextureScale(parseFloat(e.currentTarget.value))
+              {/* Texture Projection & Tiling */}
+              <div class="space-y-2 p-3 bg-zinc-950/40 border border-zinc-800 rounded-xl">
+                <div class="flex items-center justify-between">
+                  <span class="text-[11px] font-medium text-zinc-400">Projection</span>
+                  <SegmentedControl
+                    size="xs"
+                    options={[
+                      { value: 'triplanar', label: 'Triplanar' },
+                      { value: 'uv', label: 'UV' }
+                    ]}
+                    value={textureMapping()}
+                    onChange={(m) => {
+                      setTextureMapping(m as any)
                       triggerPreview()
                     }}
                   />
                 </div>
 
-                {/* Color Tint & Texture Opacity */}
-                <div class="material-controls-row" style={{ 'margin-top': '8px' }}>
-                  <div class="custom-color-picker-wrap">
-                    <span class="setting-inline-label">Color Tint</span>
-                    <button
-                      class="color-hex-badge-large tabular"
-                      onClick={() => colorPickerRef?.click()}
-                      title="Tint color multiplied over texture"
-                    >
-                      <span class="color-preview-chip-large" style={{ background: color() }} />
-                      <span>{color().toUpperCase()}</span>
-                    </button>
-                    <input
-                      ref={colorPickerRef}
-                      type="color"
-                      class="sr-only-picker"
-                      value={color()}
-                      onInput={(e) => {
-                        setColor(e.currentTarget.value)
-                        triggerPreview()
-                      }}
-                    />
-                  </div>
+                <Slider
+                  label="Pattern Scale"
+                  value={textureScale()}
+                  min={0.0}
+                  max={16.0}
+                  step={0.1}
+                  onChange={(v) => {
+                    setTextureScale(v)
+                    triggerPreview()
+                  }}
+                  displayValue={(v) => `${v.toFixed(1)}×`}
+                  presets={[
+                    { label: '0×', value: 0 },
+                    { label: '1×', value: 1 },
+                    { label: '2×', value: 2 },
+                    { label: '4×', value: 4 },
+                    { label: '8×', value: 8 },
+                    { label: '16×', value: 16 }
+                  ]}
+                />
 
-                  <div class="opacity-slider-wrap">
-                    <div class="setting-header-row">
-                      <span class="setting-title">Opacity</span>
-                      <span class="setting-val-badge tabular">{Math.round(opacity() * 100)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      class="custom-slider"
-                      min="0.05"
-                      max="1.0"
-                      step="0.05"
-                      value={opacity()}
-                      onInput={(e) => {
-                        setOpacity(parseFloat(e.currentTarget.value))
-                        triggerPreview()
-                      }}
-                    />
-                  </div>
-                </div>
+                <Slider
+                  label="Texture Opacity"
+                  value={opacity()}
+                  min={0.05}
+                  max={1.0}
+                  step={0.05}
+                  onChange={(v) => {
+                    setOpacity(v)
+                    triggerPreview()
+                  }}
+                  displayValue={(v) => `${Math.round(v * 100)}%`}
+                />
               </div>
-            </section>
+            </div>
           </Show>
 
           {/* Style Presets */}
-          <section class="wizard-section-card">
-            <div class="wizard-section-card-header">
-              <span class="wizard-section-title">Style Presets</span>
-              <span class="setting-desc-subtle">Quick wear styles</span>
-            </div>
-            <div class="edge-wear-presets-grid">
+          <div class="space-y-1.5 pt-2">
+            <span class="text-[11px] font-semibold text-zinc-400">Style Presets</span>
+            <div class="grid grid-cols-2 gap-2">
               <For each={PRESETS}>
-                {(preset) => (
-                  <button
-                    type="button"
-                    class="edge-wear-preset-card"
-                    classList={{ active: activePreset() === preset.name }}
-                    onClick={() => applyPreset(preset)}
-                  >
-                    <div class="preset-card-title">{preset.name}</div>
-                    <div class="preset-card-desc">{preset.desc}</div>
-                  </button>
-                )}
+                {(preset) => {
+                  const isSelected = () => activePreset() === preset.name
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => applyPreset(preset)}
+                      class={`p-2 rounded-xl border text-left transition-all cursor-pointer ${
+                        isSelected()
+                          ? 'bg-blue-600/15 border-blue-500/70 shadow-xs'
+                          : 'bg-zinc-950/50 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900/50'
+                      }`}
+                    >
+                      <span class="text-xs font-semibold text-zinc-200 block truncate">
+                        {preset.name}
+                      </span>
+                      <span class="text-[10px] text-zinc-500 block truncate mt-0.5">
+                        {preset.desc}
+                      </span>
+                    </button>
+                  )
+                }}
               </For>
             </div>
-          </section>
+          </div>
         </Show>
 
         {/* ============================================================ */}
         {/* TAB 2: RIDGE & NOISE TUNING                                  */}
         {/* ============================================================ */}
         <Show when={activeTab() === 'tuning'}>
-          {/* Section 1: Edge Ridge Geometry */}
-          <section class="wizard-section-card">
-            <div class="wizard-section-card-header">
-              <span class="wizard-section-title">Edge Ridge Detection</span>
-            </div>
+          {/* Edge Detection */}
+          <div class="space-y-3">
+            <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider block">
+              Edge Ridge Detection
+            </span>
+            <Slider
+              label="Angle Threshold"
+              value={threshold()}
+              min={5}
+              max={85}
+              step={1}
+              unit="°"
+              onChange={(v) => {
+                setThreshold(v)
+                handleSliderChange()
+              }}
+            />
+            <Slider
+              label="Wear Width"
+              value={wearWidth()}
+              min={0.005}
+              max={0.25}
+              step={0.005}
+              onChange={(v) => {
+                setWearWidth(v)
+                handleSliderChange()
+              }}
+              displayValue={(v) => `${(v * 100).toFixed(1)}%`}
+            />
+          </div>
 
-            <div class="wizard-sliders-column">
-              {/* Angle Threshold */}
-              <div class="setting-group">
-                <div class="setting-header-row">
-                  <span class="setting-title" title="Minimum dihedral angle between adjacent faces to be recognized as an edge">
-                    Angle Threshold
-                  </span>
-                  <span class="setting-val-badge tabular">{threshold()}°</span>
-                </div>
-                <input
-                  type="range"
-                  class="custom-slider"
-                  min="5"
-                  max="85"
-                  step="1"
-                  value={threshold()}
-                  onInput={(e) => {
-                    setThreshold(parseFloat(e.currentTarget.value))
-                    handleSliderChange()
-                  }}
-                />
-                <span class="setting-subtext">Lower values detect gentler curves; higher values detect sharp corners.</span>
-              </div>
-
-              {/* Wear Width */}
-              <div class="setting-group">
-                <div class="setting-header-row">
-                  <span class="setting-title" title="Distance wear extends inward from sharp edges">
-                    Wear Width
-                  </span>
-                  <span class="setting-val-badge tabular">{(wearWidth() * 100).toFixed(1)}%</span>
-                </div>
-                <input
-                  type="range"
-                  class="custom-slider"
-                  min="0.005"
-                  max="0.25"
-                  step="0.005"
-                  value={wearWidth()}
-                  onInput={(e) => {
-                    setWearWidth(parseFloat(e.currentTarget.value))
-                    handleSliderChange()
-                  }}
-                />
-                <span class="setting-subtext">Thickness of the wear border spreading inward along adjacent faces.</span>
-              </div>
-            </div>
-          </section>
-
-          {/* Section 2: Procedural Grunge & Noise */}
-          <section class="wizard-section-card">
-            <div class="wizard-section-card-header">
-              <span class="wizard-section-title">Procedural Chips & Scratches</span>
-              <button class="seed-reroll-btn" onClick={rerollSeed} title="Shuffle noise seed">
+          {/* Chips & Noise */}
+          <div class="space-y-3 pt-2">
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
+                Procedural Chips
+              </span>
+              <Button variant="ghost" size="xs" onClick={rerollSeed} title="Shuffle noise seed">
                 <RefreshCwIcon size={12} />
-                <span>Reroll Variation</span>
+                <span>Reroll</span>
+              </Button>
+            </div>
+
+            <Slider
+              label="Chips Frequency"
+              value={noiseScale()}
+              min={2}
+              max={70}
+              step={1}
+              onChange={(v) => {
+                setNoiseScale(v)
+                handleSliderChange()
+              }}
+              displayValue={(v) => v.toFixed(0)}
+            />
+
+            <Slider
+              label="Detail & Roughness"
+              value={roughness()}
+              min={0.0}
+              max={1.0}
+              step={0.05}
+              onChange={(v) => {
+                setRoughness(v)
+                handleSliderChange()
+              }}
+              displayValue={(v) => `${Math.round(v * 100)}%`}
+            />
+
+            <Slider
+              label="Wear Amount"
+              value={amount()}
+              min={0.1}
+              max={1.0}
+              step={0.05}
+              onChange={(v) => {
+                setAmount(v)
+                handleSliderChange()
+              }}
+              displayValue={(v) => `${Math.round(v * 100)}%`}
+            />
+
+            <Slider
+              label="Edge Sharpness"
+              value={contrast()}
+              min={0.1}
+              max={1.0}
+              step={0.05}
+              onChange={(v) => {
+                setContrast(v)
+                handleSliderChange()
+              }}
+              displayValue={(v) => `${Math.round(v * 100)}%`}
+            />
+          </div>
+
+          {/* Bake Destination */}
+          <div class="space-y-2 pt-2">
+            <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider block">
+              Bake Destination
+            </span>
+            <div class="space-y-1.5">
+              <button
+                type="button"
+                onClick={() => setAsNewLayer(true)}
+                class={`flex items-start gap-2.5 p-2.5 rounded-xl border text-left w-full transition-colors cursor-pointer ${
+                  asNewLayer()
+                    ? 'bg-blue-600/15 border-blue-500/70'
+                    : 'bg-zinc-950/40 border-zinc-800 hover:border-zinc-700'
+                }`}
+              >
+                <div class="w-4 h-4 rounded-full border border-blue-500 mt-0.5 flex items-center justify-center">
+                  <Show when={asNewLayer()}>
+                    <div class="w-2 h-2 rounded-full bg-blue-500" />
+                  </Show>
+                </div>
+                <div class="flex flex-col min-w-0">
+                  <span class="text-xs font-semibold text-zinc-200">
+                    New "Edge Wear" Layer (Recommended)
+                  </span>
+                  <span class="text-[10px] text-zinc-500">
+                    Creates an editable layer you can toggle, erase, or blend later.
+                  </span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setAsNewLayer(false)}
+                class={`flex items-start gap-2.5 p-2.5 rounded-xl border text-left w-full transition-colors cursor-pointer ${
+                  !asNewLayer()
+                    ? 'bg-blue-600/15 border-blue-500/70'
+                    : 'bg-zinc-950/40 border-zinc-800 hover:border-zinc-700'
+                }`}
+              >
+                <div class="w-4 h-4 rounded-full border border-blue-500 mt-0.5 flex items-center justify-center">
+                  <Show when={!asNewLayer()}>
+                    <div class="w-2 h-2 rounded-full bg-blue-500" />
+                  </Show>
+                </div>
+                <div class="flex flex-col min-w-0">
+                  <span class="text-xs font-semibold text-zinc-200">
+                    Merge into Active Layer
+                  </span>
+                  <span class="text-[10px] text-zinc-500">
+                    Permanently bakes the wear into the currently active layer.
+                  </span>
+                </div>
               </button>
             </div>
-
-            <div class="wizard-sliders-column">
-              {/* Noise Scale */}
-              <div class="setting-group">
-                <div class="setting-header-row">
-                  <span class="setting-title" title="Frequency of chips, scratches, and noise">
-                    Chips Frequency (Scale)
-                  </span>
-                  <span class="setting-val-badge tabular">{noiseScale().toFixed(0)}</span>
-                </div>
-                <input
-                  type="range"
-                  class="custom-slider"
-                  min="2"
-                  max="70"
-                  step="1"
-                  value={noiseScale()}
-                  onInput={(e) => {
-                    setNoiseScale(parseFloat(e.currentTarget.value))
-                    handleSliderChange()
-                  }}
-                />
-              </div>
-
-              {/* Detail & Roughness */}
-              <div class="setting-group">
-                <div class="setting-header-row">
-                  <span class="setting-title" title="Fractal fBm micro-scratches and surface roughness">
-                    Detail & Roughness
-                  </span>
-                  <span class="setting-val-badge tabular">{Math.round(roughness() * 100)}%</span>
-                </div>
-                <input
-                  type="range"
-                  class="custom-slider"
-                  min="0.0"
-                  max="1.0"
-                  step="0.05"
-                  value={roughness()}
-                  onInput={(e) => {
-                    setRoughness(parseFloat(e.currentTarget.value))
-                    handleSliderChange()
-                  }}
-                />
-              </div>
-
-              {/* Wear Amount */}
-              <div class="setting-group">
-                <div class="setting-header-row">
-                  <span class="setting-title" title="Overall edge coverage density">
-                    Wear Amount
-                  </span>
-                  <span class="setting-val-badge tabular">{Math.round(amount() * 100)}%</span>
-                </div>
-                <input
-                  type="range"
-                  class="custom-slider"
-                  min="0.1"
-                  max="1.0"
-                  step="0.05"
-                  value={amount()}
-                  onInput={(e) => {
-                    setAmount(parseFloat(e.currentTarget.value))
-                    handleSliderChange()
-                  }}
-                />
-              </div>
-
-              {/* Contrast */}
-              <div class="setting-group">
-                <div class="setting-header-row">
-                  <span class="setting-title" title="Falloff edge sharpness of the wear chips">
-                    Edge Sharpness / Contrast
-                  </span>
-                  <span class="setting-val-badge tabular">{Math.round(contrast() * 100)}%</span>
-                </div>
-                <input
-                  type="range"
-                  class="custom-slider"
-                  min="0.1"
-                  max="1.0"
-                  step="0.05"
-                  value={contrast()}
-                  onInput={(e) => {
-                    setContrast(parseFloat(e.currentTarget.value))
-                    handleSliderChange()
-                  }}
-                />
-              </div>
-            </div>
-          </section>
-
-          {/* Section 3: Bake Destination */}
-          <section class="wizard-section-card">
-            <div class="wizard-section-card-header">
-              <span class="wizard-section-title">Bake Destination</span>
-            </div>
-
-            <div class="destination-options-column">
-              <label
-                class="destination-option-pill"
-                classList={{ selected: asNewLayer() }}
-                onClick={() => setAsNewLayer(true)}
-              >
-                <input
-                  type="radio"
-                  name="wearTarget"
-                  checked={asNewLayer()}
-                  onChange={() => setAsNewLayer(true)}
-                />
-                <div class="option-pill-content">
-                  <span class="option-pill-title">New "Edge Wear" Layer (Recommended)</span>
-                  <span class="option-pill-desc">Creates a separate layer so you can toggle, erase, or adjust opacity later.</span>
-                </div>
-              </label>
-
-              <label
-                class="destination-option-pill"
-                classList={{ selected: !asNewLayer() }}
-                onClick={() => setAsNewLayer(false)}
-              >
-                <input
-                  type="radio"
-                  name="wearTarget"
-                  checked={!asNewLayer()}
-                  onChange={() => setAsNewLayer(false)}
-                />
-                <div class="option-pill-content">
-                  <span class="option-pill-title">Merge into Active Layer</span>
-                  <span class="option-pill-desc">Permanently blends the wear into the active texture layer.</span>
-                </div>
-              </label>
-            </div>
-          </section>
+          </div>
         </Show>
       </div>
 
       {/* Sticky Bottom Action Bar */}
-      <footer class="edge-wear-wizard-footer">
-        <div class="wizard-footer-left">
-          <label class="checkbox-label" title="Toggle before/after preview in 3D viewport">
-            <input
-              type="checkbox"
-              checked={livePreview()}
-              onChange={(e) => toggleLivePreview(e.currentTarget.checked)}
-            />
-            <span>Live 3D Preview</span>
-          </label>
-        </div>
+      <footer class="h-12 px-3.5 flex items-center justify-between border-t border-zinc-800 bg-zinc-950/80 flex-shrink-0">
+        <label class="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={livePreview()}
+            onChange={(e) => toggleLivePreview(e.currentTarget.checked)}
+            class="rounded border-zinc-700 bg-zinc-900 text-blue-600 focus:ring-0 cursor-pointer"
+          />
+          <span>Live 3D Preview</span>
+        </label>
 
-        <div class="wizard-footer-right">
-          <button class="btn-flat btn-ghost" onClick={handleClose}>
+        <div class="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={handleClose}>
             Cancel
-          </button>
-          <button class="btn-flat btn-primary" onClick={handleCommit}>
+          </Button>
+          <Button variant="primary" size="sm" onClick={handleCommit}>
             <CheckIcon size={14} />
             <span>{asNewLayer() ? 'Apply to New Layer' : 'Merge Wear'}</span>
-          </button>
+          </Button>
         </div>
       </footer>
     </div>

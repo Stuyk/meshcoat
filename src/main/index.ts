@@ -4,8 +4,9 @@ import { pathToFileURL } from 'url'
 import { readdir, writeFile, readFile } from 'fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { getRecentProjects, addRecentProject, removeRecentProject } from './recent'
+import { getRecentProjects, addRecentProject, removeRecentProject, clearRecentProjects } from './recent'
 import { getLastTextureFolder, setLastTextureFolder } from './prefs'
+import { saveAutosave, loadAutosave, clearAutosave } from './recovery'
 import { existsSync } from 'fs'
 
 // .tga isn't decodable by <img>/browser image loaders without a custom
@@ -164,18 +165,54 @@ app.whenReady().then(() => {
     }
   })
 
+  ipcMain.handle('project:save-file', async (_e, filePath: string, content: string) => {
+    try {
+      await writeFile(filePath, content, 'utf-8')
+      return true
+    } catch (err) {
+      console.error('Failed to save project file:', filePath, err)
+      return false
+    }
+  })
+
+  ipcMain.handle('project:read-file', async (_e, filePath: string) => {
+    try {
+      return await readFile(filePath, 'utf-8')
+    } catch (err) {
+      console.error('Failed to read project file:', filePath, err)
+      return null
+    }
+  })
+
+  ipcMain.handle('recovery:save', async (_e, data: string) => {
+    return saveAutosave(data)
+  })
+
+  ipcMain.handle('recovery:load', async () => {
+    return loadAutosave()
+  })
+
+  ipcMain.handle('recovery:clear', async () => {
+    return clearAutosave()
+  })
+
   ipcMain.handle('project:recent', () => {
     return getRecentProjects()
   })
 
-  ipcMain.handle('project:add-recent', (_e, projectPath: string) => {
-    addRecentProject(projectPath)
+  ipcMain.handle('project:add-recent', (_e, projectPath: string, name?: string, type?: 'project' | 'model') => {
+    addRecentProject(projectPath, name, type)
     return getRecentProjects()
   })
 
   ipcMain.handle('project:remove-recent', (_e, projectPath: string) => {
     removeRecentProject(projectPath)
     return getRecentProjects()
+  })
+
+  ipcMain.handle('project:clear-recent', () => {
+    clearRecentProjects()
+    return []
   })
 
   ipcMain.on('shell:reveal', (_e, filePath: string) => {

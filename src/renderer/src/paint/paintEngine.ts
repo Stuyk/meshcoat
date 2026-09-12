@@ -99,6 +99,14 @@ export interface StrokeParams {
   restrictFaces?: ReadonlySet<number> | null
   /** Rotation angle in radians applied to the brush tip / stamp. */
   angle?: number
+  /** Camera-space occlusion test (see occlusionDepth.ts) — rejects paint on faces not actually visible from the paint camera, null/undefined = unrestricted. */
+  occlusion?: {
+    depthTexture: THREE.Texture
+    viewProjMatrix: THREE.Matrix4
+    viewMatrix: THREE.Matrix4
+    near: number
+    far: number
+  } | null
 }
 
 export interface FillOptions {
@@ -300,6 +308,18 @@ export class PaintEngine {
     const restrict = !!params.restrictFaces && params.restrictFaces.size > 0
     u.uRestrictFace.value = restrict ? 1 : 0
     if (restrict) this.setSelectionMask(params.restrictFaces)
+
+    if (params.occlusion) {
+      u.uUseOcclusion.value = 1
+      u.uOcclusionDepthTex.value = params.occlusion.depthTexture
+      u.uCameraViewProjMatrix.value.copy(params.occlusion.viewProjMatrix)
+      u.uCameraViewMatrix.value.copy(params.occlusion.viewMatrix)
+      u.uCameraNear.value = params.occlusion.near
+      u.uCameraFar.value = params.occlusion.far
+    } else {
+      u.uUseOcclusion.value = 0
+      u.uOcclusionDepthTex.value = null
+    }
 
     if (params.stampMode || !!params.brushTipTexture || (params.angle && params.angle !== 0)) {
       // Arbitrary but stable tangent basis for the stamp's local plane, built

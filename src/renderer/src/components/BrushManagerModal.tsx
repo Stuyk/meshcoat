@@ -1,11 +1,10 @@
 import { createSignal, createMemo, Show, For } from 'solid-js'
+import { Modal, Button, SearchInput } from './ui'
 import {
   brushPresets,
   type AbrBrushPreset
 } from '../paint/brushPresets'
 import {
-  XIcon,
-  SearchIcon,
   TrashIcon,
   UploadIcon,
   FolderOpenIcon,
@@ -108,244 +107,226 @@ export default function BrushManagerModal(props: {
   }
 
   return (
-    <Show when={props.isOpen}>
-      <div class="modal-backdrop" onClick={props.onClose}>
-        <div
-          class="brush-modal-dialog"
-          classList={{ 'dragging-over': isDraggingOver() }}
-          onClick={(e) => e.stopPropagation()}
-          onDragOver={(e) => {
-            e.preventDefault()
-            setIsDraggingOver(true)
-          }}
-          onDragLeave={() => setIsDraggingOver(false)}
-          onDrop={handleDrop}
-        >
-          {/* Hidden file input */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".abr"
-            multiple
-            class="sr-only"
-            onChange={(e) => handleFileInput(e.currentTarget.files)}
-          />
+    <Modal
+      isOpen={props.isOpen}
+      onClose={props.onClose}
+      title="Brush Preset Manager"
+      icon={(p) => <SparklesIcon size={p.size} class="text-amber-400" />}
+      size="xl"
+      footer={
+        <div class="flex items-center justify-between w-full">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              brushPresets.clear()
+              props.onClose()
+            }}
+          >
+            Reset Round Tip
+          </Button>
+          <div class="flex items-center gap-2">
+            <Button
+              variant="primary"
+              onClick={handleNativePick}
+              disabled={isImporting()}
+            >
+              <UploadIcon size={14} />
+              <span>Import .ABR</span>
+            </Button>
+            <Button variant="secondary" onClick={props.onClose}>
+              Done
+            </Button>
+          </div>
+        </div>
+      }
+    >
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".abr"
+        multiple
+        class="sr-only"
+        onChange={(e) => handleFileInput(e.currentTarget.files)}
+      />
 
-          {/* Modal Header */}
-          <div class="brush-modal-header">
-            <div class="brush-modal-title-group">
-              <span class="brush-modal-icon">
-                <SparklesIcon size={24} />
-              </span>
-              <div>
-                <h2 class="brush-modal-title">Brush Preset Manager</h2>
-                <p class="brush-modal-subtitle">
-                  Browse, search, and import Photoshop .ABR brush tips for painting on 3D surfaces
-                </p>
-              </div>
-            </div>
-            <div class="brush-modal-header-actions">
-              <button
-                type="button"
-                class="brush-modal-btn primary"
-                onClick={handleNativePick}
-                title="Import Photoshop .ABR file"
-                disabled={isImporting()}
-              >
-                <UploadIcon size={20} />
-                <span>Import .ABR</span>
-              </button>
-              <button
-                type="button"
-                class="brush-modal-close-btn"
-                onClick={props.onClose}
-                title="Close"
-              >
-                <XIcon size={24} />
-              </button>
-            </div>
+      {/* Import Status Alert */}
+      <Show when={importStatus()}>
+        <div class="p-2.5 bg-blue-950/60 border border-blue-800/80 rounded-lg text-xs text-blue-300 animate-in fade-in">
+          {importStatus()}
+        </div>
+      </Show>
+
+      {/* Main Split Layout: Sidebar + Grid */}
+      <div
+        class={`flex gap-4 h-[480px] -mx-1 -my-1 p-1 rounded-xl transition-colors ${
+          isDraggingOver() ? 'bg-blue-950/20 ring-2 ring-blue-500' : ''
+        }`}
+        onDragOver={(e) => {
+          e.preventDefault()
+          setIsDraggingOver(true)
+        }}
+        onDragLeave={() => setIsDraggingOver(false)}
+        onDrop={handleDrop}
+      >
+        {/* Left Sidebar: Packs List */}
+        <div class="w-56 flex flex-col bg-zinc-950/50 border border-zinc-800/80 rounded-xl overflow-hidden flex-shrink-0">
+          <div class="flex items-center justify-between px-3 py-2 border-b border-zinc-800/80 bg-zinc-900/40">
+            <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
+              Packs
+            </span>
+            <span class="px-1.5 py-0.2 rounded bg-zinc-800 text-[10px] font-mono text-zinc-400">
+              {packs().length}
+            </span>
           </div>
 
-          {/* Import Status Alert */}
-          <Show when={importStatus()}>
-            <div class="brush-import-toast">
-              <span>{importStatus()}</span>
-            </div>
-          </Show>
+          <div class="flex-1 overflow-y-auto p-1.5 space-y-1">
+            <button
+              type="button"
+              class={`flex items-center justify-between w-full h-7 px-2.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                selectedPackName() === 'All'
+                  ? 'bg-blue-600/20 text-blue-300 border border-blue-500/40'
+                  : 'text-zinc-300 hover:bg-zinc-850 hover:text-zinc-100 border border-transparent'
+              }`}
+              onClick={() => setSelectedPackName('All')}
+            >
+              <span>All Brushes</span>
+              <span class="font-mono text-[10px] text-zinc-500">
+                {allBrushes().length}
+              </span>
+            </button>
 
-          {/* Modal Body */}
-          <div class="brush-modal-body">
-            {/* Left Sidebar: Packs List */}
-            <div class="brush-modal-sidebar">
-              <div class="sidebar-section-header">
-                <span>BRUSH PACKS</span>
-                <span class="pack-count-pill">{packs().length}</span>
-              </div>
-
-              <div class="brush-packs-list">
-                <button
-                  type="button"
-                  class="brush-pack-item-btn"
-                  classList={{ active: selectedPackName() === 'All' }}
-                  onClick={() => setSelectedPackName('All')}
-                >
-                  <span class="pack-item-name">All Brushes</span>
-                  <span class="pack-item-count">{allBrushes().length}</span>
-                </button>
-
-                <For each={packs()}>
-                  {(pack) => (
-                    <div
-                      class="brush-pack-item"
-                      classList={{ active: selectedPackName() === pack.packName }}
-                    >
-                      <button
-                        type="button"
-                        class="brush-pack-item-label"
-                        onClick={() => setSelectedPackName(pack.packName)}
-                        title={pack.packName}
-                      >
-                        <span class="pack-item-name">{pack.packName}</span>
-                        <span class="pack-item-count">{pack.brushes.length}</span>
-                      </button>
-                      <Show when={pack.packName !== 'Standard Tips'}>
-                        <button
-                          type="button"
-                          class="pack-delete-btn"
-                          title={`Delete pack "${pack.packName}"`}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            if (confirm(`Remove brush pack "${pack.packName}"?`)) {
-                              brushPresets.removePack(pack.packName)
-                              if (selectedPackName() === pack.packName) {
-                                setSelectedPackName('All')
-                              }
-                            }
-                          }}
-                        >
-                          <TrashIcon size={18} />
-                        </button>
-                      </Show>
-                    </div>
-                  )}
-                </For>
-              </div>
-
-              {/* Sidebar Quick Import Dropzone */}
-              <div
-                class="sidebar-drop-card"
-                onClick={() => fileInputRef?.click()}
-                title="Click or drag .ABR file here"
-              >
-                <FolderOpenIcon size={24} />
-                <span class="drop-card-label">Drag &amp; drop .ABR here</span>
-                <span class="drop-card-hint">or click to browse files</span>
-              </div>
-            </div>
-
-            {/* Right Main Area: Search, Tools, Brushes Grid */}
-            <div class="brush-modal-content">
-              {/* Toolbar */}
-              <div class="brush-modal-toolbar">
-                <div class="brush-search-box">
-                  <SearchIcon size={20} class="search-box-icon" />
-                  <input
-                    type="text"
-                    placeholder="Search brushes by name..."
-                    value={searchQuery()}
-                    onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                    class="brush-search-input"
-                  />
-                  <Show when={searchQuery()}>
+            <For each={packs()}>
+              {(pack) => {
+                const isSelected = () => selectedPackName() === pack.packName
+                return (
+                  <div
+                    class={`flex items-center justify-between w-full h-7 px-2 rounded-lg text-xs group transition-colors ${
+                      isSelected()
+                        ? 'bg-blue-600/20 text-blue-300 border border-blue-500/40'
+                        : 'text-zinc-300 hover:bg-zinc-850 hover:text-zinc-100 border border-transparent'
+                    }`}
+                  >
                     <button
                       type="button"
-                      class="brush-search-clear"
-                      onClick={() => setSearchQuery('')}
+                      class="flex-1 flex items-center justify-between truncate text-left pr-1 cursor-pointer"
+                      onClick={() => setSelectedPackName(pack.packName)}
+                      title={pack.packName}
                     >
-                      <XIcon size={16} />
+                      <span class="truncate">{pack.packName}</span>
+                      <span class="font-mono text-[10px] text-zinc-500 ml-1.5 flex-shrink-0">
+                        {pack.brushes.length}
+                      </span>
                     </button>
-                  </Show>
-                </div>
-
-                <div class="toolbar-right-actions">
-                  <button
-                    type="button"
-                    class="brush-modal-btn secondary"
-                    onClick={() => {
-                      brushPresets.clear()
-                      props.onClose()
-                    }}
-                    title="Revert to standard round brush"
-                  >
-                    Reset Round Tip
-                  </button>
-                </div>
-              </div>
-
-              {/* Brushes Grid */}
-              <div class="brush-grid-container">
-                <Show
-                  when={visibleBrushes().length > 0}
-                  fallback={
-                    <div class="brush-empty-state">
-                      <LayersPlusIcon size={48} class="empty-icon" />
-                      <p class="empty-title">No brushes found</p>
-                      <p class="empty-desc">
-                        {searchQuery()
-                          ? `No brushes match "${searchQuery()}".`
-                          : 'Import a Photoshop .ABR file or select another pack.'}
-                      </p>
-                    </div>
-                  }
-                >
-                  <div class="brush-cards-grid">
-                    <For each={visibleBrushes()}>
-                      {(brushItem) => {
-                        const isSelected = () => brushPresets.active()?.id === brushItem.id
-                        return (
-                          <div
-                            class="brush-card"
-                            classList={{ active: isSelected() }}
-                            onClick={() => {
-                              brushPresets.select(brushItem)
-                              props.onClose()
-                            }}
-                            title={`${brushItem.name} (${Math.round(brushItem.diameter)}px)`}
-                          >
-                            <div class="brush-card-thumb-frame checkerboard-bg">
-                              <img
-                                src={brushItem.dataUrl}
-                                alt={brushItem.name}
-                                class="brush-card-img"
-                              />
-                              <Show when={isSelected()}>
-                                <span class="brush-card-active-pill">ACTIVE</span>
-                              </Show>
-                            </div>
-                            <div class="brush-card-info">
-                              <span class="brush-card-name" title={brushItem.name}>
-                                {brushItem.name}
-                              </span>
-                              <div class="brush-card-meta">
-                                <span class="brush-size-badge">
-                                  {Math.round(brushItem.diameter)}px
-                                </span>
-                                <span class="brush-spacing-badge">
-                                  {Math.round(brushItem.spacing * 100)}%
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      }}
-                    </For>
+                    <Show when={pack.packName !== 'Standard Tips'}>
+                      <button
+                        type="button"
+                        class="p-1 rounded opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-400 hover:bg-red-950/50 transition-all cursor-pointer"
+                        title={`Delete pack "${pack.packName}"`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (confirm(`Remove brush pack "${pack.packName}"?`)) {
+                            brushPresets.removePack(pack.packName)
+                            if (selectedPackName() === pack.packName) {
+                              setSelectedPackName('All')
+                            }
+                          }
+                        }}
+                      >
+                        <TrashIcon size={12} />
+                      </button>
+                    </Show>
                   </div>
-                </Show>
+                )
+              }}
+            </For>
+          </div>
+
+          {/* Quick Dropzone Footer in Sidebar */}
+          <div
+            class="p-3 m-2 border border-dashed border-zinc-800 hover:border-zinc-700 rounded-lg text-center bg-zinc-900/30 hover:bg-zinc-900/60 transition-colors cursor-pointer"
+            onClick={() => fileInputRef?.click()}
+          >
+            <FolderOpenIcon size={16} class="mx-auto text-zinc-500 mb-1" />
+            <span class="text-[10px] text-zinc-400 block font-medium">
+              Drop .ABR file here
+            </span>
+            <span class="text-[9px] text-zinc-600 block">or click to browse</span>
+          </div>
+        </div>
+
+        {/* Right Main Area: Search + Brushes Grid */}
+        <div class="flex-1 flex flex-col gap-3 min-w-0">
+          <SearchInput
+            value={searchQuery()}
+            onInput={setSearchQuery}
+            placeholder="Search brushes by name..."
+          />
+
+          <div class="flex-1 overflow-y-auto p-1 border border-zinc-800/80 rounded-xl bg-zinc-950/40">
+            <Show
+              when={visibleBrushes().length > 0}
+              fallback={
+                <div class="flex flex-col items-center justify-center h-full text-center p-6">
+                  <div class="p-3 rounded-md bg-zinc-900 text-zinc-500 mb-3">
+                    <LayersPlusIcon size={28} />
+                  </div>
+                  <span class="text-xs font-semibold text-zinc-300 mb-1">
+                    No brushes found
+                  </span>
+                  <span class="text-[11px] text-zinc-500 max-w-xs">
+                    {searchQuery()
+                      ? `No brushes match "${searchQuery()}".`
+                      : 'Import a Photoshop .ABR file or choose another pack.'}
+                  </span>
+                </div>
+              }
+            >
+              <div class="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
+                <For each={visibleBrushes()}>
+                  {(brushItem) => {
+                    const isSelected = () => brushPresets.active()?.id === brushItem.id
+                    return (
+                      <div
+                        onClick={() => {
+                          brushPresets.select(brushItem)
+                          props.onClose()
+                        }}
+                        class={`flex flex-col p-2 rounded-xl border transition-all cursor-pointer group ${
+                          isSelected()
+                            ? 'bg-blue-600/15 border-blue-500/70 shadow-xs'
+                            : 'bg-zinc-900/60 border-zinc-800/80 hover:border-zinc-700 hover:bg-zinc-850/60'
+                        }`}
+                        title={`${brushItem.name} (${Math.round(brushItem.diameter)}px)`}
+                      >
+                        <div class="relative aspect-square rounded-lg overflow-hidden checkerboard-bg flex items-center justify-center p-1 mb-2 border border-zinc-800">
+                          <img
+                            src={brushItem.dataUrl}
+                            alt={brushItem.name}
+                            class="max-w-full max-h-full object-contain filter drop-shadow group-hover:scale-105 transition-transform"
+                          />
+                          <Show when={isSelected()}>
+                            <span class="absolute top-1 right-1 px-1 py-0.2 bg-blue-600 text-white rounded font-mono text-[9px] font-bold">
+                              ACTIVE
+                            </span>
+                          </Show>
+                        </div>
+                        <span class="text-xs font-medium text-zinc-200 truncate mb-1">
+                          {brushItem.name}
+                        </span>
+                        <div class="flex items-center justify-between text-[10px] font-mono text-zinc-500">
+                          <span>{Math.round(brushItem.diameter)}px</span>
+                          <span>{Math.round(brushItem.spacing * 100)}%</span>
+                        </div>
+                      </div>
+                    )
+                  }}
+                </For>
               </div>
-            </div>
+            </Show>
           </div>
         </div>
       </div>
-    </Show>
+    </Modal>
   )
 }

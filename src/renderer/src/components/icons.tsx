@@ -55,7 +55,8 @@ export {
   MoveHorizontal as SpacingIcon,
   Feather as FeatherIcon,
   RotateCw as RotateIcon,
-  SquareSplitHorizontal as SymmetryIcon
+  SquareSplitHorizontal as SymmetryIcon,
+  Clock as ClockIcon
 } from 'lucide-solid'
 
 export function AppIcon(props: { size?: number; class?: string }) {

@@ -43,6 +43,15 @@ const fragmentShader = /* glsl */ `
   uniform float uFillScale;
   // 0 = Surface UV (straightforward), 1 = World Triplanar
   uniform float uTextureMapping;
+  // Camera-space occlusion (see occlusionDepth.ts): rejects fragments that
+  // aren't actually visible from the paint camera — e.g. a face directly
+  // behind the one under the brush — instead of only masking by facing.
+  uniform sampler2D uOcclusionDepthTex;
+  uniform mat4 uCameraViewProjMatrix;
+  uniform mat4 uCameraViewMatrix;
+  uniform float uCameraNear;
+  uniform float uCameraFar;
+  uniform float uUseOcclusion;
 
   varying vec3 vWorldPosition;
   varying vec3 vWorldNormal;
@@ -71,6 +80,35 @@ const fragmentShader = /* glsl */ `
     // doesn't paint an adjacent perpendicular face at full strength right up
     // to the seam — only near-facing surfaces get meaningfully painted.
     float facingMask = smoothstep(0.0, 0.5, facing);
+
+    // Reject fragments occluded (from the paint camera) by other geometry —
+    // e.g. a face directly behind the one under the brush — instead of only
+    // masking by facing direction. Comparing raw NDC/window depth here would
+    // be almost useless: with a wide near/far range (see scene.ts) depth
+    // precision is compressed brutally at typical painting distance, so a
+    // world-space gap of centimeters collapses to a NDC-depth difference far
+    // smaller than any bias that also has to avoid self-occlusion z-fighting.
+    // Un-projecting to linear view-space distance (world units) makes the
+    // bias mean the same thing regardless of camera distance/near/far.
+    if (uUseOcclusion > 0.5) {
+      vec4 clip = uCameraViewProjMatrix * vec4(vWorldPosition, 1.0);
+      if (clip.w > 0.0) {
+        vec3 ndc = clip.xyz / clip.w;
+        vec2 screenUv = ndc.xy * 0.5 + 0.5;
+        if (screenUv.x >= 0.0 && screenUv.x <= 1.0 && screenUv.y >= 0.0 && screenUv.y <= 1.0) {
+          float sceneDepthRaw = texture2D(uOcclusionDepthTex, screenUv).r;
+          float sceneNdcZ = sceneDepthRaw * 2.0 - 1.0;
+          float sceneViewZ = (2.0 * uCameraNear * uCameraFar) /
+            (uCameraFar + uCameraNear - sceneNdcZ * (uCameraFar - uCameraNear));
+          float fragViewZ = -(uCameraViewMatrix * vec4(vWorldPosition, 1.0)).z;
+          // A couple centimeters of slack absorbs float error without letting
+          // genuinely separate surfaces (a wall's near/far side, etc) through.
+          if (fragViewZ > sceneViewZ + 0.02) {
+            facingMask = 0.0;
+          }
+        }
+      }
+    }
     falloff *= facingMask;
 
     // 1. Local tangent stamp coordinates for brush tip or stamp tool
@@ -87,9 +125,9 @@ const fragmentShader = /* glsl */ `
     // 2. Texture Shelf / Material Pattern:
     // Triplanar or Surface UV projection
     vec3 n = abs(normalize(vWorldNormal));
-    vec2 uvX = vWorldPosition.zy / max(uTextureScale, 0.0001);
-    vec2 uvY = vWorldPosition.xz / max(uTextureScale, 0.0001);
-    vec2 uvZ = vWorldPosition.xy / max(uTextureScale, 0.0001);
+    vec2 uvX = vWorldPosition.zy * max(uTextureScale, 0.0001);
+    vec2 uvY = vWorldPosition.xz * max(uTextureScale, 0.0001);
+    vec2 uvZ = vWorldPosition.xy * max(uTextureScale, 0.0001);
     vec2 triUv = n.x >= n.y && n.x >= n.z ? uvX : (n.y >= n.z ? uvY : uvZ);
     vec2 surfaceUv = vUv * max(uTextureScale, 0.0001);
 
@@ -151,6 +189,12 @@ export interface PaintUniforms {
   uFillMode: THREE.IUniform<number>
   uFillScale: THREE.IUniform<number>
   uTextureMapping: THREE.IUniform<number>
+  uOcclusionDepthTex: THREE.IUniform<THREE.Texture | null>
+  uCameraViewProjMatrix: THREE.IUniform<THREE.Matrix4>
+  uCameraViewMatrix: THREE.IUniform<THREE.Matrix4>
+  uCameraNear: THREE.IUniform<number>
+  uCameraFar: THREE.IUniform<number>
+  uUseOcclusion: THREE.IUniform<number>
 }
 
 export function createPaintMaterial(): THREE.ShaderMaterial & { uniforms: PaintUniforms } {
@@ -173,7 +217,13 @@ export function createPaintMaterial(): THREE.ShaderMaterial & { uniforms: PaintU
     uRestrictFace: { value: 0 },
     uFillMode: { value: 0 },
     uFillScale: { value: 1 },
-    uTextureMapping: { value: 0 }
+    uTextureMapping: { value: 0 },
+    uOcclusionDepthTex: { value: null },
+    uCameraViewProjMatrix: { value: new THREE.Matrix4() },
+    uCameraViewMatrix: { value: new THREE.Matrix4() },
+    uCameraNear: { value: 0.01 },
+    uCameraFar: { value: 1000 },
+    uUseOcclusion: { value: 0 }
   }
 
   return new THREE.ShaderMaterial({

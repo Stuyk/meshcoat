@@ -1,5 +1,41 @@
 # Changelog
 
+## v1.1.0
+
+### Added
+- **Project persistence (`.meshcoat`)**: save and load full multi-layer painting projects including model path, blend modes, opacities, and canvas-compressed PNG layer buffers with full fidelity.
+- **Auto-recovery and rolling backups**: background autosave every 60 seconds saves to `<userData>/backups/autosave.json`, with a rolling history of the 5 most recent timestamped backups.
+- **Unsaved changes indicator**: title bar and document title append `*` whenever unsaved edits exist; `Ctrl+S` (`Cmd+S`) saves the project and clears the indicator, and `Ctrl+Shift+S` triggers "Save Project As...".
+- **Welcome / Start Wizard**: all-in-one startup dialog (also accessible via `Ctrl+N` / `File -> New / Welcome Wizard...`) featuring:
+  - Unsaved session detection with one-click "Restore Session" or "Discard".
+  - "Start From Scratch" instant creation with a default sphere at customizable resolutions (512×512 to 8192×8192).
+  - "Load 3D Model & Textures" form allowing simultaneous model and initial base texture map import.
+  - Quick open for `.meshcoat` files.
+  - Recent files list with elapsed time indicators and a one-click clear button.
+- **In-app interactive color picker**: custom 2D Saturation-Value canvas gradient, 1D Hue slider, live editable HEX and RGB inputs, color comparison swatches, and system eyedropper tool.
+- **Saved swatches & curated preset palettes**: "My Swatches" grid persistent across sessions, alongside 7 built-in palette presets (Essentials, Retro 16 Pico-8, Skin & Organic, Metals & Weathering, Nature & Landscape, Cyberpunk & Neon, Values 0–100%).
+- **Palette import and export**: support for loading and saving palettes in `.hex`, GIMP `.gpl`, Paint.NET text, and `.json` formats.
+- **Floating Material Texture HUD**: dedicated floating HUD card in the bottom-right corner of the viewport when painting with an active texture, providing thumbnail preview, UV / Triplanar / Tip projection selector, tiling scale slider, and one-click return to solid color.
+- **Reusable SolidJS UI component library**: created unified components in `src/renderer/src/components/ui/` (`Modal`, `Button`, `IconButton`, `Slider`, `SegmentedControl`, `SearchInput`, `PanelSection`, `DropdownMenu`, `Badge`, `Toast`, `ColorPicker`).
+
+### Changed
+- **TailwindCSS v4 migration**: modernized entire styling architecture with TailwindCSS, replacing over 10,000 lines of legacy monolithic CSS and dead styles with a clean, low-contrast neutral slate theme.
+- **Standardized border radius**: unified border radiuses across all dialogs, cards, buttons, inputs, and tabs to 6px (`rounded-md`).
+- Extended texture painting tiling scale range from `0x` up to `16x` across brush settings, status bar readouts, and hotkeys (`Shift + [` / `Shift + ]` and `Shift + Wheel`).
+- Removed the symmetry mirror toggle from the Stroke Dynamics panel to declutter brush controls (symmetry remains easily accessible via top nav, pie menu, and `Alt+X`).
+- Relocated "+ Add Layer" action directly into the right inspector section header and removed the redundant nested tab header bar in LayersTab.
+- Moved the active 3D model name directly into the application window title bar, eliminating the floating center header box.
+- Made color swatch buttons in palette grids compact (`w-6 h-6`) and renamed palette export action to "Export" to prevent text overflow.
+
+### Fixed
+- **Inverted Triplanar texture scaling**: Triplanar projection was dividing coordinates by `uTextureScale` instead of multiplying, causing higher scales to zoom into the texture while UV mode zoomed out; Triplanar now multiplies coordinates consistently with UV projection.
+- **Paint color preview line artifact**: section header color preview collapsed into a thin 2px line in CSS; converted to an explicit circular color swatch.
+- **Space radial menu auto-closing**: Space key was closing immediately on key release; converted into a toggle with a backdrop shield to prevent accidental closure while adjusting HUD controls.
+- **Collapsible chevron click blocking**: removed pointer capture blockage from panel chevrons, allowing clicks directly on the chevron to toggle expansion.
+- **Start Wizard completion freeze**: fixed modal `close()` guard that prevented the wizard from closing and resetting loading state upon successful project or model import.
+- Handled async viewport initialization gracefully so early clicks during startup await viewport readiness rather than silently failing.
+- **Paint bleeding through to occluded geometry behind the brushed face**: the paint shader only masked strokes by world-space distance and surface-normal facing, so a face directly behind the one under the cursor (e.g. an inner wall) got painted too if it happened to face the same general direction. Added a camera-space depth occlusion pass (`occlusionDepth.ts`) that rejects fragments not actually visible from the paint camera, comparing linear view-space depth (not raw NDC depth, whose precision collapses at typical painting distances) so occlusion is detected reliably regardless of camera distance.
+
 ## v1.0.2
 
 ### Added

@@ -1,21 +1,16 @@
 import { For, Show, createSignal, createMemo, createEffect, on, onMount, onCleanup } from 'solid-js'
 import { brush, setTexturePath } from '../paint/brush'
+import { Button, IconButton, SearchInput } from './ui'
 import {
   FolderOpenIcon,
   XIcon,
-  SearchIcon,
   CheckIcon,
   StampIcon
 } from './icons'
 import { toAssetUrl } from '../utils/assetUrl'
 
-// Row geometry for the virtualized grid below — must track .shelf-grid /
-// .shelf-thumb-frame / .shelf-card-name in index.css (260px shelf, 2 columns,
-// 10px padding/gap, square thumb, one line of 10px label text). A CSS tweak
-// there without updating these just shifts spacing slightly, it won't break.
 const COLS = 2
-const THUMB_SIZE = 115
-const ROW_CONTENT_HEIGHT = 133 // thumb + 4px gap + ~14px label line
+const ROW_CONTENT_HEIGHT = 133 // thumb + gap + label
 const ROW_GAP = 10
 const ROW_STEP = ROW_CONTENT_HEIGHT + ROW_GAP
 const OVERSCAN_ROWS = 4
@@ -44,8 +39,6 @@ export default function TextureShelf(props: {
     })
   }
 
-  // Solid Color card is just item 0 of the same virtualized list so scrolling,
-  // row math, and the empty-state checks all stay in one place.
   const displayItems = createMemo<ShelfItem[]>(() => {
     const showSolid = !searchQuery() && activeShelf() === 'all'
     const items: ShelfItem[] = showSolid ? [SOLID_CARD] : []
@@ -53,10 +46,6 @@ export default function TextureShelf(props: {
     return items
   })
 
-  // --- Virtualization: with texture libraries running into the thousands,
-  // mounting every <img> (and letting the browser eagerly decode all of them)
-  // is what actually makes the shelf feel frozen — only render DOM nodes for
-  // rows near the visible viewport.
   let bodyRef: HTMLDivElement | undefined
   const [scrollTop, setScrollTop] = createSignal(0)
   const [viewportHeight, setViewportHeight] = createSignal(400)
@@ -85,9 +74,6 @@ export default function TextureShelf(props: {
     return out
   })
 
-  // Snap back to the top whenever the visible list changes shape, so
-  // filtering/switching tabs doesn't leave the scroll position pointing at
-  // whatever row used to be there.
   createEffect(
     on([searchQuery, activeShelf], () => {
       if (bodyRef) bodyRef.scrollTop = 0
@@ -107,57 +93,64 @@ export default function TextureShelf(props: {
   onCleanup(() => resizeObserver?.disconnect())
 
   return (
-    <aside class="vertical-texture-shelf">
+    <aside class="w-[260px] min-w-[260px] max-w-[260px] h-full flex flex-col bg-zinc-925 border-r border-zinc-800 select-none z-20 flex-shrink-0">
       {/* Header Bar */}
-      <div class="shelf-header">
-        <div class="shelf-title-wrap">
-          <span class="shelf-title">Textures</span>
-          <span class="shelf-count-badge tabular">
+      <div class="h-10 px-3 flex items-center justify-between border-b border-zinc-800 bg-zinc-900/60 flex-shrink-0">
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-semibold text-zinc-200 tracking-tight">Textures</span>
+          <span class="px-1.5 py-0.2 rounded bg-zinc-800 border border-zinc-700/60 font-mono text-[10px] text-zinc-400">
             {props.textures.length}
           </span>
         </div>
 
-        <div class="shelf-header-actions">
-          <button
-            class="shelf-btn-action"
-            onClick={props.onPickFolder}
-            title="Load folder of textures"
-          >
-            <FolderOpenIcon size={14} />
+        <div class="flex items-center gap-1.5">
+          <Button variant="secondary" size="xs" onClick={props.onPickFolder} title="Load folder of textures">
+            <FolderOpenIcon size={13} />
             <span>Load</span>
-          </button>
+          </Button>
 
           <Show when={props.textures.length > 0}>
-            <button
-              class="shelf-icon-btn danger"
+            <IconButton
+              size="xs"
+              variant="ghost"
               onClick={props.onClearFolder}
               title="Clear loaded textures"
             >
-              <XIcon size={13} />
-            </button>
+              <XIcon size={13} class="text-zinc-400 hover:text-red-400" />
+            </IconButton>
           </Show>
         </div>
       </div>
 
       {/* All / Used Tabs */}
       <Show when={props.textures.length > 0}>
-        <div class="shelf-tab-bar">
+        <div class="px-3 pt-2 pb-1 flex items-center gap-1 border-b border-zinc-800/80 bg-zinc-925">
           <button
-            class="shelf-tab-btn"
-            classList={{ active: activeShelf() === 'all' }}
+            type="button"
+            class={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
+              activeShelf() === 'all'
+                ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-xs'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/50'
+            }`}
             onClick={() => setActiveShelf('all')}
           >
             All
           </button>
           <button
-            class="shelf-tab-btn"
-            classList={{ active: activeShelf() === 'used' }}
+            type="button"
+            class={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
+              activeShelf() === 'used'
+                ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-xs'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/50'
+            }`}
             onClick={() => setActiveShelf('used')}
             title="Textures you've painted, stamped, or filled with"
           >
-            Used
+            <span>Used</span>
             <Show when={brush.recentTextures().length > 0}>
-              <span class="shelf-count-badge tabular">{brush.recentTextures().length}</span>
+              <span class="font-mono text-[10px] text-zinc-500">
+                {brush.recentTextures().length}
+              </span>
             </Show>
           </button>
         </div>
@@ -165,138 +158,143 @@ export default function TextureShelf(props: {
 
       {/* Filter / Search Bar */}
       <Show when={sourceTextures().length > 0}>
-        <div class="shelf-search-wrap">
-          <div class="shelf-search-box">
-            <SearchIcon size={13} class="search-box-icon" />
-            <input
-              type="text"
-              placeholder="Search textures..."
-              class="shelf-search-input"
-              value={searchQuery()}
-              onInput={(e) => setSearchQuery(e.currentTarget.value)}
-            />
-            <Show when={searchQuery().length > 0}>
-              <button
-                class="shelf-search-clear"
-                onClick={() => setSearchQuery('')}
-                title="Clear filter"
-              >
-                <XIcon size={12} />
-              </button>
-            </Show>
-          </div>
+        <div class="px-2.5 py-2 border-b border-zinc-800 bg-zinc-925 flex-shrink-0">
+          <SearchInput
+            value={searchQuery()}
+            onInput={setSearchQuery}
+            placeholder="Search textures..."
+          />
         </div>
       </Show>
 
-      {/* Vertical Texture Grid Body */}
+      {/* Virtualized Texture Grid */}
       <div
-        class="shelf-body"
         ref={bodyRef}
         onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+        class="flex-1 overflow-y-auto p-2.5 relative"
       >
         <Show
           when={props.textures.length > 0}
           fallback={
-            <div class="shelf-empty-state" onClick={props.onPickFolder}>
-              <div class="shelf-empty-icon">
+            <div
+              onClick={props.onPickFolder}
+              class="flex flex-col items-center justify-center h-full p-4 border border-dashed border-zinc-800 hover:border-zinc-700 rounded-xl text-center bg-zinc-950/40 hover:bg-zinc-900/40 transition-all cursor-pointer group"
+            >
+              <div class="p-3 rounded-md bg-zinc-900 text-zinc-500 group-hover:text-blue-400 transition-colors mb-2">
                 <StampIcon size={24} />
               </div>
-              <span class="shelf-empty-headline">No textures loaded</span>
-              <span class="shelf-empty-desc">
-                Click to select a folder of PNG, JPG, or WebP textures to paint or stamp.
+              <span class="text-xs font-semibold text-zinc-300 mb-1">
+                No textures loaded
               </span>
-              <button class="btn-flat btn-primary" style={{ 'margin-top': '8px', 'pointer-events': 'none' }}>
+              <span class="text-[11px] text-zinc-500 mb-3 max-w-[180px]">
+                Click to load a folder of PNG, JPG, or WebP textures.
+              </span>
+              <Button variant="primary" size="xs">
                 Load Folder
-              </button>
+              </Button>
             </div>
           }
         >
           <Show
             when={activeShelf() === 'all' || sourceTextures().length > 0}
             fallback={
-              <div class="shelf-no-results">
-                <span>No textures used yet — paint, stamp, or fill with one to see it here.</span>
+              <div class="flex items-center justify-center h-48 text-center text-[11px] text-zinc-500 p-4">
+                No textures used yet — paint, stamp, or fill with one to see it here.
               </div>
             }
           >
-          <Show
-            when={filteredTextures().length > 0}
-            fallback={
-              <div class="shelf-no-results">
-                <span>No textures match "{searchQuery()}"</span>
-              </div>
-            }
-          >
-            <div class="shelf-grid-virtual-sizer" style={{ height: `${totalHeight()}px` }}>
-              <For each={visibleItems()}>
-                {({ item, index }) => {
-                  const row = Math.floor(index / COLS)
-                  const col = index % COLS
-                  const style = {
-                    position: 'absolute' as const,
-                    top: `${row * ROW_STEP}px`,
-                    left: col === 0 ? '0' : 'calc(50% + 5px)',
-                    width: 'calc(50% - 5px)'
-                  }
+            <Show
+              when={filteredTextures().length > 0}
+              fallback={
+                <div class="flex items-center justify-center h-48 text-center text-[11px] text-zinc-500 p-4">
+                  No textures match "{searchQuery()}"
+                </div>
+              }
+            >
+              <div class="relative w-full" style={{ height: `${totalHeight()}px` }}>
+                <For each={visibleItems()}>
+                  {({ item, index }) => {
+                    const row = Math.floor(index / COLS)
+                    const col = index % COLS
+                    const style = {
+                      position: 'absolute' as const,
+                      top: `${row * ROW_STEP}px`,
+                      left: col === 0 ? '0' : 'calc(50% + 5px)',
+                      width: 'calc(50% - 5px)'
+                    }
 
-                  if (item === SOLID_CARD) {
+                    if (item === SOLID_CARD) {
+                      const isSelected = () => brush.texturePath() === null
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => setTexturePath(null)}
+                          title="Solid Color (No Texture) - Hotkey: X"
+                          style={style}
+                          class={`flex flex-col p-1.5 rounded-lg border text-left transition-all cursor-pointer group ${
+                            isSelected()
+                              ? 'bg-blue-600/15 border-blue-500/80 shadow-xs'
+                              : 'bg-zinc-900/60 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-850/60'
+                          }`}
+                        >
+                          <div
+                            class="relative aspect-square w-full rounded-md border border-white/10 flex items-center justify-center"
+                            style={{ 'background-color': brush.color() }}
+                          >
+                            <Show when={isSelected()}>
+                              <div class="absolute top-1 right-1 w-4 h-4 rounded bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                                <CheckIcon size={10} />
+                              </div>
+                            </Show>
+                          </div>
+                          <span class="text-[10px] font-medium text-zinc-300 truncate mt-1.5">
+                            Solid Color [X]
+                          </span>
+                        </button>
+                      )
+                    }
+
+                    const path = item
+                    const isSelected = () => brush.texturePath() === path
+                    const filename = path.split('/').pop() ?? ''
+
                     return (
                       <button
-                        class="shelf-card shelf-card-solid"
-                        classList={{ selected: brush.texturePath() === null }}
-                        title="Solid Color (No Texture) - Hotkey: X"
-                        onClick={() => setTexturePath(null)}
+                        type="button"
+                        onClick={() => {
+                          setTexturePath(isSelected() ? null : path, !props.isMaskTarget?.())
+                        }}
+                        title={`${filename} (Click to toggle)`}
                         style={style}
+                        class={`flex flex-col p-1.5 rounded-lg border text-left transition-all cursor-pointer group ${
+                          isSelected()
+                            ? 'bg-blue-600/15 border-blue-500/80 shadow-xs'
+                            : 'bg-zinc-900/60 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-850/60'
+                        }`}
                       >
-                        <div class="shelf-thumb-frame" style={{ 'background-color': brush.color() }}>
-                          <Show when={brush.texturePath() === null}>
-                            <div class="shelf-selected-check">
-                              <CheckIcon size={11} strokeWidth={2.5} />
+                        <div class="relative aspect-square w-full rounded-md overflow-hidden checkerboard-bg border border-zinc-800 flex items-center justify-center">
+                          <img
+                            src={toAssetUrl(path)}
+                            alt={filename}
+                            loading="lazy"
+                            decoding="async"
+                            class="max-w-full max-h-full object-cover group-hover:scale-105 transition-transform"
+                          />
+                          <Show when={isSelected()}>
+                            <div class="absolute top-1 right-1 w-4 h-4 rounded bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                              <CheckIcon size={10} />
                             </div>
                           </Show>
                         </div>
-                        <span class="shelf-card-name">Solid Color [X]</span>
+                        <span class="text-[10px] font-medium text-zinc-300 truncate mt-1.5" title={filename}>
+                          {filename}
+                        </span>
                       </button>
                     )
-                  }
-
-                  const path = item
-                  const isSelected = () => brush.texturePath() === path
-                  const filename = path.split('/').pop() ?? ''
-
-                  return (
-                    <button
-                      class="shelf-card"
-                      classList={{ selected: isSelected() }}
-                      title={`${filename} (Click to toggle)`}
-                      onClick={() => {
-                        // Toggle texture selection WITHOUT auto-switching tools!
-                        setTexturePath(isSelected() ? null : path, !props.isMaskTarget?.())
-                      }}
-                      style={style}
-                    >
-                      <div class="shelf-thumb-frame checkerboard-bg">
-                        <img
-                          src={toAssetUrl(path)}
-                          alt={filename}
-                          loading="lazy"
-                          decoding="async"
-                          width={THUMB_SIZE}
-                          height={THUMB_SIZE}
-                        />
-                        <Show when={isSelected()}>
-                          <div class="shelf-selected-check">
-                            <CheckIcon size={11} strokeWidth={2.5} />
-                          </div>
-                        </Show>
-                      </div>
-                      <span class="shelf-card-name">{filename}</span>
-                    </button>
-                  )
-                }}
-              </For>
-            </div>
-          </Show>
+                  }}
+                </For>
+              </div>
+            </Show>
           </Show>
         </Show>
       </div>

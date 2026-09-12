@@ -2,9 +2,11 @@ import { app } from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 
-interface RecentEntry {
+export interface RecentEntry {
   projectPath: string
   openedAt: number
+  name?: string
+  type?: 'project' | 'model'
 }
 
 function storePath(): string {
@@ -29,12 +31,23 @@ export function getRecentProjects(): RecentEntry[] {
   return load().sort((a, b) => b.openedAt - a.openedAt)
 }
 
-export function addRecentProject(projectPath: string): void {
+export function addRecentProject(projectPath: string, name?: string, type?: 'project' | 'model'): void {
   const entries = load().filter((e) => e.projectPath !== projectPath)
-  entries.push({ projectPath, openedAt: Date.now() })
-  save(entries.slice(-20))
+  const resolvedName = name || projectPath.split(/[/\\]/).pop() || 'Untitled'
+  const resolvedType = type || (projectPath.endsWith('.meshcoat') ? 'project' : 'model')
+  entries.push({
+    projectPath,
+    openedAt: Date.now(),
+    name: resolvedName,
+    type: resolvedType
+  })
+  save(entries.slice(-25))
 }
 
 export function removeRecentProject(projectPath: string): void {
   save(load().filter((e) => e.projectPath !== projectPath))
+}
+
+export function clearRecentProjects(): void {
+  save([])
 }

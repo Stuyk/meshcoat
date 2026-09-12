@@ -1,167 +1,189 @@
-import { onMount, onCleanup, Show } from 'solid-js'
-import { XIcon, HelpCircleIcon, KeyboardIcon } from './icons'
+import { Modal, Button } from './ui'
+import { HelpCircleIcon, KeyboardIcon } from './icons'
 
 export default function HelpModal(props: { isOpen: boolean; onClose: () => void }) {
-  function onKeyDown(e: KeyboardEvent): void {
-    if (e.key === 'Escape' && props.isOpen) {
-      e.preventDefault()
-      props.onClose()
-    }
-  }
-
-  onMount(() => {
-    window.addEventListener('keydown', onKeyDown)
-  })
-
-  onCleanup(() => {
-    window.removeEventListener('keydown', onKeyDown)
-  })
-
   return (
-    <Show when={props.isOpen}>
-      <div class="modal-backdrop" onClick={props.onClose}>
-        <div class="modal-dialog help-dialog" onClick={(e) => e.stopPropagation()}>
-          <header class="modal-header">
-            <div class="modal-title-wrap">
-              <HelpCircleIcon size={18} class="text-blue-400" />
-              <h2 class="modal-title">Quick Guide & Hotkeys</h2>
+    <Modal
+      isOpen={props.isOpen}
+      onClose={props.onClose}
+      title="Quick Guide & Hotkeys"
+      icon={(p) => <HelpCircleIcon size={p.size} class="text-blue-400" />}
+      size="xl"
+      footer={
+        <div class="flex items-center justify-between w-full">
+          <span class="text-[11px] text-zinc-500">
+            Press <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-400 font-mono">Esc</kbd> or click outside to dismiss
+          </span>
+          <Button variant="primary" onClick={props.onClose}>
+            Got It
+          </Button>
+        </div>
+      }
+    >
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Section 1: Viewport & Camera */}
+        <div class="p-3.5 bg-zinc-950/60 border border-zinc-800/80 rounded-xl flex flex-col gap-2.5">
+          <div class="flex items-center gap-2 text-xs font-semibold text-zinc-200 border-b border-zinc-800/80 pb-2">
+            <KeyboardIcon size={15} class="text-blue-400" />
+            <h3>Viewport & Camera</h3>
+          </div>
+          <div class="space-y-2 text-xs">
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1 font-mono text-[11px]">
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">MMB</kbd>
+                <span class="text-zinc-500">/</span>
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">Alt</kbd>+<kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">LMB</kbd>
+              </div>
+              <span class="text-zinc-400 text-right">Orbit 3D view</span>
             </div>
-            <button class="modal-close-btn" onClick={props.onClose} title="Close guide (Esc)">
-              <XIcon size={16} />
-            </button>
-          </header>
-
-          <div class="modal-body help-body">
-            <div class="help-sections-grid">
-              <div class="help-card">
-                <div class="help-card-header">
-                  <KeyboardIcon size={16} class="text-blue-400" />
-                  <h3>Viewport & Camera</h3>
-                </div>
-                <div class="shortcut-rows">
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>MMB</kbd> / <kbd>Alt</kbd>+<kbd>LMB</kbd></div>
-                    <span class="shortcut-action">Orbit 3D view</span>
-                  </div>
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>Shift</kbd>+<kbd>MMB</kbd> / <kbd>Alt</kbd>+<kbd>MMB</kbd></div>
-                    <span class="shortcut-action">Pan 3D view</span>
-                  </div>
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>Wheel</kbd> / <kbd>Alt</kbd>+<kbd>RMB</kbd></div>
-                    <span class="shortcut-action">Zoom in / out</span>
-                  </div>
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>F</kbd> / <kbd>Home</kbd></div>
-                    <span class="shortcut-action">Frame model in viewport</span>
-                  </div>
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>W</kbd></div>
-                    <span class="shortcut-action">Toggle wireframe overlay</span>
-                  </div>
-                </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1 font-mono text-[11px]">
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">Shift</kbd>+<kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">MMB</kbd>
               </div>
-
-              <div class="help-card">
-                <div class="help-card-header">
-                  <KeyboardIcon size={16} class="text-amber-400" />
-                  <h3>Tools & Painting</h3>
-                </div>
-                <div class="shortcut-rows">
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>1</kbd> / <kbd>B</kbd></div>
-                    <span class="shortcut-action">Brush tool</span>
-                  </div>
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>L</kbd></div>
-                    <span class="shortcut-action">Line tool (click & drag straight lines on surface)</span>
-                  </div>
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>2</kbd> / <kbd>E</kbd></div>
-                    <span class="shortcut-action">Eraser tool (erases color, or conceals mask)</span>
-                  </div>
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>3</kbd> / <kbd>T</kbd></div>
-                    <span class="shortcut-action">Stamp decal tool (square reticle)</span>
-                  </div>
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>4</kbd> / <kbd>G</kbd></div>
-                    <span class="shortcut-action">Fill bucket (color or texture)</span>
-                  </div>
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>5</kbd> / <kbd>I</kbd></div>
-                    <span class="shortcut-action">Eyedropper color picker</span>
-                  </div>
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>6</kbd> / <kbd>V</kbd></div>
-                    <span class="shortcut-action">Face selection tool</span>
-                  </div>
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>X</kbd></div>
-                    <span class="shortcut-action">Swap B/W on mask, or toggle Solid Color</span>
-                  </div>
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>[</kbd> <kbd>]</kbd> / <kbd>Shift</kbd>+Wheel</div>
-                    <span class="shortcut-action">Step brush radius or fill scale</span>
-                  </div>
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys">RMB+Drag X</div>
-                    <span class="shortcut-action">Interactive brush radius</span>
-                  </div>
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>Shift</kbd>+RMB+Drag</div>
-                    <span class="shortcut-action">Adjust opacity & hardness</span>
-                  </div>
-                </div>
+              <span class="text-zinc-400 text-right">Pan 3D view</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1 font-mono text-[11px]">
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">Wheel</kbd>
               </div>
-
-              <div class="help-card">
-                <div class="help-card-header">
-                  <KeyboardIcon size={16} class="text-emerald-400" />
-                  <h3>Face Selection & Edit</h3>
-                </div>
-                <div class="shortcut-rows">
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>A</kbd></div>
-                    <span class="shortcut-action">Select all faces</span>
-                  </div>
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>D</kbd> / <kbd>Esc</kbd></div>
-                    <span class="shortcut-action">Deselect all faces</span>
-                  </div>
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>I</kbd></div>
-                    <span class="shortcut-action">Invert face selection</span>
-                  </div>
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>Ctrl</kbd>+Drag</div>
-                    <span class="shortcut-action">Paint-select faces (any tool)</span>
-                  </div>
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+Drag</div>
-                    <span class="shortcut-action">Deselect painted faces</span>
-                  </div>
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Y</kbd></div>
-                    <span class="shortcut-action">Undo / Redo</span>
-                  </div>
-                  <div class="shortcut-row">
-                    <div class="shortcut-keys"><kbd>?</kbd></div>
-                    <span class="shortcut-action">Toggle this guide</span>
-                  </div>
-                </div>
+              <span class="text-zinc-400 text-right">Zoom in / out</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1 font-mono text-[11px]">
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">F</kbd>
               </div>
+              <span class="text-zinc-400 text-right">Frame model</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1 font-mono text-[11px]">
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">W</kbd>
+              </div>
+              <span class="text-zinc-400 text-right">Toggle wireframe</span>
             </div>
           </div>
+        </div>
 
-          <footer class="modal-footer">
-            <span class="modal-hint">Press <kbd>Esc</kbd> or click outside to dismiss</span>
-            <button class="btn-flat btn-primary" onClick={props.onClose}>
-              Got It
-            </button>
-          </footer>
+        {/* Section 2: Tools & Painting */}
+        <div class="p-3.5 bg-zinc-950/60 border border-zinc-800/80 rounded-xl flex flex-col gap-2.5">
+          <div class="flex items-center gap-2 text-xs font-semibold text-zinc-200 border-b border-zinc-800/80 pb-2">
+            <KeyboardIcon size={15} class="text-amber-400" />
+            <h3>Tools & Painting</h3>
+          </div>
+          <div class="space-y-2 text-xs">
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1 font-mono text-[11px]">
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">1</kbd>
+                <span class="text-zinc-500">/</span>
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">B</kbd>
+              </div>
+              <span class="text-zinc-400 text-right">Brush tool</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1 font-mono text-[11px]">
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">L</kbd>
+              </div>
+              <span class="text-zinc-400 text-right">Line tool</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1 font-mono text-[11px]">
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">2</kbd>
+                <span class="text-zinc-500">/</span>
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">E</kbd>
+              </div>
+              <span class="text-zinc-400 text-right">Eraser</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1 font-mono text-[11px]">
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">3</kbd>
+                <span class="text-zinc-500">/</span>
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">T</kbd>
+              </div>
+              <span class="text-zinc-400 text-right">Stamp decal</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1 font-mono text-[11px]">
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">4</kbd>
+                <span class="text-zinc-500">/</span>
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">G</kbd>
+              </div>
+              <span class="text-zinc-400 text-right">Fill bucket</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1 font-mono text-[11px]">
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">5</kbd>
+                <span class="text-zinc-500">/</span>
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">I</kbd>
+              </div>
+              <span class="text-zinc-400 text-right">Eyedropper</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1 font-mono text-[11px]">
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">X</kbd>
+              </div>
+              <span class="text-zinc-400 text-right">Swap B/W or Solid Color</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1 font-mono text-[11px]">
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">[</kbd>
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">]</kbd>
+              </div>
+              <span class="text-zinc-400 text-right">Step brush radius</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Section 3: Face Selection & Edit */}
+        <div class="p-3.5 bg-zinc-950/60 border border-zinc-800/80 rounded-xl flex flex-col gap-2.5">
+          <div class="flex items-center gap-2 text-xs font-semibold text-zinc-200 border-b border-zinc-800/80 pb-2">
+            <KeyboardIcon size={15} class="text-emerald-400" />
+            <h3>Face Selection & Edit</h3>
+          </div>
+          <div class="space-y-2 text-xs">
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1 font-mono text-[11px]">
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">Ctrl</kbd>+<kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">A</kbd>
+              </div>
+              <span class="text-zinc-400 text-right">Select all faces</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1 font-mono text-[11px]">
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">Ctrl</kbd>+<kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">D</kbd>
+              </div>
+              <span class="text-zinc-400 text-right">Deselect all</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1 font-mono text-[11px]">
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">Ctrl</kbd>+<kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">I</kbd>
+              </div>
+              <span class="text-zinc-400 text-right">Invert face selection</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1 font-mono text-[11px]">
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">Ctrl</kbd>+Drag
+              </div>
+              <span class="text-zinc-400 text-right">Paint-select faces</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1 font-mono text-[11px]">
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">Ctrl</kbd>+<kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">Z</kbd>
+              </div>
+              <span class="text-zinc-400 text-right">Undo</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1 font-mono text-[11px]">
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">Ctrl</kbd>+<kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">Y</kbd>
+              </div>
+              <span class="text-zinc-400 text-right">Redo</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1 font-mono text-[11px]">
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">?</kbd>
+              </div>
+              <span class="text-zinc-400 text-right">Toggle this guide</span>
+            </div>
+          </div>
         </div>
       </div>
-    </Show>
+    </Modal>
   )
 }

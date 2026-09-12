@@ -1,7 +1,7 @@
 {
   "name": "meshcoat",
   "productName": "MeshCoat",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Focused 3D model and texture painter",
   "main": "./out/main/index.js",
   "author": "Stuyk",

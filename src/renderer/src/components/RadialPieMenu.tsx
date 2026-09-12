@@ -26,7 +26,7 @@ interface ToolWedge {
   id: ToolMode
   name: string
   shortcut: string
-  angleDeg: number // Centered angle in degrees
+  angleDeg: number
   icon: (props: { size?: number }) => any
 }
 
@@ -63,7 +63,6 @@ export default function RadialPieMenu(props: PieMenuProps) {
   const WHEEL_SIZE = 240
   const WHEEL_HALF = WHEEL_SIZE / 2
 
-  // Clamp popup position so it doesn't render partially outside screen edges
   const posX = () => Math.max(160, Math.min(window.innerWidth - 160, props.x))
   const posY = () => Math.max(140, Math.min(window.innerHeight - 230, props.y))
 
@@ -73,23 +72,18 @@ export default function RadialPieMenu(props: PieMenuProps) {
     const dist = Math.sqrt(dx * dx + dy * dy)
 
     if (dist < 28) {
-      // In deadzone center
       setHoveredTool(props.activeTool)
       return
     }
 
     if (dist > 125) {
-      // Outside radial wheel (interacting with palette or textures strip below) —
-      // clear the wedge highlight instead of leaving the last one stuck.
       setHoveredTool(null)
       return
     }
 
-    // Angle in degrees from 0 to 360
     let deg = (Math.atan2(dy, dx) * 180) / Math.PI
     if (deg < 0) deg += 360
 
-    // Find closest wedge (60 degrees each)
     let closest: ToolWedge = WEDGES[0]
     let minDiff = 360
 
@@ -104,78 +98,54 @@ export default function RadialPieMenu(props: PieMenuProps) {
     setHoveredTool(closest.id)
   }
 
-  function onClick(e: MouseEvent) {
-    // If clicking on quick bar controls, ignore
-    const target = e.target as HTMLElement | null
-    if (target?.closest('.pie-hud-card')) {
-      return
-    }
-
-    const t = hoveredTool()
-    if (t) {
-      props.onSelectTool(t)
-    }
-    props.onClose()
-  }
-
-  function onKeyUp(e: KeyboardEvent) {
-    if (e.code === 'Space') {
+  function onKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Escape' || e.code === 'Space') {
       e.preventDefault()
-      e.stopPropagation()
-      const t = hoveredTool()
-      if (t) {
-        props.onSelectTool(t)
-      }
-      props.onClose()
-    } else if (e.key === 'Escape') {
       props.onClose()
     }
   }
 
   onMount(() => {
     window.addEventListener('mousemove', onMouseMove)
-    window.addEventListener('click', onClick)
-    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('keydown', onKeyDown)
   })
 
   onCleanup(() => {
     window.removeEventListener('mousemove', onMouseMove)
-    window.removeEventListener('click', onClick)
-    window.removeEventListener('keyup', onKeyUp)
+    window.removeEventListener('keydown', onKeyDown)
   })
 
-  // Generate SVG path for a 60-degree sector
-  function getSectorPath(centerAngleDeg: number): string {
-    const startAngle = ((centerAngleDeg - 29) * Math.PI) / 180
-    const endAngle = ((centerAngleDeg + 29) * Math.PI) / 180
+  function getSectorPath(centerAngleDeg: number) {
+    const halfSweep = 29.5 * (Math.PI / 180)
+    const centerRad = (centerAngleDeg * Math.PI) / 180
+    const startRad = centerRad - halfSweep
+    const endRad = centerRad + halfSweep
 
-    const x1 = Math.cos(startAngle) * RADIUS_OUTER
-    const y1 = Math.sin(startAngle) * RADIUS_OUTER
-    const x2 = Math.cos(endAngle) * RADIUS_OUTER
-    const y2 = Math.sin(endAngle) * RADIUS_OUTER
+    const x1 = Math.cos(startRad) * RADIUS_INNER
+    const y1 = Math.sin(startRad) * RADIUS_INNER
+    const x2 = Math.cos(startRad) * RADIUS_OUTER
+    const y2 = Math.sin(startRad) * RADIUS_OUTER
+    const x3 = Math.cos(endRad) * RADIUS_OUTER
+    const y3 = Math.sin(endRad) * RADIUS_OUTER
+    const x4 = Math.cos(endRad) * RADIUS_INNER
+    const y4 = Math.sin(endRad) * RADIUS_INNER
 
-    const x3 = Math.cos(endAngle) * RADIUS_INNER
-    const y3 = Math.sin(endAngle) * RADIUS_INNER
-    const x4 = Math.cos(startAngle) * RADIUS_INNER
-    const y4 = Math.sin(startAngle) * RADIUS_INNER
-
-    return `M ${x1} ${y1} A ${RADIUS_OUTER} ${RADIUS_OUTER} 0 0 1 ${x2} ${y2} L ${x3} ${y3} A ${RADIUS_INNER} ${RADIUS_INNER} 0 0 0 ${x4} ${y4} Z`
+    return `M ${x1} ${y1} L ${x2} ${y2} A ${RADIUS_OUTER} ${RADIUS_OUTER} 0 0 1 ${x3} ${y3} L ${x4} ${y4} A ${RADIUS_INNER} ${RADIUS_INNER} 0 0 0 ${x1} ${y1} Z`
   }
 
   const quickTextures = () => {
-    const recent = brush.recentTextures()
+    const recents = brush.recentTextures()
     const available = props.availableTextures ?? []
-    const seen = new Set<string>()
     const list: string[] = []
+    const seen = new Set<string>()
 
-    for (const p of recent) {
+    for (const p of recents) {
       if (!seen.has(p)) {
         seen.add(p)
         list.push(p)
       }
     }
     for (const p of available) {
-      if (list.length >= 5) break
       if (!seen.has(p)) {
         seen.add(p)
         list.push(p)
@@ -185,35 +155,72 @@ export default function RadialPieMenu(props: PieMenuProps) {
   }
 
   return (
-    <div
-      class="radial-pie-overlay"
-      style={{
-        left: `${posX() - WHEEL_HALF}px`,
-        top: `${posY() - WHEEL_HALF}px`
-      }}
-    >
-      <svg class="radial-pie-svg" width="240" height="240" viewBox="-120 -120 240 240">
-        {/* Background glow circle */}
-        <circle r="106" class="pie-bg-blur" />
+    <>
+      {/* Fullscreen transparent backdrop to catch clicks outside and dismiss */}
+      <div
+        class="fixed inset-0 z-40 bg-black/25"
+        onClick={(e) => {
+          e.stopPropagation()
+          props.onClose()
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          props.onClose()
+        }}
+      />
 
-        {/* Wedges */}
-        <For each={WEDGES}>
-          {(w) => {
-            const isHovered = () => hoveredTool() === w.id
-            const isActive = () => props.activeTool === w.id
-            const rad = (w.angleDeg * Math.PI) / 180
-            const iconDist = (RADIUS_INNER + RADIUS_OUTER) / 2
-            const ix = Math.cos(rad) * iconDist
-            const iy = Math.sin(rad) * iconDist
+      <div
+        class="fixed z-50 pointer-events-auto select-none animate-in fade-in zoom-in-95 duration-100"
+        style={{
+          left: `${posX() - WHEEL_HALF}px`,
+          top: `${posY() - WHEEL_HALF}px`
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <svg width="240" height="240" viewBox="-120 -120 240 240" class="drop-shadow-2xl">
+          {/* Background glow circle */}
+          <circle r="106" fill="rgba(18, 18, 24, 0.88)" stroke="rgba(255, 255, 255, 0.1)" stroke-width="1" />
 
-            return (
-              <g
-                class="pie-wedge-group"
-                classList={{ hovered: isHovered(), active: isActive() }}
-              >
-                <path d={getSectorPath(w.angleDeg)} class="pie-wedge-path" />
-                {/* Wedge Icon - positioned with transform */}
-                <g transform={`translate(${ix - 11}, ${iy - 11})`} class="pie-wedge-icon">
+          {/* Wedges */}
+          <For each={WEDGES}>
+            {(w) => {
+              const isHovered = () => hoveredTool() === w.id
+              const isActive = () => props.activeTool === w.id
+              const rad = (w.angleDeg * Math.PI) / 180
+              const iconDist = (RADIUS_INNER + RADIUS_OUTER) / 2
+              const ix = Math.cos(rad) * iconDist
+              const iy = Math.sin(rad) * iconDist
+
+              const wedgeFill = () => {
+                if (isHovered()) return 'rgba(59, 130, 246, 0.5)'
+                if (isActive()) return 'rgba(59, 130, 246, 0.25)'
+                return 'rgba(30, 30, 40, 0.75)'
+              }
+
+              const wedgeStroke = () => {
+                if (isHovered()) return '#60a5fa'
+                if (isActive()) return '#3b82f6'
+                return 'rgba(255, 255, 255, 0.12)'
+              }
+
+              return (
+                <g
+                  class="transition-all cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    props.onSelectTool(w.id)
+                  }}
+                >
+                <path
+                  d={getSectorPath(w.angleDeg)}
+                  fill={wedgeFill()}
+                  stroke={wedgeStroke()}
+                  stroke-width="1.5"
+                />
+                <g
+                  transform={`translate(${ix - 11}, ${iy - 11})`}
+                  class={isHovered() ? 'text-white' : isActive() ? 'text-blue-300' : 'text-zinc-300'}
+                >
                   {w.icon({ size: 22 })}
                 </g>
               </g>
@@ -224,7 +231,10 @@ export default function RadialPieMenu(props: PieMenuProps) {
         {/* Center Hub */}
         <circle
           r="36"
-          class="pie-center-circle"
+          fill="rgba(24, 24, 32, 0.95)"
+          stroke="rgba(255, 255, 255, 0.18)"
+          stroke-width="1.5"
+          class="cursor-pointer"
           onClick={(e) => {
             e.stopPropagation()
             colorInputRef?.click()
@@ -232,10 +242,10 @@ export default function RadialPieMenu(props: PieMenuProps) {
         />
         <circle
           r="18"
-          class="pie-center-color"
-          style={{
-            fill: brush.color()
-          }}
+          style={{ fill: brush.color() }}
+          stroke="rgba(255, 255, 255, 0.3)"
+          stroke-width="1.5"
+          class="cursor-pointer hover:scale-110 transition-transform"
           onClick={(e) => {
             e.stopPropagation()
             colorInputRef?.click()
@@ -246,25 +256,33 @@ export default function RadialPieMenu(props: PieMenuProps) {
       {/* Floating Tool Label underneath center */}
       <Show when={WEDGES.find((w) => w.id === hoveredTool())}>
         {(wedge) => (
-          <div class="pie-tooltip-card">
-            <span class="pie-tool-name">{wedge().name}</span>
-            <span class="pie-tool-key">[{wedge().shortcut}]</span>
+          <div class="absolute left-1/2 -translate-x-1/2 top-[125px] flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-900/95 border border-zinc-700 shadow-xl backdrop-blur-sm text-xs font-semibold text-zinc-100 whitespace-nowrap pointer-events-none">
+            <span>{wedge().name}</span>
+            <span class="font-mono text-[10px] text-zinc-400">[{wedge().shortcut}]</span>
           </div>
         )}
       </Show>
 
       {/* Quick Access HUD Card (Colors, Textures, Symmetry, Rotation) */}
-      <div class="pie-hud-card" onClick={(e) => e.stopPropagation()}>
+      <div
+        class="absolute left-1/2 -translate-x-1/2 top-[245px] w-[270px] p-2.5 bg-zinc-900/95 border border-zinc-750 rounded-xl shadow-2xl backdrop-blur-md flex flex-col gap-2.5 text-xs"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Row 1: Quick Color Swatches */}
-        <div class="pie-hud-section">
-          <span class="pie-hud-label">Color</span>
-          <div class="pie-swatches-strip">
+        <div class="flex flex-col gap-1">
+          <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
+            Color
+          </span>
+          <div class="flex items-center gap-1 flex-wrap">
             <For each={QUICK_COLORS}>
               {(col) => (
                 <button
                   type="button"
-                  class="pie-swatch-dot"
-                  classList={{ active: brush.color().toLowerCase() === col.toLowerCase() }}
+                  class={`w-4 h-4 rounded-full border transition-transform cursor-pointer ${
+                    brush.color().toLowerCase() === col.toLowerCase()
+                      ? 'ring-2 ring-blue-500 scale-110 border-white'
+                      : 'border-white/20 hover:scale-110'
+                  }`}
                   style={{ 'background-color': col }}
                   title={`Select color: ${col}`}
                   onClick={(e) => {
@@ -274,37 +292,42 @@ export default function RadialPieMenu(props: PieMenuProps) {
                 />
               )}
             </For>
-            <label class="pie-custom-color-picker" title="Pick custom color">
+            <label class="relative w-4 h-4 rounded-full border border-white/30 overflow-hidden cursor-pointer flex items-center justify-center">
               <input
                 ref={colorInputRef}
                 type="color"
-                class="pie-hidden-input"
+                class="sr-only"
                 value={brush.color()}
                 onInput={(e) => brush.setColor(e.currentTarget.value)}
               />
-              <span class="pie-custom-swatch-preview" style={{ 'background-color': brush.color() }} />
+              <span class="w-full h-full" style={{ 'background-color': brush.color() }} />
             </label>
           </div>
         </div>
 
         {/* Row 2: Recent 5 Textures */}
-        <div class="pie-hud-section">
-          <div class="pie-hud-label-row">
-            <span class="pie-hud-label">Textures</span>
-            <span class="pie-hud-sub">{brush.texturePath() ? 'Texture Active' : 'Solid Color'}</span>
+        <div class="flex flex-col gap-1">
+          <div class="flex items-center justify-between text-[10px]">
+            <span class="font-semibold text-zinc-400 uppercase tracking-wider">Textures</span>
+            <span class="text-zinc-500 font-mono">
+              {brush.texturePath() ? 'Texture Active' : 'Solid Color'}
+            </span>
           </div>
-          <div class="pie-textures-strip">
+          <div class="flex items-center gap-1 overflow-x-auto pb-0.5">
             <button
               type="button"
-              class="pie-tex-btn none-btn"
-              classList={{ active: !brush.texturePath() }}
+              class={`px-2 py-1 rounded text-[11px] font-medium border transition-colors cursor-pointer ${
+                !brush.texturePath()
+                  ? 'bg-blue-600/30 text-blue-300 border-blue-500/60'
+                  : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200'
+              }`}
               title="Solid Color (No Texture)"
               onClick={(e) => {
                 e.stopPropagation()
                 setTexturePath(null)
               }}
             >
-              <span>None</span>
+              None
             </button>
             <For each={quickTextures()}>
               {(texPath) => {
@@ -313,15 +336,18 @@ export default function RadialPieMenu(props: PieMenuProps) {
                 return (
                   <button
                     type="button"
-                    class="pie-tex-btn"
-                    classList={{ active: isSelected() }}
+                    class={`w-6 h-6 rounded checkerboard-bg overflow-hidden border transition-transform cursor-pointer flex-shrink-0 ${
+                      isSelected()
+                        ? 'ring-2 ring-blue-500 border-white'
+                        : 'border-zinc-700 hover:border-zinc-500'
+                    }`}
                     title={fileName}
                     onClick={(e) => {
                       e.stopPropagation()
                       setTexturePath(isSelected() ? null : texPath, !props.isMaskTarget?.())
                     }}
                   >
-                    <img src={toAssetUrl(texPath)} alt={fileName} />
+                    <img src={toAssetUrl(texPath)} alt={fileName} class="w-full h-full object-cover" />
                   </button>
                 )
               }}
@@ -330,19 +356,22 @@ export default function RadialPieMenu(props: PieMenuProps) {
         </div>
 
         {/* Row 3: Symmetry & Brush Angle */}
-        <div class="pie-hud-footer-row">
-          {/* Symmetry Axis Picker */}
-          <div class="pie-hud-sym-group">
-            <div class="pie-hud-mini-label">
+        <div class="flex items-center justify-between gap-2 pt-1 border-t border-zinc-800 text-[10px]">
+          {/* Symmetry */}
+          <div class="flex items-center gap-1">
+            <span class="flex items-center gap-1 text-zinc-400">
               <SymmetryIcon size={12} />
-              <span>Symmetry</span>
-            </div>
-            <div class="pie-sym-chips">
+              <span>Sym:</span>
+            </span>
+            <div class="flex items-center gap-0.5">
               {(['off', 'x', 'y', 'z'] as const).map((axis) => (
                 <button
                   type="button"
-                  class="pie-sym-chip"
-                  classList={{ active: brush.symmetryAxis() === axis }}
+                  class={`px-1.5 py-0.5 rounded font-mono text-[10px] font-medium border transition-colors cursor-pointer ${
+                    brush.symmetryAxis() === axis
+                      ? 'bg-blue-600 text-white border-blue-500'
+                      : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200'
+                  }`}
                   onClick={(e) => {
                     e.stopPropagation()
                     brush.setSymmetryAxis(axis)
@@ -354,16 +383,16 @@ export default function RadialPieMenu(props: PieMenuProps) {
             </div>
           </div>
 
-          {/* Brush Rotation Quick Stepper */}
-          <div class="pie-hud-rot-group">
-            <div class="pie-hud-mini-label">
+          {/* Angle */}
+          <div class="flex items-center gap-1">
+            <span class="flex items-center gap-1 text-zinc-400 font-mono">
               <RotateIcon size={12} />
-              <span>Angle: {Math.round(brush.brushRotation())}°</span>
-            </div>
-            <div class="pie-rot-stepper">
+              <span>{Math.round(brush.brushRotation())}°</span>
+            </span>
+            <div class="flex items-center gap-0.5">
               <button
                 type="button"
-                class="pie-step-btn"
+                class="px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-750 font-mono text-[10px] cursor-pointer"
                 title="Rotate -15° (Shift+R)"
                 onClick={(e) => {
                   e.stopPropagation()
@@ -374,7 +403,7 @@ export default function RadialPieMenu(props: PieMenuProps) {
               </button>
               <button
                 type="button"
-                class="pie-step-btn"
+                class="px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-750 font-mono text-[10px] cursor-pointer"
                 title="Rotate +15° (R)"
                 onClick={(e) => {
                   e.stopPropagation()
@@ -388,5 +417,6 @@ export default function RadialPieMenu(props: PieMenuProps) {
         </div>
       </div>
     </div>
-  )
+  </>
+)
 }
