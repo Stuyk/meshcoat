@@ -309,39 +309,6 @@ export class PaintEngine {
     this.writeTarget = tmp
   }
 
-  /** Computes the 2D UV bounding box [minU, minV, maxU, maxV] for a set of face indices. */
-  computeSelectionUvBounds(faces: ReadonlySet<number>): { minU: number; minV: number; maxU: number; maxV: number } {
-    const uvAttr = this.uvMesh.geometry.getAttribute('uv') as THREE.BufferAttribute | undefined
-    if (!uvAttr) return { minU: 0, minV: 0, maxU: 1, maxV: 1 }
-
-    let minU = Infinity
-    let minV = Infinity
-    let maxU = -Infinity
-    let maxV = -Infinity
-
-    for (const face of faces) {
-      const base = face * 3
-      if (base < 0 || base + 2 >= uvAttr.count) continue
-      for (let k = 0; k < 3; k++) {
-        const u = uvAttr.getX(base + k)
-        const v = uvAttr.getY(base + k)
-        if (u < minU) minU = u
-        if (v < minV) minV = v
-        if (u > maxU) maxU = u
-        if (v > maxV) maxV = v
-      }
-    }
-
-    if (!isFinite(minU) || !isFinite(minV) || !isFinite(maxU) || !isFinite(maxV)) {
-      return { minU: 0, minV: 0, maxU: 1, maxV: 1 }
-    }
-
-    if (maxU - minU < 0.00001) maxU = minU + 1
-    if (maxV - minV < 0.00001) maxV = minV + 1
-
-    return { minU, minV, maxU, maxV }
-  }
-
   /** Fills the whole active layer with color or pattern (spec: bucket tool across whole model). */
   fill(options?: FillOptions | THREE.Color, legacyAlpha = 1): void {
     let color: THREE.Color
@@ -371,7 +338,6 @@ export class PaintEngine {
       u.uRestrictFace.value = 0 // Apply across whole model
       u.uUseTexture.value = 1
       u.uBrushTexture.value = texture
-      u.uFillBounds.value.set(0, 0, 1, 1) // Whole UV space
       u.uFillScale.value = scale
       u.uStampMode.value = 0
 
@@ -434,7 +400,6 @@ export class PaintEngine {
     }
 
     this.setSelectionMask(faces)
-    const bounds = this.computeSelectionUvBounds(faces)
 
     const u = this.material.uniforms
     u.uPrevTexture.value = this.readTarget.texture
@@ -444,7 +409,6 @@ export class PaintEngine {
     u.uRestrictFace.value = 1
     u.uUseTexture.value = texture ? 1 : 0
     u.uBrushTexture.value = texture
-    u.uFillBounds.value.set(bounds.minU, bounds.minV, bounds.maxU, bounds.maxV)
     u.uFillScale.value = scale
     u.uStampMode.value = 0
 

@@ -1,4 +1,4 @@
-import { Show, For, createMemo, createSignal } from 'solid-js'
+import { Show, createSignal } from 'solid-js'
 import {
   brush,
   setRadius,
@@ -11,7 +11,7 @@ import {
   clearFaceSelection,
   type ToolMode
 } from '../paint/brush'
-import { brushPresets, type AbrBrushPreset } from '../paint/brushPresets'
+import { brushPresets } from '../paint/brushPresets'
 import {
   XIcon,
   PaletteIcon,
@@ -23,7 +23,6 @@ import {
   SpacingIcon,
   FeatherIcon,
   EyeIcon,
-  BrushIcon,
   ImagesIcon,
   FocusIcon,
   EyedropperIcon,
@@ -91,7 +90,6 @@ export default function BrushSettingsTab(props: {
 
   // Collapsible section toggles
   const [strokeOpen, setStrokeOpen] = createSignal(true)
-  const [tipsOpen, setTipsOpen] = createSignal(true)
   const [colorOpen, setColorOpen] = createSignal(true)
   const [textureOpen, setTextureOpen] = createSignal(!!brush.texturePath())
 
@@ -108,17 +106,6 @@ export default function BrushSettingsTab(props: {
     const normalized = Math.min(1, Math.max(0.2, brush.radius() / 1.5))
     return Math.round(14 + normalized * 26)
   }
-
-  // First 8 presets from library for quick shelf
-  const quickPresets = createMemo(() => {
-    const packs = brushPresets.packs()
-    const list: AbrBrushPreset[] = []
-    for (const p of packs) {
-      list.push(...p.brushes)
-      if (list.length >= 8) break
-    }
-    return list.slice(0, 8)
-  })
 
   return (
     <div class="brush-settings-tab">
@@ -214,7 +201,234 @@ export default function BrushSettingsTab(props: {
         </div>
       </div>
 
-      {/* 4. Collapsible Section: Stroke Dynamics */}
+
+      {/* 4. Collapsible Section: Color & Palette */}
+      <div class="inspector-section" classList={{ 'is-collapsed': !colorOpen() }}>
+        <button
+          type="button"
+          class="inspector-section-header"
+          onClick={() => setColorOpen(!colorOpen())}
+        >
+          <div class="header-title-wrap">
+            <PaletteIcon size={16} class="section-icon text-emerald-400" />
+            <span>{props.isMaskTarget?.() ? 'Mask Grayscale' : 'Paint Color'}</span>
+          </div>
+          <div class="header-meta-wrap">
+            <span class="color-indicator-swatch" style={{ background: brush.color() }} />
+            <ChevronDownIcon size={16} class="section-chevron" />
+          </div>
+        </button>
+
+        <Show when={colorOpen()}>
+          <div class="inspector-section-body">
+            {/* Primary Swatch & Hex Stepper */}
+            <div class="color-master-row">
+              <button
+                type="button"
+                class="color-trigger-btn"
+                onClick={() => colorInputRef?.click()}
+                title="Click to open color picker"
+              >
+                <span class="color-trigger-chip" style={{ background: brush.color() }} />
+                <span class="color-trigger-hex tabular">{brush.color().toUpperCase()}</span>
+                <EyedropperIcon size={15} class="text-neutral-400 ml-auto" />
+              </button>
+              <input
+                ref={colorInputRef}
+                type="color"
+                class="sr-only-picker"
+                value={brush.color()}
+                onInput={(e) => brush.setColor(e.currentTarget.value)}
+              />
+            </div>
+
+            {/* Mask Mode Grayscale Buttons */}
+            <Show when={props.isMaskTarget?.()}>
+              <div class="mask-grays-list">
+                {MASK_GRAYS.map((item) => (
+                  <button
+                    type="button"
+                    class="mask-gray-row-btn"
+                    classList={{ active: brush.color().toLowerCase() === item.hex.toLowerCase() }}
+                    onClick={() => brush.setColor(item.hex)}
+                    title={item.label}
+                  >
+                    <span class="mask-gray-chip" style={{ background: item.hex }} />
+                    <span class="mask-gray-label">{item.label}</span>
+                  </button>
+                ))}
+              </div>
+            </Show>
+
+            {/* Standard Quick Palette */}
+            <Show when={!props.isMaskTarget?.()}>
+              <div class="color-swatches-grid">
+                {QUICK_COLORS.map((hex) => (
+                  <button
+                    type="button"
+                    class="color-swatch-cell"
+                    classList={{ active: brush.color().toLowerCase() === hex.toLowerCase() }}
+                    style={{ background: hex }}
+                    onClick={() => brush.setColor(hex)}
+                    title={hex}
+                  />
+                ))}
+              </div>
+            </Show>
+          </div>
+        </Show>
+      </div>
+
+      {/* 5. Collapsible Section: Surface Material & Texture */}
+      <div class="inspector-section" classList={{ 'is-collapsed': !textureOpen() }}>
+        <button
+          type="button"
+          class="inspector-section-header"
+          onClick={() => setTextureOpen(!textureOpen())}
+        >
+          <div class="header-title-wrap">
+            <ImagesIcon size={16} class="section-icon text-purple-400" />
+            <span>Material Texture</span>
+          </div>
+          <div class="header-meta-wrap">
+            <span
+              class="section-meta-badge"
+              classList={{ active: !!brush.texturePath() }}
+            >
+              {brush.texturePath() ? 'Active' : 'Solid Color'}
+            </span>
+            <ChevronDownIcon size={16} class="section-chevron" />
+          </div>
+        </button>
+
+        <Show when={textureOpen()}>
+          <div class="inspector-section-body">
+            <Show
+              when={brush.texturePath()}
+              fallback={
+                <div class="texture-empty-callout">
+                  <StampIcon size={18} class="text-neutral-400" />
+                  <div class="empty-callout-text">
+                    <span class="empty-title">
+                      {props.activeTool === 'fill' ? 'Solid Color Fill' : 'No Texture Selected'}
+                    </span>
+                    <span class="empty-desc">
+                      Pick a texture from the bottom Texture Shelf to paint materials or stamp decals.
+                    </span>
+                  </div>
+                </div>
+              }
+            >
+              {/* Active Texture Card */}
+              <div class="active-texture-row">
+                <div class="texture-thumb-box checkerboard-bg">
+                  <img src={toAssetUrl(brush.texturePath()!)} alt="" />
+                </div>
+                <div class="texture-meta-info">
+                  <span class="texture-name-label" title={brush.texturePath()?.split('/').pop()}>
+                    {brush.texturePath()?.split('/').pop()}
+                  </span>
+                  <span class="texture-mode-pill">
+                    {props.activeTool === 'stamp'
+                      ? 'Decal Stamp'
+                      : props.activeTool === 'fill'
+                        ? 'Fill Pattern'
+                        : brush.textureMapping() === 'uv'
+                          ? 'Direct UV'
+                          : brush.textureMapping() === 'triplanar'
+                            ? 'Triplanar'
+                            : 'Brush Tip'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  class="texture-detach-btn"
+                  title="Remove texture pattern"
+                  onClick={() => setTexturePath(null)}
+                >
+                  <XIcon size={16} />
+                </button>
+              </div>
+
+              {/* Projection Mode (Brush tool) */}
+              <Show when={props.activeTool === 'brush'}>
+                <div class="setting-row-group">
+                  <div class="setting-label-row">
+                    <span class="sub-label">Projection Mapping</span>
+                  </div>
+                  <div class="segmented-control-tabs">
+                    <button
+                      type="button"
+                      class="segmented-tab"
+                      classList={{ active: brush.textureMapping() === 'uv' }}
+                      onClick={() => setTextureMapping('uv')}
+                      title="Follows 3D model authored UV coordinates"
+                    >
+                      Direct UV
+                    </button>
+                    <button
+                      type="button"
+                      class="segmented-tab"
+                      classList={{ active: brush.textureMapping() === 'triplanar' }}
+                      onClick={() => setTextureMapping('triplanar')}
+                      title="Seamless world-space 3D projection"
+                    >
+                      Triplanar
+                    </button>
+                    <button
+                      type="button"
+                      class="segmented-tab"
+                      classList={{ active: brush.textureMapping() === 'tip' }}
+                      onClick={() => setTextureMapping('tip')}
+                      title="Stamps texture image directly per dab"
+                    >
+                      Brush Tip
+                    </button>
+                  </div>
+                </div>
+              </Show>
+
+              {/* Tiling Scale */}
+              <Show when={props.activeTool === 'brush' || props.activeTool === 'fill'}>
+                <div class="setting-row-group">
+                  <div class="setting-label-row">
+                    <span class="sub-label">Tiling / Scale</span>
+                    <span class="setting-badge tabular">{brush.textureScale().toFixed(2)}x</span>
+                  </div>
+                  <input
+                    type="range"
+                    class="compact-slider"
+                    min="0.1"
+                    max="5"
+                    step="0.05"
+                    value={brush.textureScale()}
+                    onInput={(e) => setTextureScale(parseFloat(e.currentTarget.value))}
+                  />
+                  <div class="segmented-chips-row">
+                    {[
+                      { label: '0.5x', value: 0.5 },
+                      { label: '1.0x', value: 1.0 },
+                      { label: '2.0x', value: 2.0 },
+                      { label: '3.0x', value: 3.0 }
+                    ].map((p) => (
+                      <button
+                        type="button"
+                        class="segmented-chip-btn"
+                        classList={{ active: Math.abs(brush.textureScale() - p.value) < 0.05 }}
+                        onClick={() => setTextureScale(p.value)}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </Show>
+            </Show>
+          </div>
+        </Show>
+      </div>
+
+      {/* 6. Collapsible Section: Stroke Dynamics */}
       <div class="inspector-section" classList={{ 'is-collapsed': !strokeOpen() }}>
         <button
           type="button"
@@ -486,301 +700,6 @@ export default function BrushSettingsTab(props: {
                 ))}
               </div>
             </div>
-          </div>
-        </Show>
-      </div>
-
-      {/* 5. Collapsible Section: Brush Tip Library */}
-      <div class="inspector-section" classList={{ 'is-collapsed': !tipsOpen() }}>
-        <button
-          type="button"
-          class="inspector-section-header"
-          onClick={() => setTipsOpen(!tipsOpen())}
-        >
-          <div class="header-title-wrap">
-            <BrushIcon size={16} class="section-icon text-amber-400" />
-            <span>Brush Tips</span>
-          </div>
-          <div class="header-meta-wrap">
-            <span class="section-meta-badge">
-              {brushPresets.active() ? brushPresets.active()!.name : 'Standard'}
-            </span>
-            <ChevronDownIcon size={16} class="section-chevron" />
-          </div>
-        </button>
-
-        <Show when={tipsOpen()}>
-          <div class="inspector-section-body">
-            {/* Quick Tip Grid */}
-            <div class="quick-tips-grid">
-              {/* Default Round Tip */}
-              <button
-                type="button"
-                class="tip-grid-item"
-                classList={{ active: !brushPresets.active() }}
-                onClick={() => brushPresets.clear()}
-                title="Default Round Tip (Smooth radial falloff)"
-              >
-                <div class="tip-thumb-container">
-                  <div class="round-default-thumb" />
-                </div>
-                <span class="tip-grid-name">Round</span>
-              </button>
-
-              {/* Quick Presets */}
-              <For each={quickPresets()}>
-                {(preset) => (
-                  <button
-                    type="button"
-                    class="tip-grid-item"
-                    classList={{ active: brushPresets.active()?.id === preset.id }}
-                    onClick={() => brushPresets.select(preset)}
-                    title={`${preset.name} (${Math.round(preset.diameter)}px)`}
-                  >
-                    <div class="tip-thumb-container checkerboard-bg">
-                      <img src={preset.dataUrl} alt={preset.name} />
-                    </div>
-                    <span class="tip-grid-name">{preset.name}</span>
-                  </button>
-                )}
-              </For>
-            </div>
-
-            {/* Footer Browse Button */}
-            <button
-              type="button"
-              class="tip-browse-footer-btn"
-              onClick={() => brushPresets.openManager()}
-            >
-              <SparklesIcon size={16} />
-              <span>Browse All &amp; Import .ABR Brushes...</span>
-            </button>
-          </div>
-        </Show>
-      </div>
-
-      {/* 6. Collapsible Section: Color & Palette */}
-      <div class="inspector-section" classList={{ 'is-collapsed': !colorOpen() }}>
-        <button
-          type="button"
-          class="inspector-section-header"
-          onClick={() => setColorOpen(!colorOpen())}
-        >
-          <div class="header-title-wrap">
-            <PaletteIcon size={16} class="section-icon text-emerald-400" />
-            <span>{props.isMaskTarget?.() ? 'Mask Grayscale' : 'Paint Color'}</span>
-          </div>
-          <div class="header-meta-wrap">
-            <span class="color-indicator-swatch" style={{ background: brush.color() }} />
-            <ChevronDownIcon size={16} class="section-chevron" />
-          </div>
-        </button>
-
-        <Show when={colorOpen()}>
-          <div class="inspector-section-body">
-            {/* Primary Swatch & Hex Stepper */}
-            <div class="color-master-row">
-              <button
-                type="button"
-                class="color-trigger-btn"
-                onClick={() => colorInputRef?.click()}
-                title="Click to open color picker"
-              >
-                <span class="color-trigger-chip" style={{ background: brush.color() }} />
-                <span class="color-trigger-hex tabular">{brush.color().toUpperCase()}</span>
-                <EyedropperIcon size={15} class="text-neutral-400 ml-auto" />
-              </button>
-              <input
-                ref={colorInputRef}
-                type="color"
-                class="sr-only-picker"
-                value={brush.color()}
-                onInput={(e) => brush.setColor(e.currentTarget.value)}
-              />
-            </div>
-
-            {/* Mask Mode Grayscale Buttons */}
-            <Show when={props.isMaskTarget?.()}>
-              <div class="mask-grays-list">
-                {MASK_GRAYS.map((item) => (
-                  <button
-                    type="button"
-                    class="mask-gray-row-btn"
-                    classList={{ active: brush.color().toLowerCase() === item.hex.toLowerCase() }}
-                    onClick={() => brush.setColor(item.hex)}
-                    title={item.label}
-                  >
-                    <span class="mask-gray-chip" style={{ background: item.hex }} />
-                    <span class="mask-gray-label">{item.label}</span>
-                  </button>
-                ))}
-              </div>
-            </Show>
-
-            {/* Standard Quick Palette */}
-            <Show when={!props.isMaskTarget?.()}>
-              <div class="color-swatches-grid">
-                {QUICK_COLORS.map((hex) => (
-                  <button
-                    type="button"
-                    class="color-swatch-cell"
-                    classList={{ active: brush.color().toLowerCase() === hex.toLowerCase() }}
-                    style={{ background: hex }}
-                    onClick={() => brush.setColor(hex)}
-                    title={hex}
-                  />
-                ))}
-              </div>
-            </Show>
-          </div>
-        </Show>
-      </div>
-
-      {/* 7. Collapsible Section: Surface Material & Texture */}
-      <div class="inspector-section" classList={{ 'is-collapsed': !textureOpen() }}>
-        <button
-          type="button"
-          class="inspector-section-header"
-          onClick={() => setTextureOpen(!textureOpen())}
-        >
-          <div class="header-title-wrap">
-            <ImagesIcon size={16} class="section-icon text-purple-400" />
-            <span>Material Texture</span>
-          </div>
-          <div class="header-meta-wrap">
-            <span
-              class="section-meta-badge"
-              classList={{ active: !!brush.texturePath() }}
-            >
-              {brush.texturePath() ? 'Active' : 'Solid Color'}
-            </span>
-            <ChevronDownIcon size={16} class="section-chevron" />
-          </div>
-        </button>
-
-        <Show when={textureOpen()}>
-          <div class="inspector-section-body">
-            <Show
-              when={brush.texturePath()}
-              fallback={
-                <div class="texture-empty-callout">
-                  <StampIcon size={18} class="text-neutral-400" />
-                  <div class="empty-callout-text">
-                    <span class="empty-title">
-                      {props.activeTool === 'fill' ? 'Solid Color Fill' : 'No Texture Selected'}
-                    </span>
-                    <span class="empty-desc">
-                      Pick a texture from the bottom Texture Shelf to paint materials or stamp decals.
-                    </span>
-                  </div>
-                </div>
-              }
-            >
-              {/* Active Texture Card */}
-              <div class="active-texture-row">
-                <div class="texture-thumb-box checkerboard-bg">
-                  <img src={toAssetUrl(brush.texturePath()!)} alt="" />
-                </div>
-                <div class="texture-meta-info">
-                  <span class="texture-name-label" title={brush.texturePath()?.split('/').pop()}>
-                    {brush.texturePath()?.split('/').pop()}
-                  </span>
-                  <span class="texture-mode-pill">
-                    {props.activeTool === 'stamp'
-                      ? 'Decal Stamp'
-                      : props.activeTool === 'fill'
-                        ? 'Fill Pattern'
-                        : brush.textureMapping() === 'uv'
-                          ? 'Direct UV'
-                          : brush.textureMapping() === 'triplanar'
-                            ? 'Triplanar'
-                            : 'Brush Tip'}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  class="texture-detach-btn"
-                  title="Remove texture pattern"
-                  onClick={() => setTexturePath(null)}
-                >
-                  <XIcon size={16} />
-                </button>
-              </div>
-
-              {/* Projection Mode (Brush tool) */}
-              <Show when={props.activeTool === 'brush'}>
-                <div class="setting-row-group">
-                  <div class="setting-label-row">
-                    <span class="sub-label">Projection Mapping</span>
-                  </div>
-                  <div class="segmented-control-tabs">
-                    <button
-                      type="button"
-                      class="segmented-tab"
-                      classList={{ active: brush.textureMapping() === 'uv' }}
-                      onClick={() => setTextureMapping('uv')}
-                      title="Follows 3D model authored UV coordinates"
-                    >
-                      Direct UV
-                    </button>
-                    <button
-                      type="button"
-                      class="segmented-tab"
-                      classList={{ active: brush.textureMapping() === 'triplanar' }}
-                      onClick={() => setTextureMapping('triplanar')}
-                      title="Seamless world-space 3D projection"
-                    >
-                      Triplanar
-                    </button>
-                    <button
-                      type="button"
-                      class="segmented-tab"
-                      classList={{ active: brush.textureMapping() === 'tip' }}
-                      onClick={() => setTextureMapping('tip')}
-                      title="Stamps texture image directly per dab"
-                    >
-                      Brush Tip
-                    </button>
-                  </div>
-                </div>
-              </Show>
-
-              {/* Tiling Scale */}
-              <Show when={props.activeTool === 'brush' || props.activeTool === 'fill'}>
-                <div class="setting-row-group">
-                  <div class="setting-label-row">
-                    <span class="sub-label">Tiling / Scale</span>
-                    <span class="setting-badge tabular">{brush.textureScale().toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range"
-                    class="compact-slider"
-                    min="0.1"
-                    max="5"
-                    step="0.05"
-                    value={brush.textureScale()}
-                    onInput={(e) => setTextureScale(parseFloat(e.currentTarget.value))}
-                  />
-                  <div class="segmented-chips-row">
-                    {[
-                      { label: '0.5x', value: 0.5 },
-                      { label: '1.0x', value: 1.0 },
-                      { label: '2.0x', value: 2.0 },
-                      { label: '3.0x', value: 3.0 }
-                    ].map((p) => (
-                      <button
-                        type="button"
-                        class="segmented-chip-btn"
-                        classList={{ active: Math.abs(brush.textureScale() - p.value) < 0.05 }}
-                        onClick={() => setTextureScale(p.value)}
-                      >
-                        {p.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </Show>
-            </Show>
           </div>
         </Show>
       </div>

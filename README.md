@@ -53,14 +53,17 @@ MeshCoat maps your brush strokes directly from 3D camera space into UV coordinat
   - **Eyedropper (`I`):** Sample exact RGB colors directly from any point on the textured 3D model.
   - **Face Selection (`V` / `Ctrl`):** Highlight faces with cyan outlines to restrict brush strokes and fills to specific geometry.
 - **Quick Face Masking (`Ctrl` + Click / Drag):** Hold <kbd>Ctrl</kbd> on **any tool** to click or sweep-drag across faces. All subsequent brush strokes, stamps, and fills are automatically confined to the highlighted selection. Hold <kbd>Ctrl</kbd>+<kbd>Shift</kbd> to deselect, or press <kbd>Esc</kbd> to clear.
-- **Integrated Texture Shelf:** Browse folders of PNG/JPG textures on your drive with a 2-wide shelf, instant search, and one-click decal selection. Remembers your last folder automatically.
+- **Layer Masks:** Toggle any layer between paint mode and mask mode with a single button. Masks modulate the layer(s) below — but only once you explicitly move a layer under one; masking is never applied automatically just because a layer happens to sit below a mask.
+- **Symmetry Mirror Painting:** Mirror every stroke, stamp, and fill across the model's X, Y, or Z axis in real time for fast symmetric texturing.
+- **Edge Wear Wizard:** Procedurally generate ridge highlights, chipped paint, and corrosion along a model's sharp edges, with live 3D preview and metallic/weathering color presets before committing to a new or existing layer.
+- **Integrated Texture Shelf:** Browse folders of PNG/JPG textures on your drive with a 2-wide shelf, instant search, and one-click decal selection. A dedicated "Used" tab keeps every texture you've actually painted, stamped, or filled with close at hand for reuse. Remembers your last folder automatically, restored in the background after launch.
 - **Lighting & View Modes:** Switch between Lit mode (directional + ambient lighting for depth) and Flat mode (unlit color view for pure texture painting).
 - **Wireframe Overlay (`W`):** Toggle wireframe overlay on the fly to inspect topology and UV islands while painting.
 - **Interactive Brush Gestures:** Adjust radius dynamically using <kbd>[</kbd> and <kbd>]</kbd> or by dragging <kbd>RMB</kbd>. Adjust hardness and opacity with <kbd>Shift</kbd> + <kbd>RMB</kbd> drag.
 - **Smooth 3D Navigation:** Standard DCC camera controls: <kbd>Alt</kbd>+<kbd>LMB</kbd> to orbit, <kbd>Alt</kbd>+<kbd>MMB</kbd> to pan, <kbd>Alt</kbd>+<kbd>RMB</kbd> / wheel to zoom, and <kbd>F</kbd> to frame the model.
 - **Format Support:** Loads `.obj`, `.gltf`, and `.glb` files with automatic UV validation.
 - **One-Click PNG Export:** Export the composite base color map directly to disk ready for your game engine or render pipeline.
-- **Undo / Redo:** Full multi-step history for paint strokes, layer edits, and fills (<kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd>).
+- **Undo / Redo:** Long, full-fidelity history (up to 100 steps) for every stroke, fill, and layer operation — layer add/remove/reorder, opacity, visibility, masks, and edge wear — via <kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd> or the Edit menu.
 
 ## Quick Start
 
@@ -94,8 +97,9 @@ Start a new project (`File` > `New Project`), pick your 3D model (`.obj`, `.glb`
 | `Alt` + `RMB` (or Wheel) | Zoom camera |
 | `F` | Focus / frame model in view |
 | `W` | Toggle wireframe overlay |
+| `Space` (hold) | Open radial quick-access tool wheel |
 | `Ctrl` + `Z` | Undo last stroke / action |
-| `Ctrl` + `Y` | Redo action |
+| `Ctrl` + `Y` (or `Ctrl` + `Shift` + `Z`) | Redo action |
 | `?` | Toggle quick guide & hotkeys |
 
 ## Model Preparation & UVs

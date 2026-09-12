@@ -1,7 +1,6 @@
 import { Show } from 'solid-js'
 import { brush, setTextureMapping } from '../paint/brush'
 import type { ToolMode } from '../paint/brush'
-import type { LightingMode } from '../viewport/scene'
 import {
   BrushIcon,
   StampIcon,
@@ -10,24 +9,16 @@ import {
   EyedropperIcon,
   MousePointerIcon,
   LineIcon,
-  LayersIcon,
   HelpCircleIcon,
-  WireframeIcon,
   FocusIcon,
   XIcon
 } from './icons'
 
 export interface StatusBarProps {
   tool: ToolMode
-  lightingMode: LightingMode
-  wireframeVisible: boolean
   textureSize: number
   modelName: string
-  activeLayerName?: string
-  layerCount?: number
   selectedFaceCount: number
-  onToggleWireframe: () => void
-  onCycleLighting: () => void
   onOpenHelp: () => void
   onClearFaceSelection: () => void
   onFrameCamera: () => void
@@ -41,12 +32,6 @@ const TOOL_CONFIG: Record<ToolMode, { label: string; key: string; num: string; I
   fill: { label: 'Fill', key: 'G', num: '4', Icon: FillIcon },
   eyedropper: { label: 'Eyedropper', key: 'I', num: '5', Icon: EyedropperIcon },
   faceSelect: { label: 'Face Select', key: 'V', num: '6', Icon: MousePointerIcon }
-}
-
-const LIGHTING_LABELS: Record<LightingMode, string> = {
-  studio: 'Studio',
-  flat: 'Flat (Unlit)',
-  outdoor: 'Outdoor'
 }
 
 export default function StatusBar(props: StatusBarProps) {
@@ -166,39 +151,12 @@ export default function StatusBar(props: StatusBarProps) {
 
       {/* Right Area: System Specs & Interactive Toggles */}
       <div class="status-bar-right">
-        {/* Active Layer Status */}
-        <div class="status-item tabular" title="Current active painting layer">
-          <LayersIcon size={12} class="text-amber-400" />
-          <span class="status-text truncate max-w-[120px]">{props.activeLayerName || 'Base Layer'}</span>
-          <span class="status-sub">({props.layerCount ?? 1})</span>
-        </div>
-
         {/* Canvas Resolution */}
         <div class="status-item tabular" title="Canvas texture resolution">
           <span class="status-value">
             {props.textureSize} × {props.textureSize}
           </span>
         </div>
-
-        {/* Wireframe Toggle */}
-        <button
-          class="status-item status-btn"
-          classList={{ active: props.wireframeVisible }}
-          onClick={props.onToggleWireframe}
-          title="Toggle Wireframe Overlay (W)"
-        >
-          <WireframeIcon size={12} />
-          <span>Wire: {props.wireframeVisible ? 'On' : 'Off'}</span>
-        </button>
-
-        {/* Lighting Mode Selector */}
-        <button
-          class="status-item status-btn"
-          onClick={props.onCycleLighting}
-          title="Click to cycle viewport lighting preset"
-        >
-          <span>Light: {LIGHTING_LABELS[props.lightingMode] ?? 'Studio'}</span>
-        </button>
 
         {/* Hotkey Guide Link */}
         <button

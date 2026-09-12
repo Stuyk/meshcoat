@@ -143,7 +143,7 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
                   </div>
                   <div class="shortcut-row">
                     <div class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Y</kbd></div>
-                    <span class="shortcut-action">Undo / Redo (Coming Soon)</span>
+                    <span class="shortcut-action">Undo / Redo</span>
                   </div>
                   <div class="shortcut-row">
                     <div class="shortcut-keys"><kbd>?</kbd></div>

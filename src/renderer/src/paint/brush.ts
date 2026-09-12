@@ -99,7 +99,10 @@ const [selectedFaces, setSelectedFacesRaw] = createSignal<ReadonlySet<number>>(n
 
 export function setTexturePath(path: string | null): void {
   setTexturePathRaw(path)
-  if (path) recordRecentTexture(path)
+  if (path) {
+    recordRecentTexture(path)
+    setColor('#ffffff')
+  }
 }
 
 function clamp(v: number, min: number, max: number): number {

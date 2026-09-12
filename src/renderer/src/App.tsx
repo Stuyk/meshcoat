@@ -54,8 +54,6 @@ const LIGHTING_MODES: { mode: LightingMode; label: string; Icon: typeof StudioLi
   { mode: 'outdoor', label: 'Outdoor lighting', Icon: OutdoorLightIcon }
 ]
 
-type RightPanelTab = 'brush' | 'layers' | 'split'
-
 export default function App() {
   const [activeTool, setActiveTool] = createSignal<ToolMode>('brush')
   const [showHelp, setShowHelp] = createSignal(false)
@@ -68,23 +66,28 @@ export default function App() {
     void layersVersion()
     return viewportHandle?.getLayerStack()?.layers.length ?? 1
   }
-  const currentActiveLayerName = () => {
+  const canUndo = () => {
     void layersVersion()
-    return viewportHandle?.getLayerStack()?.active?.name ?? 'Base'
+    return viewportHandle?.canUndo() ?? false
+  }
+  const canRedo = () => {
+    void layersVersion()
+    return viewportHandle?.canRedo() ?? false
   }
   const [toast, setToast] = createSignal<{ id: number; text: string; type: 'info' | 'success' | 'warning' | 'error' } | null>(null)
   const [showFileMenu, setShowFileMenu] = createSignal(false)
   const [showEditMenu, setShowEditMenu] = createSignal(false)
   const [showEdgeWearWizard, setShowEdgeWearWizard] = createSignal(false)
   const [modelName, setModelName] = createSignal('Default Model')
-  const [rightPanelTab, setRightPanelTab] = createSignal<RightPanelTab>('split')
   const [textureSize, setTextureSize] = createSignal<TextureSize>(DEFAULT_TEXTURE_SIZE)
   const [showNewProjectModal, setShowNewProjectModal] = createSignal(false)
 
+  const [isRestoringSession, setIsRestoringSession] = createSignal(false)
+
   let viewportHandle: ViewportHandle | undefined
-  let colorPickerRef: HTMLInputElement | undefined
   let toastTimer: number | undefined
   let lastFolderLoaded = false
+  let sessionRestoreStarted = false
 
   async function ensureLastTextureFolderLoaded(): Promise<void> {
     if (lastFolderLoaded || textures().length > 0) return
@@ -92,6 +95,21 @@ export default function App() {
     const paths = await window.api.loadLastTextureFolder()
     if (paths && paths.length > 0) {
       setTextures(paths)
+    }
+  }
+
+  /** Restores previous-session data (texture folder, brush presets) in the
+   * background only after the viewport has already booted and rendered, so
+   * disk/IPC/IndexedDB reads never delay first paint. Shows a spinner while
+   * in flight instead of freezing or silently populating later. */
+  async function restoreSessionInBackground(): Promise<void> {
+    if (sessionRestoreStarted) return
+    sessionRestoreStarted = true
+    setIsRestoringSession(true)
+    try {
+      await Promise.all([ensureLastTextureFolderLoaded(), initBrushPresets()])
+    } finally {
+      setIsRestoringSession(false)
     }
   }
 
@@ -177,9 +195,8 @@ export default function App() {
     setShowEditMenu(false)
     const stack = viewportHandle?.getLayerStack()
     const active = stack?.active
-    if (active) {
-      active.engine.clear()
-      stack?.recomposite()
+    if (active && stack) {
+      stack.clearLayer(active.id)
       bumpLayers()
       showToast(`Cleared "${active.name}"`, 'info')
     }
@@ -217,6 +234,20 @@ export default function App() {
     }
   }
 
+  function handleUndo(): void {
+    if (!viewportHandle?.canUndo()) return
+    viewportHandle.undo()
+    bumpLayers()
+    showToast('Undo', 'info', 1200)
+  }
+
+  function handleRedo(): void {
+    if (!viewportHandle?.canRedo()) return
+    viewportHandle.redo()
+    bumpLayers()
+    showToast('Redo', 'info', 1200)
+  }
+
   function onKeyDown(e: KeyboardEvent): void {
     if (showHelp() || showSettings() || showNewProjectModal() || brushPresets.isManagerOpen()) return
     // Don't trigger tool switching if typing in an input
@@ -225,6 +256,20 @@ export default function App() {
     const isCtrl = e.ctrlKey || e.metaKey
 
     if (isCtrl) {
+      if (e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        if (e.shiftKey) {
+          handleRedo()
+        } else {
+          handleUndo()
+        }
+        return
+      }
+      if (e.key.toLowerCase() === 'y') {
+        e.preventDefault()
+        handleRedo()
+        return
+      }
       if (e.key.toLowerCase() === 'a') {
         e.preventDefault()
         viewportHandle?.selectAllFaces()
@@ -338,17 +383,11 @@ export default function App() {
   }
 
   onMount(() => {
-    initBrushPresets()
     window.addEventListener('keydown', onKeyDown)
-    // Defer loading the texture folder so 3D viewport mounts and renders first
-    setTimeout(() => {
-      ensureLastTextureFolderLoaded()
-    }, 800)
 
     if (typeof window !== 'undefined') {
       ;(window as any).__app = {
         setActiveTool,
-        setRightPanelTab,
         setShowEdgeWearWizard,
         toggleWireframe,
         setTextures,
@@ -433,6 +472,23 @@ export default function App() {
               <Show when={showEditMenu()}>
                 <div class="menu-backdrop" onClick={() => setShowEditMenu(false)} />
                 <div class="menu-dropdown">
+                  <button
+                    class="menu-item"
+                    disabled={!canUndo()}
+                    onClick={() => { setShowEditMenu(false); handleUndo(); }}
+                  >
+                    <span>Undo</span>
+                    <span class="menu-item-shortcut">Ctrl+Z</span>
+                  </button>
+                  <button
+                    class="menu-item"
+                    disabled={!canRedo()}
+                    onClick={() => { setShowEditMenu(false); handleRedo(); }}
+                  >
+                    <span>Redo</span>
+                    <span class="menu-item-shortcut">Ctrl+Y</span>
+                  </button>
+                  <div class="menu-divider" />
                   <button class="menu-item" onClick={handleClearActiveLayer}>
                     <span>Clear Active Layer</span>
                   </button>
@@ -478,10 +534,13 @@ export default function App() {
               <CubeIcon size={13} class="text-blue-400" />
               <span>{modelName()}</span>
             </span>
-            <span class="hud-divider" />
-            <span class="hud-meta-chip tabular">
-              {textureSize()} × {textureSize()}
-            </span>
+            <Show when={isRestoringSession()}>
+              <span class="hud-divider" />
+              <span class="session-restore-chip" title="Restoring previous textures & brush presets in the background">
+                <RefreshCwIcon size={12} class="spin-icon" />
+                <span>Restoring session…</span>
+              </span>
+            </Show>
           </div>
         </div>
 
@@ -692,22 +751,6 @@ export default function App() {
             </button>
           </div>
 
-          {/* Toolbar Bottom Section: Active Color Swatch */}
-          <div class="toolbar-bottom-section">
-            <button
-              class="toolbar-color-swatch-btn"
-              style={{ background: brush.color() }}
-              title={`Current Color: ${brush.color().toUpperCase()} (Click to pick)`}
-              onClick={() => colorPickerRef?.click()}
-            />
-            <input
-              ref={colorPickerRef}
-              type="color"
-              class="sr-only-picker"
-              value={brush.color()}
-              onInput={(e) => brush.setColor(e.currentTarget.value)}
-            />
-          </div>
         </nav>
 
         {/* Vertical Texture Drawer (Next to Left Toolbar - Always Open) */}
@@ -723,7 +766,12 @@ export default function App() {
             tool={activeTool}
             textures={textures()}
             onToolChange={(t) => setActiveTool(t)}
-            onReady={(h) => (viewportHandle = h)}
+            onReady={(h) => {
+              viewportHandle = h
+              // Viewport has already rendered its first frame — safe to restore
+              // previous-session data now without delaying boot.
+              void restoreSessionInBackground()
+            }}
             onMissingUv={onMissingUv}
             onLayersChanged={bumpLayers}
             onWireframeChanged={setWireframeVisibleSignal}
@@ -763,96 +811,39 @@ export default function App() {
               />
             }
           >
-            {/* Panel Navigation Tabs */}
-            <div class="right-panel-tab-bar">
-              <button
-                class="panel-view-tab"
-                classList={{ active: rightPanelTab() === 'brush' }}
-                onClick={() => setRightPanelTab('brush')}
-              >
-                <SlidersIcon size={20} />
-                <span>Brush</span>
-              </button>
+            {/* Brush Settings — scrolls independently, always leaves Layers visible below */}
+            <section class="panel-collapsible-section right-panel-brush-scroll">
+              <div class="panel-section-header">
+                <div class="section-title-wrap">
+                  <SlidersIcon size={20} />
+                  <span>Brush Settings</span>
+                </div>
+              </div>
+              <BrushSettingsTab
+                activeTool={activeTool()}
+                isMaskTarget={() => {
+                  void layersVersion()
+                  const a = viewportHandle?.getLayerStack()?.active
+                  return !!a?.isMask
+                }}
+              />
+            </section>
 
-              <button
-                class="panel-view-tab"
-                classList={{ active: rightPanelTab() === 'layers' }}
-                onClick={() => setRightPanelTab('layers')}
-              >
-                <LayersIcon size={20} />
-                <span>Layers</span>
-                <span class="tab-count-pill tabular">
-                  {currentLayerCount()}
-                </span>
-              </button>
-
-              <button
-                class="panel-view-tab"
-                classList={{ active: rightPanelTab() === 'split' }}
-                onClick={() => setRightPanelTab('split')}
-                title="View both Brush and Layers"
-              >
-                <span>Split</span>
-              </button>
-            </div>
-
-            {/* Panel Content Body */}
-            <div class="right-panel-scroll-body">
-              {/* Split View */}
-              <Show when={rightPanelTab() === 'split'}>
-                <section class="panel-collapsible-section">
-                  <div class="panel-section-header">
-                    <div class="section-title-wrap">
-                      <SlidersIcon size={20} />
-                      <span>Brush Settings</span>
-                    </div>
-                  </div>
-                  <BrushSettingsTab
-                    activeTool={activeTool()}
-                    isMaskTarget={() => {
-                      void layersVersion()
-                      const a = viewportHandle?.getLayerStack()?.active
-                      return !!a?.isMask
-                    }}
-                  />
-                </section>
-
-                <section class="panel-collapsible-section layers-section">
-                  <div class="panel-section-header">
-                    <div class="section-title-wrap">
-                      <LayersIcon size={20} />
-                      <span>Layers</span>
-                    </div>
-                  </div>
-                  <LayersTab
-                    getStack={() => viewportHandle?.getLayerStack()}
-                    version={layersVersion()}
-                    onChange={bumpLayers}
-                  />
-                </section>
-              </Show>
-
-              {/* Brush Only View */}
-              <Show when={rightPanelTab() === 'brush'}>
-                <BrushSettingsTab
-                  activeTool={activeTool()}
-                  isMaskTarget={() => {
-                    void layersVersion()
-                    const a = viewportHandle?.getLayerStack()?.active
-                    return !!a?.isMask
-                  }}
-                />
-              </Show>
-
-              {/* Layers Only View */}
-              <Show when={rightPanelTab() === 'layers'}>
-                <LayersTab
-                  getStack={() => viewportHandle?.getLayerStack()}
-                  version={layersVersion()}
-                  onChange={bumpLayers}
-                />
-              </Show>
-            </div>
+            {/* Layers — resizable height (drag the bottom-right corner), always in view */}
+            <section class="panel-collapsible-section layers-section">
+              <div class="panel-section-header">
+                <div class="section-title-wrap">
+                  <LayersIcon size={20} />
+                  <span>Layers</span>
+                </div>
+                <span class="tab-count-pill tabular">{currentLayerCount()}</span>
+              </div>
+              <LayersTab
+                getStack={() => viewportHandle?.getLayerStack()}
+                version={layersVersion()}
+                onChange={bumpLayers}
+              />
+            </section>
           </Show>
         </aside>
       </div>
@@ -860,19 +851,9 @@ export default function App() {
       {/* Skinny Bottom Status & Hotkeys Bar (VS Code style) */}
       <StatusBar
         tool={activeTool()}
-        lightingMode={lightingMode()}
-        wireframeVisible={wireframeVisible()}
         textureSize={textureSize()}
         modelName={modelName()}
-        activeLayerName={currentActiveLayerName()}
-        layerCount={currentLayerCount()}
         selectedFaceCount={brush.selectedFaces().size}
-        onToggleWireframe={toggleWireframe}
-        onCycleLighting={() => {
-          const modes: LightingMode[] = ['studio', 'flat', 'outdoor']
-          const nextIndex = (modes.indexOf(lightingMode()) + 1) % modes.length
-          selectLightingMode(modes[nextIndex])
-        }}
         onOpenHelp={() => setShowHelp(true)}
         onClearFaceSelection={clearFaceSelection}
         onFrameCamera={frameCamera}

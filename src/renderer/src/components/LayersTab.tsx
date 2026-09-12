@@ -17,8 +17,7 @@ import {
   MoonIcon,
   CubeIcon,
   UnlinkIcon,
-  CornerDownRightIcon,
-  LayersPlusIcon
+  CornerDownRightIcon
 } from './icons'
 
 export default function LayersTab(props: {
@@ -73,13 +72,6 @@ export default function LayersTab(props: {
             onClick={() => run((s) => s.addLayer())}
           >
             <PlusIcon size={24} />
-          </button>
-          <button
-            class="layers-tool-icon-btn mask-btn"
-            title="Add new Mask Layer (modulates layers below)"
-            onClick={() => run((s) => s.addMaskLayer())}
-          >
-            <DramaIcon size={24} />
           </button>
         </div>
       </div>
@@ -261,10 +253,22 @@ export default function LayersTab(props: {
                   {/* Icon-Only Action Toolbar (Shown When Active) */}
                   <Show when={isActive()}>
                     <div class="layer-actions-bar" onClick={(e) => e.stopPropagation()}>
+                      {/* Single Mask <-> Texture Mode Toggle */}
+                      <button
+                        class="layer-action-btn accent"
+                        classList={{ active: !!layer.isMask }}
+                        title={layer.isMask ? 'Switch to Texture Layer' : 'Switch to Mask Layer'}
+                        onClick={() =>
+                          run((s) => (layer.isMask ? s.unmaskLayer(layer.id) : s.convertToMask(layer.id)))
+                        }
+                      >
+                        <DramaIcon size={24} />
+                      </button>
+
                       {/* Mask-Specific Action Group */}
                       <Show when={layer.isMask}>
                         <button
-                          class="layer-action-btn accent"
+                          class="layer-action-btn"
                           title="Add paint layer below (clipped to this mask)"
                           onClick={() => run((s) => s.addLayerBelow(layer.id))}
                         >
@@ -299,40 +303,17 @@ export default function LayersTab(props: {
                         >
                           <CubeIcon size={24} />
                         </button>
+                      </Show>
+
+                      {/* Color Layer: unclip if attached to a mask (attach it by moving it under one instead) */}
+                      <Show when={!layer.isMask && isClipped()}>
                         <button
                           class="layer-action-btn"
-                          title="Unmask (convert back to color layer)"
-                          onClick={() => run((s) => s.unmaskLayer(layer.id))}
+                          title="Unclip from mask"
+                          onClick={() => run((s) => s.setClipToMask(layer.id, 0))}
                         >
                           <UnlinkIcon size={24} />
                         </button>
-                      </Show>
-
-                      {/* Color Layer Action Group */}
-                      <Show when={!layer.isMask}>
-                        <button
-                          class="layer-action-btn accent"
-                          title="Convert this layer to a Mask Layer"
-                          onClick={() => run((s) => s.convertToMask(layer.id))}
-                        >
-                          <DramaIcon size={24} />
-                        </button>
-                        <button
-                          class="layer-action-btn"
-                          title="Add new mask directly above"
-                          onClick={() => run((s) => s.addMaskAbove(layer.id))}
-                        >
-                          <LayersPlusIcon size={24} />
-                        </button>
-                        <Show when={isClipped()}>
-                          <button
-                            class="layer-action-btn"
-                            title="Unclip from mask"
-                            onClick={() => run((s) => s.setClipToMask(layer.id, 0))}
-                          >
-                            <UnlinkIcon size={24} />
-                          </button>
-                        </Show>
                       </Show>
 
                       <div class="layer-action-divider" />

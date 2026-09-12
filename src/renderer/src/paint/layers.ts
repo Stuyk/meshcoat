@@ -8,8 +8,24 @@ import {
 } from './paintEngine'
 import { createMaskCompositeMaterial } from './maskCompositeShader'
 import { renderThumbnail } from './thumbnail'
+import { HistoryManager } from './history'
 
 let nextId = 1
+
+export interface LayerSnapshot {
+  id: number
+  name: string
+  visible: boolean
+  opacity: number
+  isMask?: boolean
+  clippedToMaskId?: number
+  rt: THREE.WebGLRenderTarget
+}
+
+export interface StackSnapshot {
+  activeId: number
+  layers: LayerSnapshot[]
+}
 
 export interface Layer {
   id: number
@@ -36,6 +52,8 @@ export class LayerStack {
   private orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
   private maskMaterial?: THREE.ShaderMaterial
   readonly textureSize: number
+  /** Undo/redo history for this layer stack. Assigned once construction finishes. */
+  history!: HistoryManager
 
   constructor(renderer: THREE.WebGLRenderer, mesh: THREE.Mesh, textureSize: number = DEFAULT_TEXTURE_SIZE) {
     this.renderer = renderer
@@ -50,6 +68,7 @@ export class LayerStack {
     })
     this.addLayer('Background')
     this.recomposite()
+    this.history = new HistoryManager(this)
   }
 
   get active(): Layer | undefined {
@@ -65,6 +84,7 @@ export class LayerStack {
   }
 
   addLayer(name?: string, isMask = false, fillWhite = false): Layer {
+    this.history?.record()
     const isFirst = this.layers.length === 0
     let baseCol: THREE.Color | null = null
     if (isFirst) {
@@ -87,45 +107,9 @@ export class LayerStack {
     return layer
   }
 
-  /** Adds a new Mask Layer on top of the active layer or stack, filled with white. */
-  addMaskLayer(name?: string, fillWhite = true): Layer {
-    const mask = this.addLayer(name ?? 'Mask Layer', true, fillWhite)
-    // If there is an active layer before this one, clip that layer to this mask
-    const maskIndex = this.layers.findIndex((l) => l.id === mask.id)
-    if (maskIndex > 0) {
-      this.layers[maskIndex - 1].clippedToMaskId = mask.id
-    }
-    this.recomposite()
-    return mask
-  }
-
-  /** Adds a new Mask Layer directly above a specific layer, and clips that layer to it. */
-  addMaskAbove(layerId: number, name?: string, fillWhite = true): Layer {
-    const index = this.layers.findIndex((l) => l.id === layerId)
-    if (index === -1) return this.addMaskLayer(name, fillWhite)
-    const engine = new PaintEngine(
-      this.renderer,
-      this.mesh,
-      fillWhite ? new THREE.Color(0xffffff) : new THREE.Color(0x000000),
-      this.textureSize
-    )
-    const mask: Layer = {
-      id: nextId++,
-      name: name ?? `Mask for ${this.layers[index].name}`,
-      visible: true,
-      opacity: 1,
-      engine,
-      isMask: true
-    }
-    this.layers.splice(index + 1, 0, mask)
-    this.layers[index].clippedToMaskId = mask.id
-    this.activeId = mask.id
-    this.recomposite()
-    return mask
-  }
-
   /** Sets or unsets the clipping mask target for a layer. Pass 0 to explicitly unclip. */
   setClipToMask(layerId: number, maskId?: number): void {
+    this.history?.record()
     const layer = this.layers.find((l) => l.id === layerId)
     if (!layer || layer.isMask) return
     layer.clippedToMaskId = maskId
@@ -134,6 +118,7 @@ export class LayerStack {
 
   /** Converts an existing layer into a Mask Layer. */
   convertToMask(layerId: number, fillWhite?: boolean): void {
+    this.history?.record()
     const index = this.layers.findIndex((l) => l.id === layerId)
     if (index === -1) return
     const layer = this.layers[index]
@@ -141,15 +126,14 @@ export class LayerStack {
     if (fillWhite !== undefined) {
       layer.engine.fill({ color: new THREE.Color(fillWhite ? 0xffffff : 0x000000), alpha: 1 })
     }
-    // Automatically clip the layer immediately below it to this mask
-    if (index > 0) {
-      this.layers[index - 1].clippedToMaskId = layer.id
-    }
+    // No auto-clipping of neighbors — the user must explicitly move a layer
+    // (moveLayer) to attach it under this mask.
     this.recomposite()
   }
 
   /** Converts a mask layer back into a normal color layer. */
   unmaskLayer(layerId: number): void {
+    this.history?.record()
     const layer = this.layers.find((l) => l.id === layerId)
     if (!layer || !layer.isMask) return
     layer.isMask = false
@@ -164,6 +148,7 @@ export class LayerStack {
 
   /** Creates a new paint layer directly underneath a mask layer, clipped to it. */
   addLayerBelow(maskLayerId: number, name?: string): Layer {
+    this.history?.record()
     const index = this.layers.findIndex((l) => l.id === maskLayerId)
     if (index === -1) return this.addLayer(name)
     const engine = new PaintEngine(this.renderer, this.mesh, null, this.textureSize)
@@ -184,6 +169,7 @@ export class LayerStack {
 
   /** Inverts the mask buffer of a layer (swaps black and white). */
   invertMask(layerId: number): void {
+    this.history?.record()
     const layer = this.layers.find((l) => l.id === layerId)
     if (!layer) return
     layer.engine.invert()
@@ -192,6 +178,7 @@ export class LayerStack {
 
   /** Fills a mask layer with pure white (reveal all) or black (hide all). */
   fillMask(layerId: number, fillWhite = true): void {
+    this.history?.record()
     const layer = this.layers.find((l) => l.id === layerId)
     if (!layer) return
     layer.engine.fill({ color: new THREE.Color(fillWhite ? 0xffffff : 0x000000), alpha: 1 })
@@ -207,6 +194,7 @@ export class LayerStack {
   }
 
   removeLayer(id: number): void {
+    this.history?.record()
     if (this.layers.length <= 1) return
     const index = this.layers.findIndex((l) => l.id === id)
     if (index === -1) return
@@ -225,6 +213,7 @@ export class LayerStack {
   }
 
   setVisible(id: number, visible: boolean): void {
+    this.history?.record()
     const layer = this.layers.find((l) => l.id === id)
     if (layer) {
       layer.visible = visible
@@ -233,6 +222,7 @@ export class LayerStack {
   }
 
   setOpacity(id: number, opacity: number): void {
+    this.history?.record()
     const layer = this.layers.find((l) => l.id === id)
     if (layer) {
       layer.opacity = opacity
@@ -242,6 +232,7 @@ export class LayerStack {
 
   /** Merges the given layer onto the one below it in the stack (spec: Merge Down). */
   mergeDown(id: number): void {
+    this.history?.record()
     const index = this.layers.findIndex((l) => l.id === id)
     if (index <= 0) return
     const top = this.layers[index]
@@ -253,13 +244,20 @@ export class LayerStack {
     this.recomposite()
   }
 
+  /** Moving a layer is the only way to attach/detach it from a mask — landing
+   * directly below a mask clips it to that mask, landing anywhere else clears it. */
   moveLayer(id: number, direction: 'up' | 'down'): void {
+    this.history?.record()
     const index = this.layers.findIndex((l) => l.id === id)
     if (index === -1) return
     const targetIndex = direction === 'up' ? index + 1 : index - 1
     if (targetIndex < 0 || targetIndex >= this.layers.length) return
     const [layer] = this.layers.splice(index, 1)
     this.layers.splice(targetIndex, 0, layer)
+    if (!layer.isMask) {
+      const above = this.layers[targetIndex + 1]
+      layer.clippedToMaskId = above && above.isMask ? above.id : undefined
+    }
     this.recomposite()
   }
 
@@ -271,6 +269,7 @@ export class LayerStack {
   }
 
   duplicateLayer(id: number): Layer | undefined {
+    this.history?.record()
     const index = this.layers.findIndex((l) => l.id === id)
     if (index === -1) return undefined
     const source = this.layers[index]
@@ -297,6 +296,7 @@ export class LayerStack {
     options?: FillOptions | THREE.Color,
     alpha = 1
   ): void {
+    this.history?.record()
     this.activePaintEngine?.fillFaces(faces, options, alpha)
     this.recomposite()
   }
@@ -306,11 +306,13 @@ export class LayerStack {
     options?: FillOptions | THREE.Color,
     alpha = 1
   ): void {
+    this.history?.record()
     this.activePaintEngine?.fill(options, alpha)
     this.recomposite()
   }
 
   clearLayer(id: number): void {
+    this.history?.record()
     const layer = this.layers.find((l) => l.id === id)
     if (layer) {
       layer.engine.clear()
@@ -359,13 +361,12 @@ export class LayerStack {
         continue
       }
 
-      // Check if this layer is masked by a mask layer above it
-      let maskLayer: Layer | undefined
-      if (layer.clippedToMaskId) {
-        maskLayer = maskMap.get(layer.clippedToMaskId)
-      } else if (i + 1 < this.layers.length && this.layers[i + 1].isMask) {
-        maskLayer = this.layers[i + 1]
-      }
+      // Masking is only ever explicit (clippedToMaskId) — sitting directly
+      // below a mask layer does not implicitly attach you to it; moveLayer
+      // is what sets/clears this when a layer is deliberately repositioned.
+      const maskLayer: Layer | undefined = layer.clippedToMaskId
+        ? maskMap.get(layer.clippedToMaskId)
+        : undefined
 
       if (maskLayer && maskLayer.visible) {
         if (!this.maskMaterial) {
@@ -458,6 +459,7 @@ export class LayerStack {
       newLayer.engine.applyEdgeWear(options)
       this.recomposite()
     } else {
+      this.history?.record()
       // If preview was active, revert to snapshot first then apply
       if (this.previewSnapshot && this.previewLayerId !== null) {
         const layer = this.layers.find((l) => l.id === this.previewLayerId)
@@ -475,7 +477,65 @@ export class LayerStack {
     }
   }
 
+  /** Captures a full GPU-side snapshot of every layer's pixel content plus stack metadata. */
+  captureState(): StackSnapshot {
+    return {
+      activeId: this.activeId,
+      layers: this.layers.map((l) => ({
+        id: l.id,
+        name: l.name,
+        visible: l.visible,
+        opacity: l.opacity,
+        isMask: l.isMask,
+        clippedToMaskId: l.clippedToMaskId,
+        rt: l.engine.createSnapshot()
+      }))
+    }
+  }
+
+  /** Restores the stack (layer order, metadata, and pixel content) from a captured snapshot. */
+  restoreState(state: StackSnapshot): void {
+    const existing = new Map(this.layers.map((l) => [l.id, l]))
+    const restored: Layer[] = []
+    for (const snap of state.layers) {
+      let layer = existing.get(snap.id)
+      if (layer) {
+        existing.delete(snap.id)
+      } else {
+        layer = {
+          id: snap.id,
+          name: snap.name,
+          visible: snap.visible,
+          opacity: snap.opacity,
+          engine: new PaintEngine(this.renderer, this.mesh, null, this.textureSize),
+          isMask: snap.isMask,
+          clippedToMaskId: snap.clippedToMaskId
+        }
+      }
+      layer.engine.copyFrom(snap.rt)
+      layer.name = snap.name
+      layer.visible = snap.visible
+      layer.opacity = snap.opacity
+      layer.isMask = snap.isMask
+      layer.clippedToMaskId = snap.clippedToMaskId
+      restored.push(layer)
+    }
+    // Anything left in `existing` was created after this snapshot and undone away.
+    for (const leftover of existing.values()) {
+      leftover.engine.dispose()
+    }
+    this.layers = restored
+    this.activeId = state.activeId
+    this.recomposite()
+  }
+
+  /** Frees the GPU render targets held by a captured snapshot. */
+  disposeSnapshot(state: StackSnapshot): void {
+    for (const l of state.layers) l.rt.dispose()
+  }
+
   dispose(): void {
+    this.history?.dispose()
     this.previewSnapshot?.dispose()
     this.maskMaterial?.dispose()
     for (const layer of this.layers) {

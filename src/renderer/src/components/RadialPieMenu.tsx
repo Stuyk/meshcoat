@@ -59,6 +59,8 @@ export default function RadialPieMenu(props: PieMenuProps) {
 
   const RADIUS_INNER = 42
   const RADIUS_OUTER = 98
+  const WHEEL_SIZE = 240
+  const WHEEL_HALF = WHEEL_SIZE / 2
 
   // Clamp popup position so it doesn't render partially outside screen edges
   const posX = () => Math.max(160, Math.min(window.innerWidth - 160, props.x))
@@ -76,7 +78,9 @@ export default function RadialPieMenu(props: PieMenuProps) {
     }
 
     if (dist > 125) {
-      // Outside radial wheel (interacting with palette or textures strip below)
+      // Outside radial wheel (interacting with palette or textures strip below) —
+      // clear the wedge highlight instead of leaving the last one stuck.
+      setHoveredTool(null)
       return
     }
 
@@ -183,8 +187,8 @@ export default function RadialPieMenu(props: PieMenuProps) {
     <div
       class="radial-pie-overlay"
       style={{
-        left: `${posX()}px`,
-        top: `${posY()}px`
+        left: `${posX() - WHEEL_HALF}px`,
+        top: `${posY() - WHEEL_HALF}px`
       }}
     >
       <svg class="radial-pie-svg" width="240" height="240" viewBox="-120 -120 240 240">
@@ -205,7 +209,6 @@ export default function RadialPieMenu(props: PieMenuProps) {
               <g
                 class="pie-wedge-group"
                 classList={{ hovered: isHovered(), active: isActive() }}
-                onMouseEnter={() => setHoveredTool(w.id)}
               >
                 <path d={getSectorPath(w.angleDeg)} class="pie-wedge-path" />
                 {/* Wedge Icon - positioned with transform */}

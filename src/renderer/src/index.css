@@ -3270,6 +3270,24 @@ kbd {
   background: var(--border-default);
 }
 
+.session-restore-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.spin-icon {
+  animation: spin-rotate 0.9s linear infinite;
+}
+
+@keyframes spin-rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .hud-meta-chip {
   font-size: 11px;
   color: var(--text-muted);
@@ -3627,46 +3645,6 @@ kbd {
   width: 440px;
 }
 
-.right-panel-tab-bar {
-  flex: 0 0 auto;
-  height: 38px;
-  display: flex;
-  background: var(--bg-subtle);
-  border-bottom: 1px solid var(--border-subtle);
-  padding: 0 4px;
-  gap: 2px;
-  align-items: center;
-}
-
-.panel-view-tab {
-  flex: 1;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  color: var(--text-secondary);
-  font-size: 11.5px;
-  font-weight: 500;
-  transition: all 100ms ease;
-}
-
-.panel-view-tab:hover {
-  color: var(--text-primary);
-  background: var(--bg-surface);
-}
-
-.panel-view-tab.active {
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  font-weight: 600;
-  border-color: var(--border-subtle);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-}
-
 .tab-count-pill {
   font-size: 10px;
   padding: 1px 5px;
@@ -3676,24 +3654,30 @@ kbd {
   border: 1px solid var(--border-subtle);
 }
 
-.right-panel-scroll-body {
-  flex: 1 1 auto;
-  overflow-y: auto;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
 .panel-collapsible-section {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 12px;
 }
 
+/* Brush Settings — scrolls on its own, shrinks to make room for Layers. */
+.right-panel-brush-scroll {
+  flex: 1 1 auto;
+  min-height: 120px;
+  overflow-y: auto;
+}
+
+/* Layers — user-resizable (drag the bottom-right corner), always visible below Brush Settings. */
 .panel-collapsible-section.layers-section {
+  flex: 0 0 auto;
   padding-top: 14px;
   border-top: 1px solid var(--border-subtle);
+  resize: vertical;
+  overflow-y: auto;
+  min-height: 140px;
+  max-height: 70vh;
+  height: 40vh;
 }
 
 .panel-section-header {
@@ -4544,14 +4528,21 @@ kbd {
 
 .radial-pie-overlay {
   position: fixed;
-  transform: translate(-50%, -50%);
+  /* Offset by exactly half the fixed 240x240 wheel size (see inline left/top
+     in RadialPieMenu.tsx) so the SVG's true center lands on the cursor point.
+     A whole-stack translate(-50%,-50%) here would instead center the tooltip
+     and HUD card below it too, dragging the wheel itself up and off-cursor. */
   z-index: 99999;
   pointer-events: auto;
   user-select: none;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  /* Pinned to the wheel's own width — the HUD card below is wider (min-width
+     300px) and would otherwise stretch this flex box, shifting align-items:
+     center's axis away from the wheel's true center. The HUD card still
+     renders centered on that same axis; it just overflows this box's width. */
+  width: 240px;
 }
 
 .radial-pie-svg {
@@ -4578,7 +4569,6 @@ kbd {
   transition: fill 120ms ease, stroke 120ms ease;
 }
 
-.pie-wedge-group:hover .pie-wedge-path,
 .pie-wedge-group.hovered .pie-wedge-path {
   fill: #2563eb;
   stroke: #60a5fa;
@@ -4595,7 +4585,6 @@ kbd {
   transition: color 120ms ease, filter 120ms ease;
 }
 
-.pie-wedge-group:hover .pie-wedge-icon,
 .pie-wedge-group.hovered .pie-wedge-icon {
   color: #ffffff;
   filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.85));
@@ -5543,6 +5532,40 @@ kbd {
 .shelf-icon-btn.danger:hover {
   color: var(--danger);
   background: var(--danger-subtle);
+}
+
+.shelf-tab-bar {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px 0;
+}
+
+.shelf-tab-btn {
+  flex: 1;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+  transition: all 100ms ease;
+}
+
+.shelf-tab-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface);
+}
+
+.shelf-tab-btn.active {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-weight: 600;
+  border-color: var(--border-subtle);
 }
 
 .shelf-search-wrap {

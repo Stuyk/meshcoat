@@ -41,6 +41,10 @@ export interface ViewportHandle {
   previewEdgeWear: (options: EdgeWearParams) => void
   cancelEdgeWearPreview: () => void
   commitEdgeWear: (options: EdgeWearParams, asNewLayer?: boolean) => void
+  undo: () => void
+  redo: () => void
+  canUndo: () => boolean
+  canRedo: () => boolean
 }
 
 interface GizmoHandle {
@@ -920,6 +924,7 @@ export default function Viewport(props: {
       if (restrictFaces && restrictFaces.size > 0) {
         layerStack.fillActiveFaces(restrictFaces, fillOpts)
       } else {
+        layerStack.history.record()
         layer.engine.fill(fillOpts)
         layerStack.recomposite()
       }
@@ -945,6 +950,7 @@ export default function Viewport(props: {
     if (selection.size > 0) {
       layerStack.fillActiveFaces(selection, fillOpts)
     } else {
+      layerStack.history.record()
       layer.engine.fill(fillOpts)
       layerStack.recomposite()
     }
@@ -1096,6 +1102,7 @@ export default function Viewport(props: {
       if (!hit) return
 
       if (props.tool() === 'line') {
+        layerStack?.history.record()
         painting = true
         lineStartHit = hit
         currentHit = hit
@@ -1111,6 +1118,10 @@ export default function Viewport(props: {
         return
       }
 
+      const tool = props.tool()
+      if (tool === 'brush' || tool === 'stamp' || tool === 'eraser') {
+        layerStack?.history.record()
+      }
       painting = true
       lastStampPos = null
       applyToolAt(hit, e.shiftKey, e)
@@ -1354,7 +1365,19 @@ export default function Viewport(props: {
         if (!layerStack) return
         layerStack.commitEdgeWear(options, asNewLayer)
         props.onLayersChanged?.()
-      }
+      },
+      undo: () => {
+        if (!layerStack) return
+        layerStack.history.undo()
+        props.onLayersChanged?.()
+      },
+      redo: () => {
+        if (!layerStack) return
+        layerStack.history.redo()
+        props.onLayersChanged?.()
+      },
+      canUndo: () => layerStack?.history.canUndo() ?? false,
+      canRedo: () => layerStack?.history.canRedo() ?? false
     }
 
     props.onReady?.(handle)

@@ -15,11 +15,15 @@ export default function TextureShelf(props: {
   onClearFolder: () => void
 }) {
   const [searchQuery, setSearchQuery] = createSignal('')
+  const [activeShelf, setActiveShelf] = createSignal<'all' | 'used'>('all')
+
+  const sourceTextures = () => (activeShelf() === 'used' ? brush.recentTextures() : props.textures)
 
   const filteredTextures = () => {
     const q = searchQuery().trim().toLowerCase()
-    if (!q) return props.textures
-    return props.textures.filter((p) => {
+    const source = sourceTextures()
+    if (!q) return source
+    return source.filter((p) => {
       const filename = p.split('/').pop()?.toLowerCase() ?? ''
       return filename.includes(q)
     })
@@ -58,8 +62,32 @@ export default function TextureShelf(props: {
         </div>
       </div>
 
-      {/* Filter / Search Bar */}
+      {/* All / Used Tabs */}
       <Show when={props.textures.length > 0}>
+        <div class="shelf-tab-bar">
+          <button
+            class="shelf-tab-btn"
+            classList={{ active: activeShelf() === 'all' }}
+            onClick={() => setActiveShelf('all')}
+          >
+            All
+          </button>
+          <button
+            class="shelf-tab-btn"
+            classList={{ active: activeShelf() === 'used' }}
+            onClick={() => setActiveShelf('used')}
+            title="Textures you've painted, stamped, or filled with"
+          >
+            Used
+            <Show when={brush.recentTextures().length > 0}>
+              <span class="shelf-count-badge tabular">{brush.recentTextures().length}</span>
+            </Show>
+          </button>
+        </div>
+      </Show>
+
+      {/* Filter / Search Bar */}
+      <Show when={sourceTextures().length > 0}>
         <div class="shelf-search-wrap">
           <div class="shelf-search-box">
             <SearchIcon size={13} class="search-box-icon" />
@@ -103,6 +131,14 @@ export default function TextureShelf(props: {
           }
         >
           <Show
+            when={activeShelf() === 'all' || sourceTextures().length > 0}
+            fallback={
+              <div class="shelf-no-results">
+                <span>No textures used yet — paint, stamp, or fill with one to see it here.</span>
+              </div>
+            }
+          >
+          <Show
             when={filteredTextures().length > 0}
             fallback={
               <div class="shelf-no-results">
@@ -112,7 +148,7 @@ export default function TextureShelf(props: {
           >
             <div class="shelf-grid">
               {/* Solid Color / No Texture Card */}
-              <Show when={!searchQuery()}>
+              <Show when={!searchQuery() && activeShelf() === 'all'}>
                 <button
                   class="shelf-card shelf-card-solid"
                   classList={{ selected: brush.texturePath() === null }}
@@ -159,6 +195,7 @@ export default function TextureShelf(props: {
                 }}
               </For>
             </div>
+          </Show>
           </Show>
         </Show>
       </div>

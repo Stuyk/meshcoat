@@ -40,7 +40,6 @@ const fragmentShader = /* glsl */ `
   // restriction allows, ignoring brush position/falloff/facing — used by
   // PaintEngine.fillFaces / fill for a bucket fill of the selected faces or whole model.
   uniform float uFillMode;
-  uniform vec4 uFillBounds;
   uniform float uFillScale;
   // 0 = Surface UV (straightforward), 1 = World Triplanar
   uniform float uTextureMapping;
@@ -67,7 +66,12 @@ const fragmentShader = /* glsl */ `
 
     float edge0 = uBrushRadius * uBrushHardness;
     float falloff = 1.0 - smoothstep(edge0, uBrushRadius, dist);
-    falloff *= step(0.0, facing);
+    // Fade out (instead of a hard cutoff) as a surface turns away from the
+    // brush normal, so a stroke near a sharp edge (e.g. a cube corner)
+    // doesn't paint an adjacent perpendicular face at full strength right up
+    // to the seam — only near-facing surfaces get meaningfully painted.
+    float facingMask = smoothstep(0.0, 0.5, facing);
+    falloff *= facingMask;
 
     // 1. Local tangent stamp coordinates for brush tip or stamp tool
     float lu = dot(rel, uBrushTangent) / uBrushRadius * 0.5 + 0.5;
@@ -94,10 +98,12 @@ const fragmentShader = /* glsl */ `
     // In Stamp tool mode, project the shelf texture decal directly flat on the stamp tangent plane
     vec2 strokeTexUv = mix(patUv, stampUv, uStampMode);
 
-    // Fill UV
-    vec2 boundsMin = uFillBounds.xy;
-    vec2 boundsSize = max(uFillBounds.zw - uFillBounds.xy, vec2(0.00001));
-    vec2 fillUv = ((vUv - boundsMin) / boundsSize) * max(uFillScale, 0.0001);
+    // Fill UV — same raw-UV tiling convention as the brush's surfaceUv above,
+    // so "scale" means the same thing whether filling the whole model or a
+    // face selection (previously this normalized to the selection's UV
+    // bounding box, which stretched the same scale value differently
+    // depending on how large the selection was).
+    vec2 fillUv = vUv * max(uFillScale, 0.0001);
 
     vec2 texUv = mix(strokeTexUv, fillUv, uFillMode);
     vec4 texSample = texture2D(uBrushTexture, texUv);
@@ -109,7 +115,7 @@ const fragmentShader = /* glsl */ `
 
     // Stroke falloff: if a custom tip or stamp is active, its alpha mask shapes the stroke;
     // otherwise, use spherical smoothstep falloff:
-    float strokeFalloff = mix(falloff, step(0.0, facing), max(uStampMode, uUseTipTexture));
+    float strokeFalloff = mix(falloff, facingMask, max(uStampMode, uUseTipTexture));
 
     // Decal mask in stamp tool mode
     float stampDecalMask = mix(1.0, inStamp, uStampMode * (1.0 - uFillMode));
@@ -143,7 +149,6 @@ export interface PaintUniforms {
   uBrushBitangent: THREE.IUniform<THREE.Vector3>
   uRestrictFace: THREE.IUniform<number>
   uFillMode: THREE.IUniform<number>
-  uFillBounds: THREE.IUniform<THREE.Vector4>
   uFillScale: THREE.IUniform<number>
   uTextureMapping: THREE.IUniform<number>
 }
@@ -167,7 +172,6 @@ export function createPaintMaterial(): THREE.ShaderMaterial & { uniforms: PaintU
     uBrushBitangent: { value: new THREE.Vector3(0, 1, 0) },
     uRestrictFace: { value: 0 },
     uFillMode: { value: 0 },
-    uFillBounds: { value: new THREE.Vector4(0, 0, 1, 1) },
     uFillScale: { value: 1 },
     uTextureMapping: { value: 0 }
   }
