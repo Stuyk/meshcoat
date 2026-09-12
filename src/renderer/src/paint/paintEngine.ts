@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { buildUvMesh } from './uvMesh'
 import { createPaintMaterial } from './paintShader'
 import { createEdgeWearMaterial } from './edgeWearShader'
+import { createEffectMaterial, EFFECT_MODE_INDEX, type EffectMode } from './effectShader'
 import type { SurfaceHit } from '../viewport/raycast'
 
 export const DEFAULT_TEXTURE_SIZE = 2048
@@ -105,6 +106,20 @@ export interface StrokeParams {
   angle?: number
   /** Camera-space occlusion test (see occlusionDepth.ts) — rejects paint on faces not actually visible from the paint camera, null/undefined = unrestricted. */
   occlusion?: OcclusionParams | null
+  /** Screen-space stencil to paint through (see stencil.ts); null = unrestricted. */
+  stencil?: StencilParams | null
+}
+
+export interface StencilParams {
+  texture: THREE.Texture
+  /** Center (xy) and size (zw) of the stencil rect, in canvas pixels. */
+  rect: THREE.Vector4
+  rotationRad: number
+  invert: boolean
+  canvasWidth: number
+  canvasHeight: number
+  /** Camera view-projection, so the shader can place each texel on screen. */
+  viewProjMatrix: THREE.Matrix4
 }
 
 export interface OcclusionParams {
@@ -149,6 +164,15 @@ export class PaintEngine {
   private dilateMaterial: THREE.ShaderMaterial
   private dilateQuad: THREE.Mesh
   private dilateScene = new THREE.Scene()
+  /** Lazily built passthrough blit used by copyFrom/createSnapshot/restore —
+   * see blit() for why this can't be a MeshBasicMaterial. Reused rather than
+   * rebuilt per call: undo/redo runs one of these per layer, and allocating a
+   * Scene + Mesh + PlaneGeometry each time adds up on a deep history. */
+  private blitMaterial: THREE.ShaderMaterial | null = null
+  private blitQuad: THREE.Mesh | null = null
+  private blitScene: THREE.Scene | null = null
+  /** Lazily built — a layer that never sees the effect brush shouldn't compile its shader. */
+  private effectMaterial: ReturnType<typeof createEffectMaterial> | null = null
   /** Color+alpha the eraser reveals — opaque base gray for a background layer, transparent for a stacked one. */
   readonly baseColor: THREE.Color
   readonly baseAlpha: number
@@ -393,6 +417,23 @@ export class PaintEngine {
     u.uRestrictFace.value = restrict ? 1 : 0
     if (restrict) this.setSelectionMask(params.restrictFaces)
 
+    u.uStencilStamp.value = 0
+    if (params.stencil) {
+      u.uUseStencil.value = 1
+      u.uStencilTex.value = params.stencil.texture
+      u.uStencilRect.value.copy(params.stencil.rect)
+      u.uStencilRotation.value = params.stencil.rotationRad
+      u.uStencilInvert.value = params.stencil.invert ? 1 : 0
+      u.uCanvasSize.value.set(params.stencil.canvasWidth, params.stencil.canvasHeight)
+      // The stencil needs the same projection the occlusion test uses, but it
+      // must be set even when occlusion is off — otherwise the stencil would
+      // silently sample against a stale camera.
+      u.uCameraViewProjMatrix.value.copy(params.stencil.viewProjMatrix)
+    } else {
+      u.uUseStencil.value = 0
+      u.uStencilTex.value = null
+    }
+
     if (params.occlusion) {
       u.uUseOcclusion.value = 1
       u.uOcclusionDepthTex.value = params.occlusion.depthTexture
@@ -435,6 +476,147 @@ export class PaintEngine {
     this._contentVersion++
   }
 
+  /**
+   * Applies a filter (blur / sharpen / smudge / pixelate) under the brush dab,
+   * reworking texels that are already on the layer rather than laying down new
+   * color. Shares the paint brush's projector footprint and camera-visibility
+   * test (see brushMask.ts), so it can't blur through a thin wall or smear a
+   * face hidden behind the model any more than the paint brush can paint them.
+   */
+  applyEffect(hit: SurfaceHit, params: EffectParams): void {
+    if (!this.effectMaterial) {
+      this.effectMaterial = createEffectMaterial(this.textureSize)
+    }
+    const u = this.effectMaterial.uniforms
+    u.uPrevTexture.value = this.readTarget.texture
+    u.uBrushWorldPos.value.copy(hit.point)
+    u.uBrushNormal.value.copy(hit.normal)
+    u.uBrushRadius.value = params.radius
+    u.uBrushHardness.value = params.hardness
+    u.uProjectorDepth.value = params.projectorDepth ?? 0.35
+    u.uMaxAngle.value = params.maxAngle ?? 85
+    u.uBrushOpacity.value = params.opacity
+    u.uEffectMode.value = EFFECT_MODE_INDEX[params.mode]
+    u.uEffectStrength.value = params.strength
+    u.uEffectRadius.value = params.effectRadius
+    u.uPixelSize.value = params.pixelSize
+    u.uSmudgeDir.value.set(params.smudgeDir?.x ?? 0, params.smudgeDir?.y ?? 0)
+    u.uTexelSize.value.set(1 / this.textureSize, 1 / this.textureSize)
+
+    const up = Math.abs(hit.normal.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0)
+    const tangent = new THREE.Vector3().crossVectors(up, hit.normal).normalize()
+    const bitangent = new THREE.Vector3().crossVectors(hit.normal, tangent).normalize()
+    u.uBrushTangent.value.copy(tangent)
+    u.uBrushBitangent.value.copy(bitangent)
+
+    const restrict = params.restrictFaces != null
+    u.uRestrictFace.value = restrict ? 1 : 0
+    if (restrict) this.setSelectionMask(params.restrictFaces)
+
+    if (params.occlusion) {
+      u.uUseOcclusion.value = 1
+      u.uOcclusionDepthTex.value = params.occlusion.depthTexture
+      u.uOcclusionTexel.value.copy(params.occlusion.texelSize)
+      u.uCameraViewProjMatrix.value.copy(params.occlusion.viewProjMatrix)
+      u.uCameraViewMatrix.value.copy(params.occlusion.viewMatrix)
+      u.uCameraPosition.value.copy(params.occlusion.cameraPosition)
+      u.uNormalSign.value = params.occlusion.normalSign
+      u.uCameraNear.value = params.occlusion.near
+      u.uCameraFar.value = params.occlusion.far
+    } else {
+      u.uUseOcclusion.value = 0
+      u.uOcclusionDepthTex.value = null
+    }
+
+    const prevMaterial = this.uvMesh.material
+    this.uvMesh.material = this.effectMaterial
+
+    const prevTarget = this.renderer.getRenderTarget()
+    this.renderer.setRenderTarget(this.writeTarget)
+    this.renderer.render(this.orthoScene, this.orthoCamera)
+    this.renderer.setRenderTarget(prevTarget)
+    this.dilate(this.writeTarget)
+
+    this.uvMesh.material = prevMaterial
+
+    const tmp = this.readTarget
+    this.readTarget = this.writeTarget
+    this.writeTarget = tmp
+    this._contentVersion++
+  }
+
+  /**
+   * Projects the screen-space stencil onto the model as a decal, in a single
+   * pass — the "stamp it on" action rather than brushing through it.
+   *
+   * Every texel that falls inside the stencil rect AND is visible from the
+   * paint camera takes the stencil's color at once. The visibility test is not
+   * optional here: without it the projection would wrap straight through the
+   * model and reprint itself, mirrored, on the far side — the classic failure
+   * of naive planar decal projection.
+   */
+  stampStencil(params: {
+    stencil: StencilParams
+    occlusion: OcclusionParams
+    color: THREE.Color
+    opacity: number
+    /** Shape from image brightness (and paint `color`) instead of image alpha + color. */
+    useLuminance?: boolean
+    /** Confine the projection to these triangles; null = the whole model. */
+    restrictFaces?: ReadonlySet<number> | null
+  }): void {
+    const u = this.material.uniforms
+    u.uPrevTexture.value = this.readTarget.texture
+    u.uBrushColor.value.set(params.color.r, params.color.g, params.color.b, 1)
+    u.uBrushOpacity.value = params.opacity
+    u.uFillMode.value = 0
+    u.uUseTexture.value = 0
+    u.uBrushTexture.value = null
+    u.uUseTipTexture.value = 0
+    u.uBrushTipTexture.value = null
+    u.uStampMode.value = 0
+    // An active face selection confines a stamp the same way it confines every
+    // other paint operation — no separate opt-in to remember.
+    const restrict = params.restrictFaces != null
+    u.uRestrictFace.value = restrict ? 1 : 0
+    if (restrict) this.setSelectionMask(params.restrictFaces)
+
+    u.uUseStencil.value = 0
+    u.uStencilStamp.value = 1
+    u.uStencilUseLuma.value = params.useLuminance ? 1 : 0
+    u.uStencilTex.value = params.stencil.texture
+    u.uStencilRect.value.copy(params.stencil.rect)
+    u.uStencilRotation.value = params.stencil.rotationRad
+    u.uStencilInvert.value = params.stencil.invert ? 1 : 0
+    u.uCanvasSize.value.set(params.stencil.canvasWidth, params.stencil.canvasHeight)
+
+    u.uUseOcclusion.value = 1
+    u.uOcclusionDepthTex.value = params.occlusion.depthTexture
+    u.uCameraViewProjMatrix.value.copy(params.occlusion.viewProjMatrix)
+    u.uCameraViewMatrix.value.copy(params.occlusion.viewMatrix)
+    u.uCameraPosition.value.copy(params.occlusion.cameraPosition)
+    u.uNormalSign.value = params.occlusion.normalSign
+    u.uOcclusionTexel.value.copy(params.occlusion.texelSize)
+    u.uCameraNear.value = params.occlusion.near
+    u.uCameraFar.value = params.occlusion.far
+    // The depth bias scales with brush radius; a stamp has no radius, so pin it
+    // small or the bias would swallow genuinely occluded geometry.
+    u.uBrushRadius.value = 0.01
+
+    const prevTarget = this.renderer.getRenderTarget()
+    this.renderer.setRenderTarget(this.writeTarget)
+    this.renderer.render(this.orthoScene, this.orthoCamera)
+    this.renderer.setRenderTarget(prevTarget)
+    this.dilate(this.writeTarget)
+
+    const tmp = this.readTarget
+    this.readTarget = this.writeTarget
+    this.writeTarget = tmp
+    this._contentVersion++
+
+    u.uStencilStamp.value = 0
+  }
+
   /** Fills the whole active layer with color or pattern (spec: bucket tool across whole model). */
   fill(options?: FillOptions | THREE.Color, legacyAlpha = 1): void {
     let color: THREE.Color
@@ -462,6 +644,10 @@ export class PaintEngine {
       u.uBrushOpacity.value = alpha
       u.uFillMode.value = 1
       u.uRestrictFace.value = 0 // Apply across whole model
+      // A bucket fill is not a brush dab: clear the per-stroke gates so it
+      // can't inherit the stencil or occlusion state left by the last stroke.
+      u.uUseStencil.value = 0
+      u.uUseOcclusion.value = 0
       u.uUseTexture.value = 1
       u.uBrushTexture.value = texture
       u.uFillScale.value = scale
@@ -534,6 +720,9 @@ export class PaintEngine {
     u.uBrushOpacity.value = alpha
     u.uFillMode.value = 1
     u.uRestrictFace.value = 1
+    // Same as fill(): a face fill must not inherit the last stroke's gates.
+    u.uUseStencil.value = 0
+    u.uUseOcclusion.value = 0
     u.uUseTexture.value = texture ? 1 : 0
     u.uBrushTexture.value = texture
     u.uFillScale.value = scale
@@ -704,6 +893,9 @@ export class PaintEngine {
     u.uUseWearTexture.value = options.texture ? 1 : 0
     u.uTextureScale.value = options.textureScale ?? 1.0
     u.uTextureMapping.value = options.textureMapping === 'triplanar' ? 1 : 0
+    const mode: EdgeWearMode = options.mode ?? 'wear'
+    u.uCurvatureMode.value = mode === 'cavity' ? 1 : 0
+    u.uSmoothness.value = options.smoothness ?? (mode === 'cavity' ? 0.6 : 0)
 
     const prevMaterial = this.uvMesh.material
     this.uvMesh.material = this.edgeWearMaterial
@@ -722,34 +914,73 @@ export class PaintEngine {
     this._contentVersion++
   }
 
+  /**
+   * Verbatim texel-for-texel copy of `source` into `dest`.
+   *
+   * This deliberately does NOT use MeshBasicMaterial. Three defines `OPAQUE`
+   * for any material with `transparent === false` and `blending ===
+   * NormalBlending` — which is exactly MeshBasicMaterial's default — and the
+   * `opaque_fragment` chunk then hard-sets `diffuseColor.a = 1.0`. Copying a
+   * layer through such a material therefore *destroys its alpha channel*:
+   * every transparent texel, which this module stores premultiplied as
+   * (0,0,0,0), comes out (0,0,0,1) — opaque black. A layer restored that way
+   * becomes a solid black sheet covering everything under it.
+   *
+   * A plain passthrough shader has no such chunk, and NoBlending writes RGBA
+   * straight through. sRGB encode/decode still round-trips exactly, because
+   * both source and destination carry SRGBColorSpace (so they're
+   * SRGB8_ALPHA8 internally) and the hardware decodes on read and re-encodes
+   * on write symmetrically.
+   */
+  private blit(source: THREE.Texture, dest: THREE.WebGLRenderTarget): void {
+    if (!this.blitScene) {
+      this.blitMaterial = new THREE.ShaderMaterial({
+        uniforms: { uSrc: { value: null } },
+        vertexShader: /* glsl */ `
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = vec4(position.xy, 0.0, 1.0);
+          }
+        `,
+        fragmentShader: /* glsl */ `
+          uniform sampler2D uSrc;
+          varying vec2 vUv;
+          void main() {
+            gl_FragColor = texture2D(uSrc, vUv);
+          }
+        `,
+        depthTest: false,
+        depthWrite: false,
+        blending: THREE.NoBlending
+      })
+      this.blitScene = new THREE.Scene()
+      this.blitQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.blitMaterial)
+      this.blitScene.add(this.blitQuad)
+    }
+
+    this.blitMaterial!.uniforms.uSrc.value = source
+    const prevTarget = this.renderer.getRenderTarget()
+    const prevAutoClear = this.renderer.autoClear
+    // The quad covers the whole target, so skip the clear rather than depend on
+    // whatever clear color/alpha the renderer happens to be carrying.
+    this.renderer.autoClear = false
+    this.renderer.setRenderTarget(dest)
+    this.renderer.render(this.blitScene!, this.orthoCamera)
+    this.renderer.setRenderTarget(prevTarget)
+    this.renderer.autoClear = prevAutoClear
+  }
+
   /** Copies content from a source render target into this engine's read target. */
   copyFrom(sourceTarget: THREE.WebGLRenderTarget): void {
-    const copyMat = new THREE.MeshBasicMaterial({ map: sourceTarget.texture, depthTest: false })
-    const prevTarget = this.renderer.getRenderTarget()
-    this.renderer.setRenderTarget(this.readTarget)
-    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), copyMat)
-    const scene = new THREE.Scene()
-    scene.add(quad)
-    this.renderer.render(scene, this.orthoCamera)
-    this.renderer.setRenderTarget(prevTarget)
-    copyMat.dispose()
-    quad.geometry.dispose()
+    this.blit(sourceTarget.texture, this.readTarget)
     this._contentVersion++
   }
 
   /** Creates a snapshot clone of the current readTarget so preview can be reverted. */
   createSnapshot(): THREE.WebGLRenderTarget {
     const snapshot = createRenderTarget(this.textureSize)
-    const copyMat = new THREE.MeshBasicMaterial({ map: this.readTarget.texture, depthTest: false })
-    const prevTarget = this.renderer.getRenderTarget()
-    this.renderer.setRenderTarget(snapshot)
-    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), copyMat)
-    const scene = new THREE.Scene()
-    scene.add(quad)
-    this.renderer.render(scene, this.orthoCamera)
-    this.renderer.setRenderTarget(prevTarget)
-    copyMat.dispose()
-    quad.geometry.dispose()
+    this.blit(this.readTarget.texture, snapshot)
     return snapshot
   }
 
@@ -771,20 +1002,14 @@ export class PaintEngine {
   /** Restores this layer's content from a createCpuSnapshot() buffer. */
   restoreFromCpuSnapshot(snapshot: CpuPixelSnapshot): void {
     const tex = new THREE.DataTexture(snapshot.data, snapshot.size, snapshot.size, THREE.RGBAFormat, THREE.UnsignedByteType)
+    // Must match the render targets' color space: both end up SRGB8_ALPHA8
+    // internally, so the hardware's decode-on-read cancels its encode-on-write
+    // and the bytes land back exactly as readRenderTargetPixels saw them.
     tex.colorSpace = THREE.SRGBColorSpace
     tex.needsUpdate = true
 
-    const copyMat = new THREE.MeshBasicMaterial({ map: tex, depthTest: false })
-    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), copyMat)
-    const scene = new THREE.Scene()
-    scene.add(quad)
-    const prevTarget = this.renderer.getRenderTarget()
-    this.renderer.setRenderTarget(this.readTarget)
-    this.renderer.render(scene, this.orthoCamera)
-    this.renderer.setRenderTarget(prevTarget)
+    this.blit(tex, this.readTarget)
 
-    copyMat.dispose()
-    quad.geometry.dispose()
     tex.dispose()
     this._contentVersion++
   }
@@ -794,10 +1019,13 @@ export class PaintEngine {
     this.targetB.dispose()
     this.material.dispose()
     this.edgeWearMaterial?.dispose()
+    this.effectMaterial?.dispose()
     this.uvMesh.geometry.dispose()
     this.coverageMask?.dispose()
     this.dilateMaterial.dispose()
     this.dilateQuad.geometry.dispose()
+    this.blitMaterial?.dispose()
+    this.blitQuad?.geometry.dispose()
     this.scratchDilateTarget?.dispose()
   }
 }
@@ -821,5 +1049,38 @@ export interface EdgeWearParams {
   texture?: THREE.Texture | null
   textureScale?: number
   textureMapping?: 'uv' | 'triplanar'
+  /**
+   * Which curvature population to target. 'wear' chips convex ridges and
+   * exposed corners; 'cavity' settles dirt, grime and ambient shadow into
+   * concave folds and interior valleys — the exact inverse set of edges.
+   */
+  mode?: EdgeWearMode
+  /**
+   * 0 = noisy, chipped break-up; 1 = clean curvature gradient with no noise at
+   * all (an ambient-occlusion style pass). Defaults per mode: wear stays noisy,
+   * cavity leans smooth.
+   */
+  smoothness?: number
+}
+
+export type EdgeWearMode = 'wear' | 'cavity'
+
+export interface EffectParams {
+  mode: EffectMode
+  radius: number
+  hardness: number
+  opacity: number
+  projectorDepth?: number
+  maxAngle?: number
+  /** How far toward the filtered result each dab moves (0-1). */
+  strength: number
+  /** Blur/sharpen kernel radius, in texels. */
+  effectRadius: number
+  /** Pixelate block size, in texels. */
+  pixelSize: number
+  /** Stroke direction in UV space, pre-scaled by smudge length. */
+  smudgeDir?: THREE.Vector2 | null
+  restrictFaces?: ReadonlySet<number> | null
+  occlusion?: OcclusionParams | null
 }
 

@@ -570,7 +570,7 @@ export class LayerStack {
       // Revert active layer to snapshot / drop the preview ghost if either was active
       this.cancelEdgeWearPreview()
       // Create new layer — transparent by default, or opaque black if requested
-      const newLayer = this.addLayer('Edge Wear')
+      const newLayer = this.addLayer(options.mode === 'cavity' ? 'Crevice Dirt' : 'Edge Wear')
       if (newLayerBackground === 'black') {
         newLayer.engine.fill({ color: new THREE.Color(0x000000), alpha: 1 })
       }

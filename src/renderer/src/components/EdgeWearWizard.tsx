@@ -11,7 +11,7 @@ import {
   SlidersIcon
 } from './icons'
 import { Button, IconButton, Slider, SegmentedControl } from './ui'
-import type { EdgeWearParams } from '../paint/paintEngine'
+import type { EdgeWearParams, EdgeWearMode } from '../paint/paintEngine'
 
 export interface EdgeWearWizardProps {
   isOpen: boolean
@@ -26,6 +26,8 @@ export interface EdgeWearWizardProps {
 interface Preset {
   name: string
   desc: string
+  mode: EdgeWearMode
+  smoothness: number
   threshold: number
   wearWidth: number
   noiseScale: number
@@ -40,6 +42,8 @@ const PRESETS: Preset[] = [
   {
     name: 'Subtle Highlight',
     desc: 'Soft rim light on sharp edges',
+    mode: 'wear',
+    smoothness: 0,
     threshold: 35,
     wearWidth: 0.03,
     noiseScale: 15,
@@ -52,6 +56,8 @@ const PRESETS: Preset[] = [
   {
     name: 'Chipped Paint',
     desc: 'Peeling edges & exposed undercoat',
+    mode: 'wear',
+    smoothness: 0,
     threshold: 25,
     wearWidth: 0.06,
     noiseScale: 28,
@@ -64,6 +70,8 @@ const PRESETS: Preset[] = [
   {
     name: 'Heavy Weathered',
     desc: 'Heavy corrosion & battered metal',
+    mode: 'wear',
+    smoothness: 0,
     threshold: 18,
     wearWidth: 0.12,
     noiseScale: 35,
@@ -76,6 +84,8 @@ const PRESETS: Preset[] = [
   {
     name: 'Fine Ink Contour',
     desc: 'Crisp graphic cel outline',
+    mode: 'wear',
+    smoothness: 0,
     threshold: 30,
     wearWidth: 0.015,
     noiseScale: 50,
@@ -84,6 +94,65 @@ const PRESETS: Preset[] = [
     contrast: 0.95,
     color: '#111827',
     opacity: 0.95
+  },
+  // --- Cavity / crevice presets: these target the concave edge population
+  // (interior folds and valleys), the exact inverse of the convex ridges the
+  // wear presets chip. See computeEdgeCurvature in edgeCurvature.ts.
+  {
+    name: 'Ambient Occlusion',
+    desc: 'Soft contact shadow in every fold',
+    mode: 'cavity',
+    smoothness: 1,
+    threshold: 20,
+    wearWidth: 0.14,
+    noiseScale: 12,
+    roughness: 0.2,
+    amount: 0.9,
+    contrast: 0.2,
+    color: '#0b0f19',
+    opacity: 0.55
+  },
+  {
+    name: 'Crevice Dirt',
+    desc: 'Grime settled into corners',
+    mode: 'cavity',
+    smoothness: 0.5,
+    threshold: 25,
+    wearWidth: 0.09,
+    noiseScale: 26,
+    roughness: 0.6,
+    amount: 0.8,
+    contrast: 0.45,
+    color: '#3f2d1c',
+    opacity: 0.85
+  },
+  {
+    name: 'Heavy Grime',
+    desc: 'Caked filth deep in recesses',
+    mode: 'cavity',
+    smoothness: 0.25,
+    threshold: 18,
+    wearWidth: 0.18,
+    noiseScale: 34,
+    roughness: 0.8,
+    amount: 0.9,
+    contrast: 0.55,
+    color: '#1c1917',
+    opacity: 1.0
+  },
+  {
+    name: 'Cel Crease Shade',
+    desc: 'Graphic hand-painted valley shading',
+    mode: 'cavity',
+    smoothness: 0.85,
+    threshold: 28,
+    wearWidth: 0.1,
+    noiseScale: 40,
+    roughness: 0.2,
+    amount: 0.9,
+    contrast: 0.9,
+    color: '#312e81',
+    opacity: 0.7
   }
 ]
 
@@ -121,6 +190,9 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
   const [newLayerBackground, setNewLayerBackground] = createSignal<'transparent' | 'black'>('transparent')
   const [livePreview, setLivePreview] = createSignal(true)
   const [activePreset, setActivePreset] = createSignal<string>('Chipped Paint')
+  /** Convex ridges (wear/chipping) vs concave folds (cavity dirt / ambient shadow). */
+  const [mode, setMode] = createSignal<EdgeWearMode>('wear')
+  const [smoothness, setSmoothness] = createSignal(0)
 
   const [materialMode, setMaterialMode] = createSignal<'color' | 'texture'>('color')
   const [selectedTexturePath, setSelectedTexturePath] = createSignal<string | null>(null)
@@ -147,8 +219,23 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
       opacity: opacity(),
       texture: materialMode() === 'texture' ? loadedTexture : null,
       textureScale: textureScale(),
-      textureMapping: textureMapping()
+      textureMapping: textureMapping(),
+      mode: mode(),
+      smoothness: smoothness()
     }
+  }
+
+  const presetsForMode = (): Preset[] => PRESETS.filter((p) => p.mode === mode())
+
+  /** Switching generator flips the whole edge population being targeted, so the
+   * current preset's tuning no longer means the same thing — land on that
+   * mode's default preset rather than carrying stale wear values into dirt. */
+  function switchMode(next: EdgeWearMode): void {
+    if (next === mode()) return
+    setMode(next)
+    const first = PRESETS.find((p) => p.mode === next)
+    if (first) applyPreset(first)
+    else triggerPreview()
   }
 
   function triggerPreview(): void {
@@ -192,6 +279,8 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
 
   function applyPreset(p: Preset): void {
     setActivePreset(p.name)
+    setMode(p.mode)
+    setSmoothness(p.smoothness)
     setThreshold(p.threshold)
     setWearWidth(p.wearWidth)
     setNoiseScale(p.noiseScale)
@@ -262,8 +351,12 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
             <SparklesIcon size={16} />
           </div>
           <div class="flex flex-col">
-            <span class="text-xs font-semibold text-zinc-100">Edge Wear Wizard</span>
-            <span class="text-[10px] text-zinc-500">Procedural Ridge & Chipping</span>
+            <span class="text-xs font-semibold text-zinc-100">
+              {mode() === 'cavity' ? 'Crevice Dirt Wizard' : 'Edge Wear Wizard'}
+            </span>
+            <span class="text-[10px] text-zinc-500">
+              {mode() === 'cavity' ? 'Procedural Cavity & Grime' : 'Procedural Ridge & Chipping'}
+            </span>
           </div>
         </div>
         <IconButton size="xs" variant="ghost" onClick={handleClose} title="Cancel (Esc)">
@@ -295,8 +388,27 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
           }`}
         >
           <SlidersIcon size={13} />
-          <span>Ridge & Noise</span>
+          <span>{mode() === 'cavity' ? 'Cavity & Noise' : 'Ridge & Noise'}</span>
         </button>
+      </div>
+
+      {/* Generator: which curvature population to target. Convex ridges and
+          concave folds are disjoint sets of the same edges, so this switch
+          changes *where* the effect lands, not merely how it looks. */}
+      <div class="px-3.5 py-2 border-b border-zinc-800 bg-zinc-950/30 flex-shrink-0 space-y-1">
+        <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
+          Generator
+        </span>
+        <SegmentedControl
+          size="xs"
+          options={[
+            { value: 'wear', label: 'Edge Wear', title: 'Chips and highlights on convex ridges and exposed corners' },
+            { value: 'cavity', label: 'Crevice Dirt', title: 'Dirt, grime and ambient shadow in concave folds and interior corners' }
+          ]}
+          value={mode()}
+          onChange={(v) => switchMode(v as EdgeWearMode)}
+          class="w-full"
+        />
       </div>
 
       {/* Wizard Scrollable Body */}
@@ -596,7 +708,7 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
           <div class="space-y-1.5 pt-2">
             <span class="text-[11px] font-semibold text-zinc-400">Style Presets</span>
             <div class="grid grid-cols-2 gap-2">
-              <For each={PRESETS}>
+              <For each={presetsForMode()}>
                 {(preset) => {
                   const isSelected = () => activePreset() === preset.name
                   return (
@@ -630,7 +742,7 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
           {/* Edge Detection */}
           <div class="space-y-3">
             <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider block">
-              Edge Ridge Detection
+              {mode() === 'cavity' ? 'Cavity Fold Detection' : 'Edge Ridge Detection'}
             </span>
             <Slider
               label="Angle Threshold"
@@ -644,8 +756,23 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
                 handleSliderChange()
               }}
             />
+            {/* Smoothness: at 1.0 the noise drops out entirely and the result is
+                a clean curvature gradient — an ambient-occlusion pass rather
+                than grunge. Most useful in cavity mode, but valid for both. */}
             <Slider
-              label="Wear Width"
+              label="Smoothness (AO Look)"
+              value={smoothness()}
+              min={0}
+              max={1}
+              step={0.01}
+              displayValue={(v) => `${Math.round(v * 100)}%`}
+              onChange={(v) => {
+                setSmoothness(v)
+                handleSliderChange()
+              }}
+            />
+            <Slider
+              label={mode() === 'cavity' ? 'Cavity Depth' : 'Wear Width'}
               value={wearWidth()}
               min={0.005}
               max={0.25}

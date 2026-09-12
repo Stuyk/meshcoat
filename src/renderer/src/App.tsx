@@ -20,6 +20,8 @@ import { serializeProject, deserializeProject } from './utils/projectSerializer'
 import {
   BrushIcon,
   StampIcon,
+  ImagesIcon,
+  DropletsIcon,
   EraserIcon,
   FillIcon,
   EyedropperIcon,
@@ -43,6 +45,10 @@ import {
   PlusIcon
 } from './components/icons'
 import MaterialTextureHUD from './components/MaterialTextureHUD'
+import StencilHUD from './components/StencilHUD'
+import EffectHUD from './components/EffectHUD'
+import { EFFECT_MODES, EFFECT_MODE_LABELS } from './paint/effectShader'
+import { stencil, setStencilVisible, setStencilTransforming } from './paint/stencil'
 import {
   brush,
   setTexturePath,
@@ -67,6 +73,16 @@ export default function App() {
   const [wireframeVisible, setWireframeVisibleSignal] = createSignal(false)
   const [textures, setTextures] = createSignal<string[]>([])
   const [layersVersion, setLayersVersion] = createSignal(0)
+  const [showStencilPanel, setShowStencilPanel] = createSignal(false)
+  const [showEffectHUD, setShowEffectHUD] = createSignal(true)
+
+  createEffect(() => {
+    const show = showStencilPanel()
+    setStencilVisible(show)
+    if (!show) {
+      setStencilTransforming(false)
+    }
+  })
 
   const currentLayerCount = () => {
     void layersVersion()
@@ -466,6 +482,25 @@ export default function App() {
       case 'v':
         setActiveTool('faceSelect')
         break
+      case '7':
+      case 'u':
+        if (activeTool() === 'effect') {
+          const nextMode = EFFECT_MODES[(EFFECT_MODES.indexOf(brush.effectMode()) + 1) % EFFECT_MODES.length]
+          brush.setEffectMode(nextMode)
+          setShowEffectHUD(true)
+          showToast(`Effect: ${EFFECT_MODE_LABELS[nextMode]}`, 'info', 1000)
+        } else {
+          setActiveTool('effect')
+          setShowEffectHUD(true)
+        }
+        break
+      case 's': {
+        if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault()
+          setShowStencilPanel((v) => !v)
+        }
+        break
+      }
       case 'r': {
         if (!e.ctrlKey && !e.metaKey && !e.altKey) {
           e.preventDefault()
@@ -867,6 +902,46 @@ export default function App() {
             <FillIcon size={18} />
           </IconButton>
 
+          {/* Effects brush: blur / sharpen / smudge / pixelate. One tool with a
+              mode, not four tools — they share the same dab footprint and only
+              differ in the filter applied under it. */}
+          <IconButton
+            size="md"
+            active={activeTool() === 'effect'}
+            onClick={() => {
+              if (activeTool() === 'effect') {
+                setShowEffectHUD((v) => !v)
+              } else {
+                setActiveTool('effect')
+                setShowEffectHUD(true)
+              }
+            }}
+            shortcut="U"
+            title="Effects Brush — Blur / Sharpen / Smudge / Pixelate (U)"
+          >
+            <DropletsIcon size={18} />
+          </IconButton>
+
+          {/* Screen Stencil: a projection surface the brush/stamp work through,
+              not a tool mode of its own — it stays available whichever paint
+              tool is active, so this toggles its panel rather than activeTool. */}
+          <IconButton
+            size="md"
+            active={showStencilPanel()}
+            onClick={() => setShowStencilPanel((v) => !v)}
+            shortcut="S"
+            title="Screen Stencil (S)"
+            class="relative"
+          >
+            <ImagesIcon size={18} />
+            <Show when={stencil.texturePath()}>
+              <span
+                class="absolute top-1 right-1 w-2 h-2 rounded-full bg-teal-400 ring-2 ring-zinc-900 shadow-xs"
+                title="Screen Stencil active"
+              />
+            </Show>
+          </IconButton>
+
           <div class="w-6 h-px bg-zinc-800 my-1" />
 
           {/* Sampler & Selection */}
@@ -959,6 +1034,23 @@ export default function App() {
             }}
           />
 
+          {/* Floating Effect Brush HUD Card (bottom-right of viewport) */}
+          <EffectHUD
+            activeTool={activeTool()}
+            isOpen={showEffectHUD()}
+            onClose={() => setShowEffectHUD(false)}
+          />
+
+          {/* Screen Stencil panel, anchored to the left toolbar that opens it */}
+          <Show when={showStencilPanel()}>
+            <StencilHUD
+              onStamp={() => viewportHandle?.stampStencil() ?? false}
+              onClose={() => setShowStencilPanel(false)}
+              onToast={showToast}
+              textures={textures()}
+            />
+          </Show>
+
           {/* Floating Toast Notification */}
           <Toast toast={toast()} onClose={() => setToast(null)} />
         </main>
@@ -981,7 +1073,11 @@ export default function App() {
                   onCommit={(params, asNewLayer, newLayerBackground) => {
                     viewportHandle?.commitEdgeWear(params, asNewLayer, newLayerBackground)
                     bumpLayers()
-                    showToast(asNewLayer ? 'Created "Edge Wear" layer' : 'Applied edge wear to active layer', 'success')
+                    const label = params.mode === 'cavity' ? 'Crevice Dirt' : 'Edge Wear'
+                    showToast(
+                      asNewLayer ? `Created "${label}" layer` : `Applied ${label.toLowerCase()} to active layer`,
+                      'success'
+                    )
                   }}
                 />
               </Suspense>

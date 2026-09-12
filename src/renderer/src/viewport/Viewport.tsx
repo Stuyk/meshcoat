@@ -18,11 +18,25 @@ import {
   clearFaceSelection,
   setTextureScale,
   recordRecentTexture,
+  applyPressure,
+  hasPressure,
   type ToolMode,
   type SymmetryAxis
 } from '../paint/brush'
+import {
+  stencil,
+  setStencilCenter,
+  setStencilScale,
+  setStencilRotation,
+  setStencilTransforming
+} from '../paint/stencil'
 import { LayerStack, type StackSnapshot } from '../paint/layers'
-import { type FillOptions, type EdgeWearParams, type OcclusionParams } from '../paint/paintEngine'
+import {
+  type FillOptions,
+  type EdgeWearParams,
+  type OcclusionParams,
+  type StencilParams
+} from '../paint/paintEngine'
 import { OcclusionDepthPass } from '../paint/occlusionDepth'
 import { renderTargetToPngDataUrl } from '../paint/exportTexture'
 import { toAssetUrl } from '../utils/assetUrl'
@@ -48,6 +62,8 @@ export interface ViewportHandle {
   selectAllFaces: () => void
   invertFaceSelection: () => void
   getTotalFaces: () => number
+  /** Projects the screen-space stencil onto the model as a one-shot decal. Returns false if it couldn't run. */
+  stampStencil: () => boolean
   previewEdgeWear: (options: EdgeWearParams, asNewLayer?: boolean, newLayerBackground?: 'transparent' | 'black') => void
   cancelEdgeWearPreview: () => void
   commitEdgeWear: (options: EdgeWearParams, asNewLayer?: boolean, newLayerBackground?: 'transparent' | 'black') => void
@@ -452,6 +468,19 @@ export default function Viewport(props: {
   let rafId = 0
   let painting = false
   let lastStampPos: THREE.Vector3 | null = null
+  /**
+   * World position of the last brush/eraser/stamp dab, kept ACROSS strokes (unlike
+   * lastStampPos, which resets on every pointer-down for dab spacing). Shift +
+   * click connects this point to the new click with a straight interpolated
+   * line, the way Photoshop/Procreate/Substance do, so panel lines and seams
+   * don't require switching to the Line tool.
+   */
+  let lastBrushDabPos: THREE.Vector3 | null = null
+  /** Previous dab's UV, so the smudge effect knows which way the stroke is heading. */
+  let lastEffectUv: THREE.Vector2 | null = null
+  let stencilTexture: THREE.Texture | null = null
+  /** Active stencil-transform drag (Transform Stencil mode), in client pixels. */
+  let stencilDrag: { lastX: number; lastY: number } | null = null
   let occlusionPass: OcclusionDepthPass | undefined
   let brushTexture: THREE.Texture | null = null
   let brushTipTexture: THREE.Texture | null = null
@@ -533,6 +562,8 @@ export default function Viewport(props: {
       ;(wf.material as THREE.Material).dispose()
     }
     wireframeMeshes = []
+    lastBrushDabPos = null
+    lastEffectUv = null
     occlusionPass?.invalidate()
     layerStack?.dispose()
     layerStack = undefined
@@ -842,12 +873,14 @@ export default function Viewport(props: {
       gizmoHandle.mirrorStampPreviewMesh.rotation.z = -rotRad
     }
 
-    if (tool === 'brush' || tool === 'eraser' || tool === 'line') {
+    if (tool === 'brush' || tool === 'eraser' || tool === 'line' || tool === 'effect') {
       gizmoHandle.group.visible = true
       gizmoHandle.eyedropperReticle.visible = false
       gizmoHandle.bucketReticle.visible = false
       gizmoHandle.stampReticle.visible = false
-      if (hasTip && tool !== 'eraser') {
+      // The effect brush has a plain circular footprint — a tip alpha shapes
+      // where paint lands, which is not something a filter can honour.
+      if (hasTip && tool !== 'eraser' && tool !== 'effect') {
         gizmoHandle.brushRing.visible = false
         gizmoHandle.brushTipMesh.visible = true
         gizmoHandle.brushTipMesh.scale.setScalar(brush.radius())
@@ -936,6 +969,122 @@ export default function Viewport(props: {
     return raycastMeshes(x, y, sceneHandle.camera, currentModel.meshes)
   }
 
+  /**
+   * Paints a straight run of dabs from `fromPoint` to the pointer position,
+   * used by Shift + click on the brush tools.
+   *
+   * The interpolation walks SCREEN space and raycasts each step back onto the
+   * mesh, rather than lerping world positions: a straight line in world space
+   * would tunnel through the surface on anything curved, painting the far side
+   * or nothing at all. Stepping in screen space and re-hitting the surface is
+   * what makes the line follow the geometry the artist is actually looking at,
+   * and it naturally stops at silhouettes where there's no surface to hit.
+   */
+  function strokeLineFrom(fromPoint: THREE.Vector3, toClientX: number, toClientY: number): void {
+    if (!canvasRef || !sceneHandle || !currentModel) return
+    const camera = sceneHandle.camera
+    const rect = canvasRef.getBoundingClientRect()
+
+    const ndc = fromPoint.clone().project(camera)
+    const fromX = ((ndc.x + 1) / 2) * rect.width + rect.left
+    const fromY = ((1 - ndc.y) / 2) * rect.height + rect.top
+
+    const dx = toClientX - fromX
+    const dy = toClientY - fromY
+    const distPx = Math.hypot(dx, dy)
+    if (distPx < 1) return
+
+    // Convert the brush's world-space dab spacing into screen pixels by
+    // projecting a point one radius to the camera's right of the start, so the
+    // line's dab density matches a hand-drawn stroke at any zoom level.
+    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0)
+    const offsetNdc = fromPoint.clone().addScaledVector(right, brush.radius()).project(camera)
+    const radiusPx = Math.abs((offsetNdc.x - ndc.x) / 2) * rect.width
+    const stepPx = Math.max(1.5, radiusPx * brush.spacing())
+
+    // Capped so a line drawn across a huge zoomed-in surface can't fire
+    // thousands of full paint passes in one click.
+    const steps = Math.min(1024, Math.max(1, Math.round(distPx / stepPx)))
+
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps
+      const px = fromX + dx * t
+      const py = fromY + dy * t
+      const { x, y } = screenToNdc(px, py, canvasRef)
+      const hit = raycastMeshes(x, y, camera, currentModel.meshes)
+      // No event: an interpolated dab isn't a real pointer sample, so it paints
+      // at full (non-pressure-scaled) strength, which is what a deliberate
+      // straight line wants.
+      if (hit) applyToolAt(hit)
+    }
+  }
+
+  /**
+   * One-shot projection of the screen-space stencil onto the model (the
+   * "stamp it on" action, as opposed to brushing through the stencil).
+   *
+   * The camera-visibility test is mandatory, so the depth pass is captured
+   * here even though no brush dab is involved — without it a planar projection
+   * reprints itself on the far side of the model.
+   */
+  function stampStencilNow(): boolean {
+    const layer = layerStack?.active
+    if (!layerStack || !layer || !sceneHandle || !canvasRef || !currentModel) return false
+    if (!stencilTexture || !stencil.texturePath()) return false
+    if (currentModel.meshes.length === 0) return false
+
+    const camera = sceneHandle.camera
+    const rect = canvasRef.getBoundingClientRect()
+    const r = stencil.stencilRect(rect.width, rect.height)
+
+    if (!occlusionPass) occlusionPass = new OcclusionDepthPass()
+    occlusionPass.capture(sceneHandle.renderer, sceneHandle.scene, camera, currentModel.meshes)
+
+    // Derive the normal sign from whatever the stencil's own center is pointing
+    // at, the same way a brush dab derives it from the face under the cursor —
+    // an inverted-normal import would otherwise reject the entire projection.
+    const centerNdc = screenToNdc(rect.left + r.centerX, rect.top + r.centerY, canvasRef)
+    const centerHit = raycastMeshes(centerNdc.x, centerNdc.y, camera, currentModel.meshes)
+    const camPos = camera.getWorldPosition(new THREE.Vector3())
+    const normalSign =
+      centerHit && centerHit.normal.dot(camPos.clone().sub(centerHit.point)) < 0 ? -1 : 1
+
+    const viewProjMatrix = new THREE.Matrix4().multiplyMatrices(
+      camera.projectionMatrix,
+      camera.matrixWorldInverse
+    )
+
+    layerStack.history.record()
+    layer.engine.stampStencil({
+      stencil: {
+        texture: stencilTexture,
+        rect: new THREE.Vector4(r.centerX, r.centerY, r.width, r.height),
+        rotationRad: r.rotationRad,
+        invert: stencil.invert(),
+        canvasWidth: rect.width,
+        canvasHeight: rect.height,
+        viewProjMatrix
+      },
+      occlusion: {
+        depthTexture: occlusionPass.depthTexture,
+        texelSize: occlusionPass.texelSize,
+        viewProjMatrix,
+        viewMatrix: camera.matrixWorldInverse.clone(),
+        cameraPosition: camPos,
+        normalSign,
+        near: camera.near,
+        far: camera.far
+      },
+      color: new THREE.Color(brush.color()),
+      opacity: brush.opacity(),
+      useLuminance: stencil.stampUseLuminance(),
+      restrictFaces: brush.selectedFaces().size > 0 ? brush.selectedFaces() : null
+    })
+    layerStack.recomposite()
+    props.onLayersChanged?.()
+    return true
+  }
+
   function applyToolAt(hit: SurfaceHit, additive = false, event?: PointerEvent): void {
     const layer = layerStack?.active
     if (!layerStack || !layer) return
@@ -990,6 +1139,26 @@ export default function Viewport(props: {
           far: camera.far
         }
       }
+      // Screen-space stencil: gate the dab by the viewport-pinned image.
+      let stencilParams: StencilParams | null = null
+      if (stencilTexture && stencil.stencilActive() && canvasRef && sceneHandle) {
+        const rect = canvasRef.getBoundingClientRect()
+        const r = stencil.stencilRect(rect.width, rect.height)
+        const camera = sceneHandle.camera
+        stencilParams = {
+          texture: stencilTexture,
+          rect: new THREE.Vector4(r.centerX, r.centerY, r.width, r.height),
+          rotationRad: r.rotationRad,
+          invert: stencil.invert(),
+          canvasWidth: rect.width,
+          canvasHeight: rect.height,
+          viewProjMatrix: new THREE.Matrix4().multiplyMatrices(
+            camera.projectionMatrix,
+            camera.matrixWorldInverse
+          )
+        }
+      }
+
       const color = isMask
         ? (tool === 'eraser' ? new THREE.Color(0x000000) : new THREE.Color(brush.color()))
         : (tool === 'eraser' ? engine.baseColor : new THREE.Color(brush.color()))
@@ -1021,10 +1190,16 @@ export default function Viewport(props: {
         strokeRadius *= Math.max(0.1, 1 + (Math.random() - 0.5) * 2 * brush.sizeJitter())
       }
 
+      // Stylus pressure. `event` is absent for synthesized dabs (shift-click
+      // line interpolation, symmetry), which correctly fall back to full
+      // strength — those aren't real pointer samples and have no pressure.
+      strokeRadius = applyPressure(strokeRadius, event, brush.pressureRadius())
+      const strokeOpacity = applyPressure(brush.opacity(), event, brush.pressureOpacity())
+
       engine.paintStroke(hit, {
         radius: strokeRadius,
         hardness: brush.hardness(),
-        opacity: brush.opacity(),
+        opacity: strokeOpacity,
         projectorDepth: brush.projectorDepth(),
         maxAngle: brush.maxAngle(),
         color,
@@ -1036,7 +1211,8 @@ export default function Viewport(props: {
         textureMapping: brush.textureMapping(),
         restrictFaces,
         angle: strokeAngle,
-        occlusion
+        occlusion,
+        stencil: stencilParams
       })
 
       if (brush.symmetryEnabled()) {
@@ -1045,7 +1221,7 @@ export default function Viewport(props: {
           engine.paintStroke(mirrored, {
             radius: strokeRadius,
             hardness: brush.hardness(),
-            opacity: brush.opacity(),
+            opacity: strokeOpacity,
             projectorDepth: brush.projectorDepth(),
             maxAngle: brush.maxAngle(),
             color,
@@ -1060,13 +1236,77 @@ export default function Viewport(props: {
             // The mirrored dab lands on the far side of the model, which is by
             // definition not visible from the paint camera — testing it against
             // the camera depth map would reject every symmetric stroke.
-            occlusion: null
+            occlusion: null,
+            stencil: stencilParams
           })
         }
       }
 
       layerStack.recomposite()
       lastStampPos = hit.point.clone()
+      lastBrushDabPos = hit.point.clone()
+    } else if (tool === 'effect') {
+      // Reworks texels already on the layer, so it never touches color, texture
+      // or alpha settings — only the dab footprint and the filter.
+      const engine = layer.engine
+      let occlusion: OcclusionParams | null = null
+      if (sceneHandle && currentModel && currentModel.meshes.length > 0) {
+        if (!occlusionPass) occlusionPass = new OcclusionDepthPass()
+        const camera = sceneHandle.camera
+        occlusionPass.capture(sceneHandle.renderer, sceneHandle.scene, camera, currentModel.meshes)
+        const camPos = camera.getWorldPosition(new THREE.Vector3())
+        const normalSign = hit.normal.dot(camPos.clone().sub(hit.point)) < 0 ? -1 : 1
+        occlusion = {
+          depthTexture: occlusionPass.depthTexture,
+          texelSize: occlusionPass.texelSize,
+          viewProjMatrix: new THREE.Matrix4().multiplyMatrices(
+            camera.projectionMatrix,
+            camera.matrixWorldInverse
+          ),
+          viewMatrix: camera.matrixWorldInverse.clone(),
+          cameraPosition: camPos,
+          normalSign,
+          near: camera.near,
+          far: camera.far
+        }
+      }
+
+      // Smudge pulls color from behind the stroke, so it needs the stroke's
+      // direction in the same space the shader samples in — UV. Consecutive hit
+      // UVs give exactly that, and stay valid because the UV map is locally
+      // affine across one dab. A large UV jump means the stroke crossed an
+      // island seam, where dragging color would smear two unrelated parts of
+      // the model together, so that step is dropped instead.
+      let smudgeDir: THREE.Vector2 | null = null
+      if (brush.effectMode() === 'smudge' && lastEffectUv) {
+        const delta = hit.uv.clone().sub(lastEffectUv)
+        if (delta.length() < 0.25) smudgeDir = delta.multiplyScalar(brush.smudgeLength())
+      }
+
+      let effectDabRadius = brush.radius()
+      if (brush.sizeJitter() > 0) {
+        effectDabRadius *= Math.max(0.1, 1 + (Math.random() - 0.5) * 2 * brush.sizeJitter())
+      }
+      effectDabRadius = applyPressure(effectDabRadius, event, brush.pressureRadius())
+
+      engine.applyEffect(hit, {
+        mode: brush.effectMode(),
+        radius: effectDabRadius,
+        hardness: brush.hardness(),
+        opacity: applyPressure(brush.opacity(), event, brush.pressureOpacity()),
+        projectorDepth: brush.projectorDepth(),
+        maxAngle: brush.maxAngle(),
+        strength: brush.effectStrength(),
+        effectRadius: brush.effectRadius(),
+        pixelSize: brush.pixelSize(),
+        smudgeDir,
+        restrictFaces,
+        occlusion
+      })
+
+      layerStack.recomposite()
+      lastStampPos = hit.point.clone()
+      lastEffectUv = hit.uv.clone()
     } else if (tool === 'fill') {
       const isMask = !!layer.isMask
       const fillOpts: FillOptions = {
@@ -1117,6 +1357,16 @@ export default function Viewport(props: {
   function onPointerMove(e: PointerEvent): void {
     lastClientX = e.clientX
     lastClientY = e.clientY
+
+    if (stencilDrag && canvasRef) {
+      const rect = canvasRef.getBoundingClientRect()
+      const dx = (e.clientX - stencilDrag.lastX) / rect.width
+      const dy = (e.clientY - stencilDrag.lastY) / rect.height
+      stencilDrag.lastX = e.clientX
+      stencilDrag.lastY = e.clientY
+      setStencilCenter(stencil.centerX() + dx, stencil.centerY() + dy)
+      return
+    }
 
     if (resizeDrag) {
       const dx = e.clientX - resizeDrag.lastX
@@ -1193,17 +1443,33 @@ export default function Viewport(props: {
 
     const tool = props.tool()
     if (tool === 'fill' || tool === 'eyedropper' || tool === 'line') return
-    if (tool === 'brush' || tool === 'stamp' || tool === 'eraser') {
+    if (tool === 'brush' || tool === 'stamp' || tool === 'eraser' || tool === 'effect') {
       // Discrete applications at spacing intervals (spec: brush Spacing)
       // instead of painting every pointer sample, which would blend into a
       // smear rather than a repeated pass.
-      const minDist = brush.radius() * brush.spacing()
+      // Spacing follows the pressure-adjusted radius, so a light (thin) part of
+      // a tapered stroke lays dabs closer together instead of leaving gaps
+      // sized for the full-pressure brush.
+      const minDist = applyPressure(brush.radius(), e, brush.pressureRadius()) * brush.spacing()
       if (lastStampPos && hit.point.distanceTo(lastStampPos) < minDist) return
     }
     applyToolAt(hit, e.shiftKey, e)
   }
 
   function onPointerDown(e: PointerEvent): void {
+    // Transform Stencil mode owns the viewport outright: while it's on, drags
+    // position the stencil sheet and nothing paints. It's modal rather than
+    // modifier-driven because every viewport modifier is already taken, and
+    // positioning a stencil is a one-off act followed by many strokes.
+    if (stencil.transforming() && stencil.stencilActive() && e.button === 0) {
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      stencilDrag = { lastX: e.clientX, lastY: e.clientY }
+      window.addEventListener('pointermove', onPointerMove)
+      window.addEventListener('pointerup', onPointerUp)
+      return
+    }
+
     const isCtrl = e.ctrlKey || e.metaKey
     const isFaceSelectTool = props.tool() === 'faceSelect'
 
@@ -1277,6 +1543,12 @@ export default function Viewport(props: {
       }
 
       const tool = props.tool()
+      if (tool === 'effect') {
+        layerStack?.history.record()
+        // Smudge direction is meaningless across a pen lift — a fresh stroke
+        // must not drag color from wherever the last one ended.
+        lastEffectUv = null
+      }
       if (tool === 'brush' || tool === 'stamp' || tool === 'eraser') {
         layerStack?.history.record()
         if (tool !== 'eraser' && !layerStack?.active?.isMask && brush.texturePath()) {
@@ -1285,7 +1557,21 @@ export default function Viewport(props: {
       }
       painting = true
       lastStampPos = null
-      applyToolAt(hit, e.shiftKey, e)
+      // Shift + click: connect the previous dab to this one with a straight
+      // line and skip the plain dab, since strokeLineFrom already ends on the
+      // clicked point.
+      if (e.shiftKey && lastBrushDabPos && (tool === 'brush' || tool === 'stamp' || tool === 'eraser')) {
+        strokeLineFrom(lastBrushDabPos, e.clientX, e.clientY)
+      } else if (hasPressure(e) && e.pressure <= 0) {
+        // Many tablets report pressure 0 on the contact event itself and only
+        // send real readings from the first pointermove. Painting that sample
+        // would either stamp a full-strength dab (if it were treated as "no
+        // sensor") or a minimum-strength one — neither is what the artist
+        // pressed. Skip it; lastStampPos is null, so the next move paints
+        // immediately with a real reading and the stroke still starts on touch.
+      } else {
+        applyToolAt(hit, e.shiftKey, e)
+      }
       window.addEventListener('pointermove', onPointerMove)
       window.addEventListener('pointerup', onPointerUp)
     }
@@ -1310,6 +1596,7 @@ export default function Viewport(props: {
   }
 
   function onPointerUp(e?: PointerEvent): void {
+    stencilDrag = null
     resizeDrag = null
     ctrlFaceSelecting = false
     ctrlFaceDeselecting = false
@@ -1398,6 +1685,18 @@ export default function Viewport(props: {
   }
 
   function onWheel(e: WheelEvent): void {
+    // In Transform Stencil mode the wheel scales the sheet, and Shift+wheel
+    // rotates it — the two adjustments an artist reaches for constantly while
+    // lining a stencil up against the model.
+    if (stencil.transforming() && stencil.stencilActive()) {
+      e.preventDefault()
+      if (e.shiftKey) {
+        setStencilRotation(stencil.rotation() + (e.deltaY < 0 ? 5 : -5))
+      } else {
+        setStencilScale(stencil.scale() * (e.deltaY < 0 ? 1.08 : 1 / 1.08))
+      }
+      return
+    }
     if (e.shiftKey) {
       e.preventDefault()
       if (props.tool() === 'fill' || (props.tool() === 'brush' && brush.texturePath())) {
@@ -1424,10 +1723,17 @@ export default function Viewport(props: {
       return
     }
 
-    if (e.key === 'Escape' && pieMenu()) {
-      e.preventDefault()
-      setPieMenu(null)
-      return
+    if (e.key === 'Escape') {
+      if (stencil.transforming()) {
+        e.preventDefault()
+        setStencilTransforming(false)
+        return
+      }
+      if (pieMenu()) {
+        e.preventDefault()
+        setPieMenu(null)
+        return
+      }
     }
 
     if (e.key.toLowerCase() === 'r' && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -1489,6 +1795,31 @@ export default function Viewport(props: {
     // of two independent ways paint reaches a face it shouldn't; the other is
     // overlapping UVs, which no visibility test can fix (see debugUvOverlap).
     ;(window as unknown as { slipDebug: unknown }).slipDebug = {
+      /**
+       * Prints the stack exactly as recomposite() walks it. A blend mode only
+       * has a visible effect where the layers *below* it have coverage (the
+       * W3C model: over bare canvas a blended layer just shows its own color),
+       * so this also reports whether each layer actually has anything under it
+       * to blend against.
+       */
+      blend: () => {
+        if (!layerStack) return 'no layer stack'
+        const rows = layerStack.layers.map((l, i) => ({
+          index: i,
+          id: l.id,
+          name: l.name,
+          visible: l.visible,
+          isMask: !!l.isMask,
+          opacity: l.opacity,
+          blendMode: l.blendMode ?? 'normal',
+          clippedToMaskId: l.clippedToMaskId ?? null,
+          // Anything at index 0, or with only hidden/mask layers beneath it,
+          // has no backdrop — its blend mode is a deliberate no-op.
+          hasBackdrop: layerStack!.layers.slice(0, i).some((u) => u.visible && !u.isMask)
+        }))
+        console.table(rows)
+        return rows
+      },
       uvOverlap: () => {
         const engine = layerStack?.active?.engine
         if (!engine) return 'no active layer'
@@ -1559,6 +1890,7 @@ export default function Viewport(props: {
         if (total > 0) invertFaceSelection(total)
       },
       getTotalFaces: () => (facePositions ? facePositions.length / 9 : 0),
+      stampStencil: () => stampStencilNow(),
       previewEdgeWear: (options: EdgeWearParams, asNewLayer = false, newLayerBackground = 'transparent' as 'transparent' | 'black') => {
         if (!layerStack) return
         layerStack.previewEdgeWear(options, asNewLayer, newLayerBackground)
@@ -1670,6 +2002,27 @@ export default function Viewport(props: {
   })
 
   createEffect(() => {
+    const path = stencil.texturePath()
+    if (!path) {
+      stencilTexture = null
+      return
+    }
+    textureLoader.load(toAssetUrl(path), (texture) => {
+      texture.colorSpace = THREE.SRGBColorSpace
+      // Clamped, not repeating: the shader already rejects texels outside the
+      // stencil rect, and wrapping would smear the edge pixels across the
+      // whole viewport if that test were ever loosened.
+      texture.wrapS = THREE.ClampToEdgeWrapping
+      texture.wrapT = THREE.ClampToEdgeWrapping
+      stencilTexture = texture
+      const img = texture.image as { width?: number; height?: number } | undefined
+      if (img?.width && img?.height) {
+        stencil.setStencilImageAspect(img.width / img.height)
+      }
+    })
+  })
+
+  createEffect(() => {
     const path = brush.tipTexturePath()
     if (!path) {
       brushTipTexture = null
@@ -1729,7 +2082,79 @@ export default function Viewport(props: {
 
   return (
     <>
-      <canvas ref={canvasRef} class={`absolute inset-0 w-full h-full block tool-${props.tool()}`} />
+      <canvas
+        ref={canvasRef}
+        class={`absolute inset-0 w-full h-full block ${
+          stencil.transforming() && stencil.stencilActive()
+            ? 'stencil-transform-active'
+            : `tool-${props.tool()}`
+        }`}
+      />
+      {/* Screen-space stencil sheet. Positioned from the exact same
+          stencilRect() numbers the paint shader samples with, so what the
+          artist lines up is what actually paints. pointer-events stay off even
+          while transforming — the viewport's own handlers drive the drag, so
+          the sheet never swallows a stroke. */}
+      <Show when={stencil.stencilActive()}>
+        <div
+          class="absolute inset-0 overflow-hidden pointer-events-none z-10"
+          style={{ opacity: `${stencil.displayOpacity()}` }}
+        >
+          <div
+            class={`absolute max-w-none select-none transition-shadow ${
+              stencil.transforming()
+                ? 'outline-2 outline-dashed outline-blue-400/90 shadow-[0_0_0_1px_rgba(0,0,0,0.6)]'
+                : ''
+            }`}
+            style={{
+              left: `${stencil.centerX() * 100}%`,
+              top: `${stencil.centerY() * 100}%`,
+              width: `${stencil.scale() * 100}%`,
+              transform: `translate(-50%, -50%) rotate(${stencil.rotation()}deg)`
+            }}
+          >
+            <img
+              src={toAssetUrl(stencil.texturePath()!)}
+              alt="Stencil"
+              class="w-full h-auto block select-none pointer-events-none"
+              style={{
+                filter: stencil.invert() ? 'invert(1)' : 'none'
+              }}
+            />
+            {/* Visual boundary handles & center marker when in transform mode */}
+            <Show when={stencil.transforming()}>
+              <div class="absolute -top-1 -left-1 w-2.5 h-2.5 bg-blue-500 border border-white/90 rounded-xs shadow-xs" />
+              <div class="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-500 border border-white/90 rounded-xs shadow-xs" />
+              <div class="absolute -bottom-1 -left-1 w-2.5 h-2.5 bg-blue-500 border border-white/90 rounded-xs shadow-xs" />
+              <div class="absolute -bottom-1 -right-1 w-2.5 h-2.5 bg-blue-500 border border-white/90 rounded-xs shadow-xs" />
+              <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-blue-400 border border-white shadow-xs" />
+            </Show>
+          </div>
+        </div>
+      </Show>
+      <Show when={stencil.transforming() && stencil.stencilActive()}>
+        <div class="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 px-3.5 py-1.5 rounded-full bg-zinc-900/95 border border-blue-500/60 text-zinc-100 text-xs shadow-xl shadow-black/50 backdrop-blur-md animate-in fade-in slide-in-from-top-2 duration-150 select-none">
+          <span class="flex items-center gap-1.5 text-blue-300 font-medium">
+            <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+            Transform Stencil
+          </span>
+          <span class="text-zinc-600">|</span>
+          <div class="flex items-center gap-2 text-[11px] text-zinc-300">
+            <span>Drag <span class="text-zinc-400">Move</span></span>
+            <span class="text-zinc-600">·</span>
+            <span>Wheel <span class="text-zinc-400">Scale</span></span>
+            <span class="text-zinc-600">·</span>
+            <span>Shift+Wheel <span class="text-zinc-400">Rotate</span></span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setStencilTransforming(false)}
+            class="ml-1 px-2.5 py-0.5 rounded-full bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-medium text-[11px] transition-colors cursor-pointer shadow-xs"
+          >
+            Done (Esc)
+          </button>
+        </div>
+      </Show>
       <Show when={props.tool() === 'eyedropper' && eyedropperPreview().visible}>
         <div
           class="fixed z-50 pointer-events-none flex items-center gap-2 px-2.5 py-1 bg-zinc-900/95 border border-zinc-700/80 rounded-lg shadow-xl shadow-black/60 backdrop-blur-sm select-none"

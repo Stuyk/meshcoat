@@ -93,9 +93,10 @@ export function buildUvMesh(mesh: THREE.Mesh): THREE.Mesh {
   geometry.setAttribute('aWorldNormal', new THREE.BufferAttribute(worldNormal, 3))
 
   const triangleCount = Math.floor(vertexCount / 3)
-  const { edgeDistances, edgeCurvatures } = computeEdgeCurvature(worldPos, triangleCount)
+  const { edgeDistances, edgeCurvatures, edgeConcavities } = computeEdgeCurvature(worldPos, triangleCount)
   geometry.setAttribute('aEdgeDist', new THREE.BufferAttribute(edgeDistances, 3))
   geometry.setAttribute('aEdgeCurvature', new THREE.BufferAttribute(edgeCurvatures, 3))
+  geometry.setAttribute('aEdgeConcavity', new THREE.BufferAttribute(edgeConcavities, 3))
 
   const flatMesh = new THREE.Mesh(geometry)
   flatMesh.frustumCulled = false

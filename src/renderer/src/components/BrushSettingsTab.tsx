@@ -9,6 +9,7 @@ import {
   type ToolMode
 } from '../paint/brush'
 import { brushPresets } from '../paint/brushPresets'
+import { EFFECT_MODES, EFFECT_MODE_LABELS } from '../paint/effectShader'
 import {
   XIcon,
   PaletteIcon,
@@ -25,7 +26,8 @@ import {
   UploadIcon,
   ChevronDownIcon,
   ChevronUpIcon,
-  RefreshCwIcon
+  RefreshCwIcon,
+  DropletsIcon
 } from './icons'
 import { PanelSection, Slider, Button, IconButton, ColorPicker } from './ui'
 import { toAssetUrl } from '../utils/assetUrl'
@@ -508,6 +510,90 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
         </Show>
       </PanelSection>
 
+      {/* Effects Brush Section — only meaningful while that tool is active */}
+      <Show when={props.activeTool === 'effect'}>
+        <PanelSection
+          title="Effects Brush"
+          icon={(p) => <DropletsIcon size={p.size} class="text-teal-400" />}
+        >
+          <div class="space-y-1.5">
+            <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
+              Mode
+            </span>
+            <div class="grid grid-cols-2 gap-1.5">
+              <For each={EFFECT_MODES}>
+                {(mode) => (
+                  <button
+                    type="button"
+                    onClick={() => brush.setEffectMode(mode)}
+                    class={`h-7 rounded-md border text-[11px] font-medium transition-colors cursor-pointer ${
+                      brush.effectMode() === mode
+                        ? 'bg-teal-600/20 border-teal-500/70 text-teal-100'
+                        : 'bg-zinc-950/50 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                    }`}
+                  >
+                    {EFFECT_MODE_LABELS[mode]}
+                  </button>
+                )}
+              </For>
+            </div>
+          </div>
+
+          <Slider
+            label="Effect Strength"
+            value={brush.effectStrength()}
+            min={0.01}
+            max={1}
+            step={0.01}
+            onChange={(v) => brush.setEffectStrength(v)}
+            displayValue={(v) => `${Math.round(v * 100)}%`}
+            icon={(p) => <FeatherIcon size={p.size} />}
+          />
+
+          {/* Kernel radius only means something to the two convolution modes. */}
+          <Show when={brush.effectMode() === 'blur' || brush.effectMode() === 'sharpen'}>
+            <Slider
+              label="Kernel Radius"
+              value={brush.effectRadius()}
+              min={1}
+              max={32}
+              step={1}
+              unit=" px"
+              onChange={(v) => brush.setEffectRadius(v)}
+            />
+          </Show>
+
+          <Show when={brush.effectMode() === 'pixelate'}>
+            <Slider
+              label="Block Size"
+              value={brush.pixelSize()}
+              min={2}
+              max={256}
+              step={1}
+              unit=" px"
+              onChange={(v) => brush.setPixelSize(v)}
+            />
+          </Show>
+
+          <Show when={brush.effectMode() === 'smudge'}>
+            <Slider
+              label="Drag Length"
+              value={brush.smudgeLength()}
+              min={0.05}
+              max={1}
+              step={0.01}
+              onChange={(v) => brush.setSmudgeLength(v)}
+              displayValue={(v) => `${Math.round(v * 100)}%`}
+            />
+          </Show>
+
+          <p class="text-[10px] text-zinc-500 leading-normal">
+            Reworks paint already on the active layer — it never adds color, so the color and
+            texture settings don't apply. Radius, hardness, opacity and pressure work as usual.
+          </p>
+        </PanelSection>
+      </Show>
+
       {/* Stroke Dynamics Section */}
       <PanelSection
         title="Stroke Dynamics"
@@ -551,6 +637,51 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
           presets={HARDNESS_PRESETS}
           icon={(p) => <FeatherIcon size={p.size} />}
         />
+
+        {/* Stylus pressure mapping. PointerEvent.pressure is 0.5 on a mouse and
+            0 when nothing is pressed, so these toggles are inert without a
+            real tablet — no need to hide them per input device. */}
+        <div class="space-y-1.5 pt-1">
+          <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
+            Stylus Pressure
+          </span>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => brush.setPressureRadius(!brush.pressureRadius())}
+              title="Stylus pressure controls brush radius (tapered strokes)"
+              class={`flex-1 h-7 rounded-md border text-[11px] font-medium transition-colors cursor-pointer ${
+                brush.pressureRadius()
+                  ? 'bg-blue-600/15 border-blue-500/70 text-zinc-100'
+                  : 'bg-zinc-950/50 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+              }`}
+            >
+              → Size
+            </button>
+            <button
+              type="button"
+              onClick={() => brush.setPressureOpacity(!brush.pressureOpacity())}
+              title="Stylus pressure controls brush opacity (feathering and blending)"
+              class={`flex-1 h-7 rounded-md border text-[11px] font-medium transition-colors cursor-pointer ${
+                brush.pressureOpacity()
+                  ? 'bg-blue-600/15 border-blue-500/70 text-zinc-100'
+                  : 'bg-zinc-950/50 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+              }`}
+            >
+              → Opacity
+            </button>
+          </div>
+          <Slider
+            label="Min Pressure Floor"
+            value={brush.pressureMin()}
+            min={0}
+            max={1}
+            step={0.01}
+            onChange={(v) => brush.setPressureMin(v)}
+            displayValue={(v) => `${Math.round(v * 100)}%`}
+            icon={(p) => <FeatherIcon size={p.size} />}
+          />
+        </div>
 
         {/* Projector Depth — how far a dab cuts along the surface normal.
             Lower it when paint is reaching the far side of a thin wall or the

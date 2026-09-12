@@ -2,7 +2,16 @@ import * as THREE from 'three'
 
 export interface EdgeCurvatureData {
   edgeDistances: Float32Array
+  /** Convex (outward ridge) curvature per edge — what chips and wears. */
   edgeCurvatures: Float32Array
+  /**
+   * Concave (inward valley) curvature per edge — the exact inverse population
+   * of edgeCurvatures. These are the interior folds and corners where dirt,
+   * grime and ambient shadow collect, and where wear never happens. An edge is
+   * in exactly one of the two sets, so a given edge is non-zero in one array
+   * and zero in the other.
+   */
+  edgeConcavities: Float32Array
 }
 
 /**
@@ -35,6 +44,7 @@ function pointToSegmentDistance(
  * Analyzes non-indexed mesh geometry and generates:
  * 1. aEdgeDist (3 floats per vertex): perpendicular distance from the vertex to each of the 3 triangle edges in world space.
  * 2. aEdgeCurvature (3 floats per vertex): the convex curvature scalar [0, 1] of each of the 3 triangle edges.
+ * 3. aEdgeConcavity (3 floats per vertex): the concave counterpart, for cavity/crevice dirt.
  */
 export function computeEdgeCurvature(
   worldPositions: Float32Array,
@@ -89,6 +99,7 @@ export function computeEdgeCurvature(
 
   // 2. Evaluate curvature for each unique edge in edgeMap
   const edgeCurvatureMap = new Map<string, number>()
+  const edgeConcavityMap = new Map<string, number>()
   for (const [key, entry] of edgeMap.entries()) {
     if (entry.faceIndices.length === 2) {
       const fA = entry.faceIndices[0]
@@ -107,19 +118,27 @@ export function computeEdgeCurvature(
       const toNeighbor = new THREE.Vector3().subVectors(cB, cA)
       const isConvex = toNeighbor.dot(nA) < 0.0001
 
+      // Curvature scalar: 0 when flat (dot=1), 1 when 90° (dot=0), up to 2 for sharp acute angles.
+      // The same magnitude describes both folds; only which way the fold turns differs.
+      const curvature = Math.max(0, 1.0 - dot)
+
       if (isConvex) {
-        // Curvature scalar: 0 when flat (dot=1), 1 when 90° (dot=0), up to 2 for sharp acute angles
-        const curvature = Math.max(0, 1.0 - dot)
         edgeCurvatureMap.set(key, curvature)
+        edgeConcavityMap.set(key, 0)
       } else {
-        // Concave crease/valley — wear doesn't chip concave interior corners
+        // Concave crease/valley — wear doesn't chip concave interior corners,
+        // but this is exactly where dirt, grime and ambient shadow collect.
         edgeCurvatureMap.set(key, 0)
+        edgeConcavityMap.set(key, curvature)
       }
     } else if (entry.faceIndices.length === 1) {
-      // Mesh boundary edge / open border — treated as exposed ridge
+      // Mesh boundary edge / open border — treated as exposed ridge, never a
+      // crevice: an open border has no interior fold for dirt to gather in.
       edgeCurvatureMap.set(key, 1.0)
+      edgeConcavityMap.set(key, 0)
     } else {
       edgeCurvatureMap.set(key, 0)
+      edgeConcavityMap.set(key, 0)
     }
   }
 
@@ -127,6 +146,7 @@ export function computeEdgeCurvature(
   const vertexCount = triangleCount * 3
   const edgeDistances = new Float32Array(vertexCount * 3)
   const edgeCurvatures = new Float32Array(vertexCount * 3)
+  const edgeConcavities = new Float32Array(vertexCount * 3)
 
   for (let f = 0; f < triangleCount; f++) {
     const base = f * 9
@@ -152,6 +172,10 @@ export function computeEdgeCurvature(
     const c1 = edgeCurvatureMap.get(keyE1) ?? 0
     const c2 = edgeCurvatureMap.get(keyE2) ?? 0
 
+    const k0c = edgeConcavityMap.get(keyE0) ?? 0
+    const k1c = edgeConcavityMap.get(keyE1) ?? 0
+    const k2c = edgeConcavityMap.get(keyE2) ?? 0
+
     // Vertex 0 (opposite edge 0): distance to edge 0 is h0, to edge 1 is 0, to edge 2 is 0
     const v0Offset = (f * 3) * 3
     edgeDistances[v0Offset] = h0
@@ -160,6 +184,9 @@ export function computeEdgeCurvature(
     edgeCurvatures[v0Offset] = c0
     edgeCurvatures[v0Offset + 1] = c1
     edgeCurvatures[v0Offset + 2] = c2
+    edgeConcavities[v0Offset] = k0c
+    edgeConcavities[v0Offset + 1] = k1c
+    edgeConcavities[v0Offset + 2] = k2c
 
     // Vertex 1 (opposite edge 1): distance to edge 1 is h1
     const v1Offset = (f * 3 + 1) * 3
@@ -169,6 +196,9 @@ export function computeEdgeCurvature(
     edgeCurvatures[v1Offset] = c0
     edgeCurvatures[v1Offset + 1] = c1
     edgeCurvatures[v1Offset + 2] = c2
+    edgeConcavities[v1Offset] = k0c
+    edgeConcavities[v1Offset + 1] = k1c
+    edgeConcavities[v1Offset + 2] = k2c
 
     // Vertex 2 (opposite edge 2): distance to edge 2 is h2
     const v2Offset = (f * 3 + 2) * 3
@@ -178,7 +208,10 @@ export function computeEdgeCurvature(
     edgeCurvatures[v2Offset] = c0
     edgeCurvatures[v2Offset + 1] = c1
     edgeCurvatures[v2Offset + 2] = c2
+    edgeConcavities[v2Offset] = k0c
+    edgeConcavities[v2Offset + 1] = k1c
+    edgeConcavities[v2Offset + 2] = k2c
   }
 
-  return { edgeDistances, edgeCurvatures }
+  return { edgeDistances, edgeCurvatures, edgeConcavities }
 }

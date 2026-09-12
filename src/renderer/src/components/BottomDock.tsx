@@ -1,6 +1,8 @@
 import { Show } from 'solid-js'
 import { brush, setTextureMapping } from '../paint/brush'
 import type { ToolMode } from '../paint/brush'
+import { stencil, setStencilTransforming } from '../paint/stencil'
+import { EFFECT_MODES, EFFECT_MODE_LABELS } from '../paint/effectShader'
 import {
   BrushIcon,
   StampIcon,
@@ -8,6 +10,7 @@ import {
   FillIcon,
   EyedropperIcon,
   MousePointerIcon,
+  DropletsIcon,
   LineIcon,
   HelpCircleIcon,
   FocusIcon,
@@ -31,7 +34,8 @@ const TOOL_CONFIG: Record<ToolMode, { label: string; key: string; num: string; I
   stamp: { label: 'Stamp', key: 'T', num: '3', Icon: StampIcon },
   fill: { label: 'Fill', key: 'G', num: '4', Icon: FillIcon },
   eyedropper: { label: 'Eyedropper', key: 'I', num: '5', Icon: EyedropperIcon },
-  faceSelect: { label: 'Face Select', key: 'V', num: '6', Icon: MousePointerIcon }
+  faceSelect: { label: 'Face Select', key: 'V', num: '6', Icon: MousePointerIcon },
+  effect: { label: 'Effects', key: 'U', num: '7', Icon: DropletsIcon }
 }
 
 export default function StatusBar(props: StatusBarProps) {
@@ -91,7 +95,7 @@ export default function StatusBar(props: StatusBarProps) {
         </Show>
 
         {/* Brush Spec pills */}
-        <Show when={props.tool === 'brush' || props.tool === 'stamp' || props.tool === 'eraser'}>
+        <Show when={props.tool === 'brush' || props.tool === 'stamp' || props.tool === 'eraser' || props.tool === 'effect'}>
           <div
             class="flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-900/80 border border-zinc-800/60 font-mono text-zinc-300 tabular-nums"
             title="Brush radius: [ / ] or Shift+Wheel or RMB+Drag"
@@ -106,6 +110,23 @@ export default function StatusBar(props: StatusBarProps) {
             <span class="text-zinc-500 font-sans">Op:</span>
             <span>{Math.round(brush.opacity() * 100)}%</span>
           </div>
+        </Show>
+
+        {/* Effect Filter cycle pill */}
+        <Show when={props.tool === 'effect'}>
+          <button
+            type="button"
+            class="flex items-center gap-1.5 px-2 py-0.5 rounded bg-teal-950/40 border border-teal-800/50 text-teal-300 hover:bg-teal-900/40 transition-colors cursor-pointer font-mono"
+            onClick={() => {
+              const nextMode = EFFECT_MODES[(EFFECT_MODES.indexOf(brush.effectMode()) + 1) % EFFECT_MODES.length]
+              brush.setEffectMode(nextMode)
+            }}
+            title="Active Effect Filter. Click or press U to cycle (Blur -> Sharpen -> Smudge -> Pixelate)"
+          >
+            <span class="w-1.5 h-1.5 rounded-full bg-teal-400" />
+            <span class="text-teal-400/80 font-sans">Filter:</span>
+            <span class="font-medium">{EFFECT_MODE_LABELS[brush.effectMode()]}</span>
+          </button>
         </Show>
 
         {/* Brush Texture Projection toggle */}
@@ -141,10 +162,42 @@ export default function StatusBar(props: StatusBarProps) {
             <span>{brush.textureScale().toFixed(2)}x</span>
           </div>
         </Show>
+
+        {/* Screen Stencil Spec / Transform Toggle pill */}
+        <Show when={stencil.stencilActive()}>
+          <button
+            type="button"
+            class={`flex items-center gap-1.5 px-2 py-0.5 rounded border font-mono transition-colors cursor-pointer ${
+              stencil.transforming()
+                ? 'bg-blue-950/60 border-blue-600/70 text-blue-300'
+                : 'bg-teal-950/40 border-teal-800/50 text-teal-300 hover:bg-teal-900/40'
+            }`}
+            onClick={() => setStencilTransforming(!stencil.transforming())}
+            title={
+              stencil.transforming()
+                ? 'Screen Stencil is in Transform Mode. Click or press Esc to return to Painting'
+                : 'Screen Stencil is active. Click to enter Stencil Transform mode'
+            }
+          >
+            <span
+              class={`w-1.5 h-1.5 rounded-full ${
+                stencil.transforming() ? 'bg-blue-400 animate-pulse' : 'bg-teal-400'
+              }`}
+            />
+            <span class="text-zinc-400 font-sans">Stencil:</span>
+            <span>{stencil.transforming() ? 'Transforming' : `${Math.round(stencil.scale() * 100)}%`}</span>
+          </button>
+        </Show>
       </div>
 
       {/* Center Area: Camera / Navigation Shortcuts */}
       <div class="hidden md:flex items-center gap-2 text-zinc-500">
+        <Show when={props.tool === 'brush' || props.tool === 'eraser' || props.tool === 'stamp'}>
+          <span>
+            <kbd class="px-1 py-0 bg-zinc-900 border border-zinc-800 rounded font-mono text-[9px] text-zinc-400">Shift</kbd>+Click Straight Line
+          </span>
+          <span>·</span>
+        </Show>
         <Show when={props.tool === 'fill'}>
           <span>
             <kbd class="px-1 py-0 bg-zinc-900 border border-zinc-800 rounded font-mono text-[9px] text-zinc-400">Click</kbd> Fill{' '}

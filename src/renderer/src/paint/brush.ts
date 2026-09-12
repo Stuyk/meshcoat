@@ -1,6 +1,15 @@
 import { createSignal } from 'solid-js'
+import type { EffectMode } from './effectShader'
 
-export type ToolMode = 'brush' | 'line' | 'stamp' | 'eraser' | 'fill' | 'eyedropper' | 'faceSelect'
+export type ToolMode =
+  | 'brush'
+  | 'line'
+  | 'stamp'
+  | 'eraser'
+  | 'fill'
+  | 'eyedropper'
+  | 'faceSelect'
+  | 'effect'
 export type BrushTextureMapping = 'uv' | 'triplanar' | 'tip'
 /** 'whole' fills the whole model (or the active face selection); 'face' fills only the single face clicked. */
 export type FillMode = 'whole' | 'face'
@@ -74,6 +83,32 @@ const [angleFollowStroke, setAngleFollowStrokeRaw] = createSignal(false)
 const [angleJitter, setAngleJitterRaw] = createSignal(0)
 /** Random size jitter fraction (0 - 1). */
 const [sizeJitter, setSizeJitterRaw] = createSignal(0)
+/** Map stylus pressure onto brush radius (tapered strokes). */
+const [pressureRadius, setPressureRadiusRaw] = createSignal(true)
+/** Map stylus pressure onto brush opacity (natural feathering/blending). */
+const [pressureOpacity, setPressureOpacityRaw] = createSignal(true)
+/**
+ * Radius/opacity floor at zero pressure, as a fraction of the slider value.
+ * Never 0: a stylus that reports very low pressure at the start of a stroke
+ * would otherwise lay down nothing at all and the stroke would appear to drop
+ * its first dabs.
+ */
+const [pressureMin, setPressureMinRaw] = createSignal(0.15)
+
+// --- Effect brush (blur / sharpen / smudge / pixelate) ---
+const [effectMode, setEffectModeRaw] = createSignal<EffectMode>('blur')
+/** How far toward the filtered result each dab moves. */
+const [effectStrength, setEffectStrengthRaw] = createSignal(0.6)
+/** Blur / sharpen kernel radius, in texels of the layer being edited. */
+const [effectRadius, setEffectRadiusRaw] = createSignal(3)
+/** Pixelate block size, in texels. */
+const [pixelSize, setPixelSizeRaw] = createSignal(16)
+/**
+ * How far a smudge drags color, as a fraction of the distance the pointer moved
+ * across the surface. Above ~1 the brush would pull from beyond where it has
+ * actually been and the smear detaches from the stroke.
+ */
+const [smudgeLength, setSmudgeLengthRaw] = createSignal(0.6)
 
 export function setBrushRotation(deg: number): void {
   setBrushRotationRaw(((deg % 360) + 360) % 360)
@@ -89,6 +124,60 @@ export function setAngleJitter(v: number): void {
 
 export function setSizeJitter(v: number): void {
   setSizeJitterRaw(clamp(v, 0, 1))
+}
+
+export function setPressureRadius(enabled: boolean): void {
+  setPressureRadiusRaw(enabled)
+}
+
+export function setPressureOpacity(enabled: boolean): void {
+  setPressureOpacityRaw(enabled)
+}
+
+export function setEffectMode(mode: EffectMode): void {
+  setEffectModeRaw(mode)
+}
+
+export function setEffectStrength(v: number): void {
+  setEffectStrengthRaw(clamp(v, 0.01, 1))
+}
+
+export function setEffectRadius(v: number): void {
+  setEffectRadiusRaw(clamp(v, 1, 32))
+}
+
+export function setPixelSize(v: number): void {
+  setPixelSizeRaw(clamp(v, 2, 256))
+}
+
+export function setSmudgeLength(v: number): void {
+  setSmudgeLengthRaw(clamp(v, 0.05, 1))
+}
+
+export function setPressureMin(v: number): void {
+  setPressureMinRaw(clamp(v, 0, 1))
+}
+
+/**
+ * Scales a brush value by stylus pressure, floored at `pressureMin` so a light
+ * touch still marks.
+ *
+ * Gating is on `pointerType`, NOT on the pressure value. A mouse reports a
+ * constant 0.5 while a button is held, so an earlier value-based heuristic
+ * ("0.5 and 0 mean no sensor") also threw away a pen's genuine 0.5 and its
+ * zero-pressure first contact — which is exactly why the first dab of a pen
+ * stroke came out at full size and opacity. `pointerType === 'pen'` is the
+ * device's own answer to that question and needs no guessing.
+ */
+export function applyPressure(value: number, event: PointerEvent | undefined, enabled: boolean): number {
+  if (!enabled || !hasPressure(event)) return value
+  const floor = pressureMin()
+  return value * (floor + (1 - floor) * clamp(event!.pressure, 0, 1))
+}
+
+/** True when this pointer sample comes from a device that reports real pressure. */
+export function hasPressure(event: PointerEvent | undefined): boolean {
+  return !!event && (event.pointerType === 'pen' || event.pointerType === 'touch')
 }
 
 export function setTextureMapping(mode: BrushTextureMapping): void {
@@ -262,5 +351,21 @@ export const brush = {
   angleJitter,
   setAngleJitter,
   sizeJitter,
-  setSizeJitter
+  setSizeJitter,
+  pressureRadius,
+  setPressureRadius,
+  pressureOpacity,
+  setPressureOpacity,
+  pressureMin,
+  setPressureMin,
+  effectMode,
+  setEffectMode,
+  effectStrength,
+  setEffectStrength,
+  effectRadius,
+  setEffectRadius,
+  pixelSize,
+  setPixelSize,
+  smudgeLength,
+  setSmudgeLength
 }

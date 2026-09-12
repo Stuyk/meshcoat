@@ -118,6 +118,20 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
             </div>
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-1 font-mono text-[11px]">
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">7</kbd>
+                <span class="text-zinc-500">/</span>
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">U</kbd>
+              </div>
+              <span class="text-zinc-400 text-right">Effects brush (cycle)</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1 font-mono text-[11px]">
+                <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">S</kbd>
+              </div>
+              <span class="text-zinc-400 text-right">Screen Stencil</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1 font-mono text-[11px]">
                 <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">X</kbd>
               </div>
               <span class="text-zinc-400 text-right">Swap B/W or Solid Color</span>

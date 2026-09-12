@@ -84,6 +84,7 @@
   .tool-brush,
   .tool-eraser,
   .tool-stamp,
+  .tool-effect,
   .tool-line {
     cursor: crosshair !important;
   }
@@ -98,6 +99,14 @@
 
   .tool-faceSelect {
     cursor: pointer !important;
+  }
+
+  .stencil-transform-active {
+    cursor: grab !important;
+  }
+
+  .stencil-transform-active:active {
+    cursor: grabbing !important;
   }
 }
 

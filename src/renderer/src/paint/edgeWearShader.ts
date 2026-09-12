@@ -15,6 +15,10 @@ export interface EdgeWearUniforms {
   uUseWearTexture: { value: number }
   uTextureScale: { value: number }
   uTextureMapping: { value: number }
+  /** 0 = convex edge wear (chips on ridges), 1 = concave cavity dirt (grime in folds). */
+  uCurvatureMode: { value: number }
+  /** 0 = noisy/chipped break-up, 1 = smooth uniform gradient (ambient-occlusion look). */
+  uSmoothness: { value: number }
 }
 
 export function createEdgeWearMaterial(): THREE.ShaderMaterial {
@@ -33,18 +37,22 @@ export function createEdgeWearMaterial(): THREE.ShaderMaterial {
       tWearTexture: { value: null },
       uUseWearTexture: { value: 0 },
       uTextureScale: { value: 1.0 },
-      uTextureMapping: { value: 0 }
+      uTextureMapping: { value: 0 },
+      uCurvatureMode: { value: 0 },
+      uSmoothness: { value: 0 }
     },
     vertexShader: /* glsl */ `
       attribute vec3 aWorldPosition;
       attribute vec3 aWorldNormal;
       attribute vec3 aEdgeDist;
       attribute vec3 aEdgeCurvature;
+      attribute vec3 aEdgeConcavity;
 
       varying vec3 vWorldPos;
       varying vec3 vNormal;
       varying vec3 vEdgeDist;
       varying vec3 vEdgeCurvature;
+      varying vec3 vEdgeConcavity;
       varying vec2 vUv;
 
       void main() {
@@ -52,6 +60,7 @@ export function createEdgeWearMaterial(): THREE.ShaderMaterial {
         vNormal = aWorldNormal;
         vEdgeDist = aEdgeDist;
         vEdgeCurvature = aEdgeCurvature;
+        vEdgeConcavity = aEdgeConcavity;
         vUv = position.xy * 0.5 + 0.5;
         gl_Position = vec4(position.xy, 0.0, 1.0);
       }
@@ -71,11 +80,14 @@ export function createEdgeWearMaterial(): THREE.ShaderMaterial {
       uniform float uUseWearTexture;
       uniform float uTextureScale;
       uniform float uTextureMapping;
+      uniform float uCurvatureMode;
+      uniform float uSmoothness;
 
       varying vec3 vWorldPos;
       varying vec3 vNormal;
       varying vec3 vEdgeDist;
       varying vec3 vEdgeCurvature;
+      varying vec3 vEdgeConcavity;
       varying vec2 vUv;
 
       // --- Ashima Arts / Stefan Gustavson Simplex 3D Noise ---
@@ -153,11 +165,21 @@ export function createEdgeWearMaterial(): THREE.ShaderMaterial {
       void main() {
         vec4 baseColor = texture2D(tSource, vUv);
 
-        // Compute edge wear falloff from all 3 edges
+        // Convex ridges (wear) and concave folds (dirt) are disjoint populations
+        // of the same edges — see computeEdgeCurvature. Picking the attribute
+        // here is the whole difference between chipping an exposed corner and
+        // settling grime into an interior crease.
+        vec3 curvature = mix(vEdgeCurvature, vEdgeConcavity, step(0.5, uCurvatureMode));
+
+        // Falloff from all 3 edges of the triangle.
         float safeWidth = max(uWearWidth, 0.0001);
-        float e0 = vEdgeCurvature.x >= uThreshold ? clamp(1.0 - vEdgeDist.x / safeWidth, 0.0, 1.0) * (vEdgeCurvature.x) : 0.0;
-        float e1 = vEdgeCurvature.y >= uThreshold ? clamp(1.0 - vEdgeDist.y / safeWidth, 0.0, 1.0) * (vEdgeCurvature.y) : 0.0;
-        float e2 = vEdgeCurvature.z >= uThreshold ? clamp(1.0 - vEdgeDist.z / safeWidth, 0.0, 1.0) * (vEdgeCurvature.z) : 0.0;
+        // Dirt fades into the surface gradually the way occlusion does; a chip
+        // has a harder boundary. Squaring the ramp gives the cavity mode that
+        // softer, deeper-in-the-corner gradient without a separate falloff path.
+        float gamma = mix(1.0, 2.0, uSmoothness);
+        float e0 = curvature.x >= uThreshold ? pow(clamp(1.0 - vEdgeDist.x / safeWidth, 0.0, 1.0), gamma) * curvature.x : 0.0;
+        float e1 = curvature.y >= uThreshold ? pow(clamp(1.0 - vEdgeDist.y / safeWidth, 0.0, 1.0), gamma) * curvature.y : 0.0;
+        float e2 = curvature.z >= uThreshold ? pow(clamp(1.0 - vEdgeDist.z / safeWidth, 0.0, 1.0), gamma) * curvature.z : 0.0;
 
         float edgeFactor = max(e0, max(e1, e2));
         if (edgeFactor <= 0.001) {
@@ -168,6 +190,9 @@ export function createEdgeWearMaterial(): THREE.ShaderMaterial {
         // Evaluate continuous 3D noise at world position
         vec3 noisePos = (vWorldPos + vec3(uSeed * 17.1, uSeed * 31.7, uSeed * 53.3)) * uNoiseScale;
         float noise = fbm(noisePos);
+        // At full smoothness the noise drops out entirely, leaving a clean
+        // curvature gradient — an ambient-occlusion pass rather than grunge.
+        noise = mix(noise, 1.0, uSmoothness);
 
         // Combine edge proximity with noise to create chips/scratches
         // Raw wear intensity

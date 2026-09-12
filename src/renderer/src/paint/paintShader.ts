@@ -1,4 +1,10 @@
 import * as THREE from 'three'
+import {
+  BRUSH_MASK_UNIFORMS_GLSL,
+  BRUSH_MASK_GLSL,
+  createBrushMaskUniforms,
+  type BrushMaskUniforms
+} from './brushMask'
 
 const vertexShader = /* glsl */ `
   attribute vec3 aWorldPosition;
@@ -20,14 +26,8 @@ const vertexShader = /* glsl */ `
 
 const fragmentShader = /* glsl */ `
   uniform sampler2D uPrevTexture;
-  uniform vec3 uBrushWorldPos;
-  uniform vec3 uBrushNormal;
-  uniform float uBrushRadius;
-  uniform float uBrushHardness;
-  // Projector reach along the brush normal, as a fraction of uBrushRadius.
-  uniform float uProjectorDepth;
-  // Widest surface-vs-brush normal angle (degrees) that still takes paint.
-  uniform float uMaxAngle;
+${BRUSH_MASK_UNIFORMS_GLSL}
+
   uniform vec4 uBrushColor;
   uniform float uBrushOpacity;
   uniform sampler2D uBrushTexture;
@@ -36,8 +36,6 @@ const fragmentShader = /* glsl */ `
   uniform sampler2D uBrushTipTexture;
   uniform float uUseTipTexture;
   uniform float uStampMode;
-  uniform vec3 uBrushTangent;
-  uniform vec3 uBrushBitangent;
   // Face selection (spec: select faces, paint/fill only within them).
   uniform float uRestrictFace;
   // Fill mode: paints uBrushColor / uBrushTexture at full uBrushOpacity everywhere the face
@@ -50,20 +48,30 @@ const fragmentShader = /* glsl */ `
   // Camera-space occlusion (see occlusionDepth.ts): rejects fragments that
   // aren't actually visible from the paint camera — e.g. a face directly
   // behind the one under the brush — instead of only masking by facing.
-  uniform sampler2D uOcclusionDepthTex;
-  uniform vec2 uOcclusionTexel;
-  uniform mat4 uCameraViewProjMatrix;
-  uniform mat4 uCameraViewMatrix;
-  uniform vec3 uCameraPosition;
-  uniform float uNormalSign;
-  uniform float uCameraNear;
-  uniform float uCameraFar;
-  uniform float uUseOcclusion;
+  // Screen-space stencil (see stencil.ts): an image pinned to the viewport that
+  // the brush paints *through*, so a photo or pattern projects undistorted onto
+  // curved geometry instead of following the surface tangent like a Stamp.
+  uniform sampler2D uStencilTex;
+  uniform float uUseStencil;
+  // Stencil rect in canvas pixels: xy = center, zw = size. Same numbers that
+  // position the DOM overlay, so what the artist sees is exactly what paints.
+  uniform vec4 uStencilRect;
+  uniform float uStencilRotation;
+  uniform float uStencilInvert;
+  // 1 = project the stencil image's colors as a decal; see the stamp block below.
+  uniform float uStencilStamp;
+  // 1 = drive the stamp's shape from brightness and paint uBrushColor, for
+  // black-and-white stencils that have no alpha channel.
+  uniform float uStencilUseLuma;
+  uniform vec2 uCanvasSize;
+
 
   varying vec3 vWorldPosition;
   varying vec3 vWorldNormal;
   varying vec2 vUv;
   varying float vSelected;
+
+${BRUSH_MASK_GLSL}
 
   void main() {
     // The render target stores premultiplied color (rgb already scaled by
@@ -76,94 +84,43 @@ const fragmentShader = /* glsl */ `
     vec3 prevColor = prevRaw.a > 0.0001 ? prevRaw.rgb / prevRaw.a : prevRaw.rgb;
     vec4 prev = vec4(prevColor, prevRaw.a);
 
+    float falloff;
+    float facingMask;
+    float visibility;
+    computeBrushMask(falloff, facingMask, visibility);
+
+    // Tangent-space dab coordinates, needed below for the brush tip / stamp.
     vec3 rel = vWorldPosition - uBrushWorldPos;
-    vec3 brushNormal = normalize(uBrushNormal);
-    vec3 texelNormal = normalize(vWorldNormal);
 
-    // The brush is a PROJECTOR, not a sphere. Transform the texel into the
-    // brush's local frame — X/Y span the tangent plane at the hit point, Z runs
-    // along the surface normal — and bound it as a box:
-    //
-    //   |local.xy| <= radius      (the round dab, via radial distance below)
-    //   |local.z|  <= reach       (how far it penetrates along the normal)
-    //
-    // The Z bound is the whole reason this doesn't bleed. A spherical falloff
-    // of radius r reaches r in *every* direction, so it unavoidably paints the
-    // far side of any shell thinner than r, the inside of any tube narrower
-    // than r, and the neighbouring fold of any crease — no visibility test can
-    // undo that, because from the brush's point of view those texels genuinely
-    // are within r. Bounding penetration separately from radius decouples "how
-    // wide is my dab" from "how deep does it cut", which is what lets a fat
-    // brush paint a thin wall.
-    vec3 local = vec3(dot(rel, uBrushTangent), dot(rel, uBrushBitangent), dot(rel, brushNormal));
-    float radial = length(local.xy);
-    float reach = uBrushRadius * max(uProjectorDepth, 0.0001);
-
-    // Radial shape, and a matching soft ramp on the depth slab so a texel
-    // sliding out the back of the projector fades rather than clipping.
-    float falloff = 1.0 - smoothstep(uBrushRadius * uBrushHardness, uBrushRadius, radial);
-    float depthMask = 1.0 - smoothstep(reach * 0.75, reach, abs(local.z));
-
-    // Angle culling, ramped over the last stretch before the cutoff so a
-    // stroke across curvature doesn't show a hard ring where it ends.
-    float facing = dot(texelNormal, brushNormal);
-    float cosMax = cos(radians(clamp(uMaxAngle, 1.0, 180.0)));
-    float facingMask = clamp((facing - cosMax) / max(1.0 - cosMax, 0.0001), 0.0, 1.0);
-    facingMask *= depthMask;
-
-    // Reject texels that aren't actually visible from the paint camera — the
-    // far wall of a thin shell, or a face hidden behind another part of the
-    // model — rather than only masking by how the surface faces the brush.
-    //
-    // Two independent tests, because neither alone is enough:
-    //
-    //  (a) Camera facing. A surface whose normal points away from the camera
-    //      cannot be the one under the cursor. This is what actually kills
-    //      back-of-a-thin-wall bleed, and it needs no depth bias at all — so
-    //      wall thickness can be arbitrarily small without breaking it.
-    //  (b) Linear depth. A front-facing surface can still be hidden behind
-    //      another part of the model; occlusionDepth.ts stores camera-space
-    //      distance / far (not window depth), so this comparison and its bias
-    //      are in world units and mean the same thing at any camera distance.
-    //      The bias can therefore be generous: (a) already covers the tight
-    //      cases, and an over-tight bias here would eat legitimate paint on
-    //      grazing surfaces.
-    if (uUseOcclusion > 0.5) {
-      vec3 toCamera = normalize(uCameraPosition - vWorldPosition);
-      // uNormalSign is -1 when the mesh's normals are inverted (the face the
-      // user is demonstrably looking at reports a normal pointing away). Without
-      // it, an inverted import would fail this test everywhere and paint nothing.
-      float camFacing = dot(normalize(vWorldNormal) * uNormalSign, toCamera);
-      // Feathered rather than a hard cutoff so silhouettes don't get a
-      // stair-stepped edge where the stroke stops.
-      facingMask *= smoothstep(0.0, 0.25, camFacing);
-
-      float fragViewZ = -(uCameraViewMatrix * vec4(vWorldPosition, 1.0)).z;
-      vec4 clip = uCameraViewProjMatrix * vec4(vWorldPosition, 1.0);
-      if (clip.w > 0.0) {
-        vec3 ndc = clip.xyz / clip.w;
-        vec2 screenUv = ndc.xy * 0.5 + 0.5;
-        if (screenUv.x >= 0.0 && screenUv.x <= 1.0 && screenUv.y >= 0.0 && screenUv.y <= 1.0) {
-          // Farthest of a 3x3 neighbourhood: one texel of the depth map covers
-          // a wide span of surface at grazing angles, and a texel straddling a
-          // silhouette holds the near surface. Taking the max makes the test
-          // conservative — it can miss occlusion by a texel, but it never
-          // punches speckled holes in a legitimate stroke.
-          float sceneViewZ = 0.0;
-          for (int y = -1; y <= 1; y++) {
-            for (int x = -1; x <= 1; x++) {
-              vec2 uvOff = screenUv + vec2(float(x), float(y)) * uOcclusionTexel;
-              sceneViewZ = max(sceneViewZ, texture2D(uOcclusionDepthTex, uvOff).r);
-            }
-          }
-          sceneViewZ *= uCameraFar;
-
-          // Scales with viewing distance (perspective foreshortening) and with
-          // brush radius (a fat brush reaches further across curvature).
-          float depthBias = max(fragViewZ * 0.02, uBrushRadius * 0.5);
-          if (fragViewZ > sceneViewZ + depthBias) {
-            facingMask = 0.0;
-          }
+    // Screen-space stencil gate. The texel is projected to the viewport and
+    // tested against the stencil rect; anything outside it, or masked by the
+    // stencil's own luminance/alpha, takes no paint.
+    float stencilMask = 1.0;
+    vec4 stencilColor = vec4(0.0);
+    if (uUseStencil > 0.5 || uStencilStamp > 0.5) {
+      stencilMask = 0.0;
+      vec4 sClip = uCameraViewProjMatrix * vec4(vWorldPosition, 1.0);
+      if (sClip.w > 0.0) {
+        vec2 sNdc = sClip.xy / sClip.w;
+        // NDC is y-up; the stencil rect is in CSS pixels, which are y-down.
+        vec2 pix = vec2(
+          (sNdc.x * 0.5 + 0.5) * uCanvasSize.x,
+          (1.0 - (sNdc.y * 0.5 + 0.5)) * uCanvasSize.y
+        );
+        vec2 d = pix - uStencilRect.xy;
+        float cs = cos(-uStencilRotation);
+        float sn = sin(-uStencilRotation);
+        vec2 local = vec2(d.x * cs - d.y * sn, d.x * sn + d.y * cs);
+        vec2 stencilUv = local / max(uStencilRect.zw, vec2(0.0001)) + 0.5;
+        if (stencilUv.x >= 0.0 && stencilUv.x <= 1.0 && stencilUv.y >= 0.0 && stencilUv.y <= 1.0) {
+          // Three uploads textures flipped (flipY), so v = 0 is the image's
+          // bottom while the CSS rect's v = 0 is its top.
+          vec4 stencilSample = texture2D(uStencilTex, vec2(stencilUv.x, 1.0 - stencilUv.y));
+          stencilColor = stencilSample;
+          // Luminance drives the mask so plain black-and-white artwork works
+          // without an alpha channel; a cut-out PNG's alpha multiplies in too.
+          float lum = dot(stencilSample.rgb, vec3(0.299, 0.587, 0.114));
+          stencilMask = mix(lum, 1.0 - lum, uStencilInvert) * stencilSample.a;
         }
       }
     }
@@ -218,23 +175,35 @@ const fragmentShader = /* glsl */ `
     float texMask = mix(1.0, texSample.a * stampDecalMask, uUseTexture);
 
     float fillAlpha = uBrushOpacity * mix(1.0, texSample.a, uUseTexture);
-    float strength = mix(strokeFalloff * uBrushOpacity * tipMask * texMask, fillAlpha, uFillMode) * faceMask;
-
+    float strength = mix(strokeFalloff * uBrushOpacity * tipMask * texMask, fillAlpha, uFillMode) * faceMask * stencilMask;
     float targetAlpha = uBrushColor.a * mix(1.0, texSample.a, uUseTexture);
+
+    // Stencil STAMP: project the stencil image itself onto every visible texel
+    // inside its rect in one pass — a decal, not a brush. There is no dab
+    // position, radius or falloff involved, so this replaces the brush terms
+    // outright rather than multiplying into them; the visibility term is the only
+    // thing kept, and it's what stops the projection wrapping onto back faces
+    // and geometry hidden behind the model.
+    if (uStencilStamp > 0.5) {
+      // The image's own alpha carries the decal shape. uStencilUseLuma turns a
+      // plain black-and-white stencil (opaque everywhere, shape encoded in
+      // brightness) into a mask that paints uBrushColor instead.
+      float lum = dot(stencilColor.rgb, vec3(0.299, 0.587, 0.114));
+      float lumMask = mix(lum, 1.0 - lum, uStencilInvert);
+      float shape = stencilColor.a * mix(1.0, lumMask, uStencilUseLuma);
+      paintColor = mix(stencilColor.rgb * uBrushColor.rgb, uBrushColor.rgb, uStencilUseLuma);
+      strength = shape * uBrushOpacity * visibility * faceMask;
+      targetAlpha = uBrushColor.a;
+    }
+
     float outAlpha = mix(prev.a, targetAlpha, strength);
     vec3 outColor = mix(prev.rgb, paintColor, strength);
     gl_FragColor = vec4(outColor * outAlpha, outAlpha);
   }
 `
 
-export interface PaintUniforms {
+export interface PaintUniforms extends BrushMaskUniforms {
   uPrevTexture: THREE.IUniform<THREE.Texture | null>
-  uBrushWorldPos: THREE.IUniform<THREE.Vector3>
-  uBrushNormal: THREE.IUniform<THREE.Vector3>
-  uBrushRadius: THREE.IUniform<number>
-  uBrushHardness: THREE.IUniform<number>
-  uProjectorDepth: THREE.IUniform<number>
-  uMaxAngle: THREE.IUniform<number>
   uBrushColor: THREE.IUniform<THREE.Vector4>
   uBrushOpacity: THREE.IUniform<number>
   uBrushTexture: THREE.IUniform<THREE.Texture | null>
@@ -243,32 +212,24 @@ export interface PaintUniforms {
   uUseTipTexture: THREE.IUniform<number>
   uTextureScale: THREE.IUniform<number>
   uStampMode: THREE.IUniform<number>
-  uBrushTangent: THREE.IUniform<THREE.Vector3>
-  uBrushBitangent: THREE.IUniform<THREE.Vector3>
   uRestrictFace: THREE.IUniform<number>
   uFillMode: THREE.IUniform<number>
   uFillScale: THREE.IUniform<number>
   uTextureMapping: THREE.IUniform<number>
-  uOcclusionDepthTex: THREE.IUniform<THREE.Texture | null>
-  uOcclusionTexel: THREE.IUniform<THREE.Vector2>
-  uCameraViewProjMatrix: THREE.IUniform<THREE.Matrix4>
-  uCameraViewMatrix: THREE.IUniform<THREE.Matrix4>
-  uCameraPosition: THREE.IUniform<THREE.Vector3>
-  uNormalSign: THREE.IUniform<number>
-  uCameraNear: THREE.IUniform<number>
-  uCameraFar: THREE.IUniform<number>
-  uUseOcclusion: THREE.IUniform<number>
+  uStencilTex: THREE.IUniform<THREE.Texture | null>
+  uUseStencil: THREE.IUniform<number>
+  uStencilRect: THREE.IUniform<THREE.Vector4>
+  uStencilRotation: THREE.IUniform<number>
+  uStencilInvert: THREE.IUniform<number>
+  uStencilStamp: THREE.IUniform<number>
+  uStencilUseLuma: THREE.IUniform<number>
+  uCanvasSize: THREE.IUniform<THREE.Vector2>
 }
 
 export function createPaintMaterial(): THREE.ShaderMaterial & { uniforms: PaintUniforms } {
   const uniforms: PaintUniforms = {
+    ...createBrushMaskUniforms(),
     uPrevTexture: { value: null },
-    uBrushWorldPos: { value: new THREE.Vector3() },
-    uBrushNormal: { value: new THREE.Vector3(0, 0, 1) },
-    uBrushRadius: { value: 0.2 },
-    uBrushHardness: { value: 0.6 },
-    uProjectorDepth: { value: 0.35 },
-    uMaxAngle: { value: 85 },
     uBrushColor: { value: new THREE.Vector4(1, 1, 1, 1) },
     uBrushOpacity: { value: 1 },
     uBrushTexture: { value: null },
@@ -277,21 +238,18 @@ export function createPaintMaterial(): THREE.ShaderMaterial & { uniforms: PaintU
     uUseTipTexture: { value: 0 },
     uTextureScale: { value: 1 },
     uStampMode: { value: 0 },
-    uBrushTangent: { value: new THREE.Vector3(1, 0, 0) },
-    uBrushBitangent: { value: new THREE.Vector3(0, 1, 0) },
     uRestrictFace: { value: 0 },
     uFillMode: { value: 0 },
     uFillScale: { value: 1 },
     uTextureMapping: { value: 0 },
-    uOcclusionDepthTex: { value: null },
-    uOcclusionTexel: { value: new THREE.Vector2(1 / 2048, 1 / 2048) },
-    uCameraViewProjMatrix: { value: new THREE.Matrix4() },
-    uCameraViewMatrix: { value: new THREE.Matrix4() },
-    uCameraPosition: { value: new THREE.Vector3() },
-    uNormalSign: { value: 1 },
-    uCameraNear: { value: 0.01 },
-    uCameraFar: { value: 1000 },
-    uUseOcclusion: { value: 0 }
+    uStencilTex: { value: null },
+    uUseStencil: { value: 0 },
+    uStencilRect: { value: new THREE.Vector4(0, 0, 1, 1) },
+    uStencilRotation: { value: 0 },
+    uStencilInvert: { value: 0 },
+    uStencilStamp: { value: 0 },
+    uStencilUseLuma: { value: 0 },
+    uCanvasSize: { value: new THREE.Vector2(1, 1) }
   }
 
   return new THREE.ShaderMaterial({

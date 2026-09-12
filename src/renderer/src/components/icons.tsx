@@ -42,6 +42,7 @@ export {
   Sparkles as SparklesIcon,
   Drama as DramaIcon,
   Contrast as ContrastIcon,
+  Droplets as DropletsIcon,
   Sun as SunIcon,
   Moon as MoonIcon,
   Unlink as UnlinkIcon,

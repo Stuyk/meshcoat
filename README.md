@@ -8,9 +8,9 @@
   <strong>Fast, focused 3D model texture painter for game developers and 3D artists.</strong>
 </p>
 
-Most 3D texturing suites are bloated giants with multi-gigabyte installations, slow boot times, or steep subscription paywalls just to paint a texture on a low-poly mesh.
+Most 3D texturing suites are bloated, slow to boot, or locked behind subscription paywalls just to paint a texture on a low-poly mesh.
 
-MeshCoat is fast, local, and free. Load your 3D model, choose your canvas resolution, and start painting directly on your surfaces in seconds. No cloud accounts, no subscriptions, no bloat. Just your models and your textures.
+MeshCoat is fast, local, and free. Load your model, pick your canvas resolution, and paint in seconds. No accounts. No subscriptions. No bloat. Just models and textures, yours to keep.
 
 <p align="center">
   <a href="https://github.com/stuyk/meshcoat/releases">
@@ -19,51 +19,52 @@ MeshCoat is fast, local, and free. Load your 3D model, choose your canvas resolu
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/base-screenshot.png" alt="MeshCoat brush painting with stroke dynamics" width="49%" />
-  <img src="docs/screenshots/texture-symetric-painting.png" alt="MeshCoat symmetry mirror painting" width="49%" />
+  <img src="docs/screenshots/screenshot1.png" alt="MeshCoat Effects Brush" width="49%" />
+  <img src="docs/screenshots/screenshot2.png" alt="MeshCoat Screen-Space Stencil" width="49%" />
 </p>
 <p align="center">
-  <img src="docs/screenshots/texture-brushes.png" alt="MeshCoat material texture projection" width="49%" />
-  <img src="docs/screenshots/texture-edge-creation-masking.png" alt="MeshCoat Edge Wear Wizard" width="49%" />
+  <img src="docs/screenshots/screenshot3.png" alt="MeshCoat Crevice Dirt Generator" width="49%" />
+  <img src="docs/screenshots/screenshot4.png" alt="MeshCoat Pen Pressure and Line Snapping" width="49%" />
 </p>
 
 ## Core Philosophy
 
-Texture painting should feel immediate, tactile, and frictionless. 
+Texture painting should be immediate, tactile, and yours alone. No AI assists, no accounts, no telemetry, no subscriptions. Just a brush, a canvas, and your creativity.
 
-MeshCoat maps your brush strokes directly from 3D camera space into UV coordinates in real time using custom hardware-accelerated shaders. Every layer is non-destructive, composite results update at 60 FPS, and you can pull textures directly from any folder on your drive without importing them into an opaque proprietary asset database. When you're done, export a crisp PNG ready for Godot, Unity, Unreal Engine, or Blender.
+MeshCoat maps brush strokes directly from 3D camera space into UV coordinates in real time using custom hardware-accelerated shaders. Every layer is non-destructive. Composite results update at 60 FPS. You control every pixel. Textures load from any folder on disk, not from a locked proprietary database. When done, export a PNG ready for any game engine or renderer.
 
 ## Performance
 
-- **Instant launch:** Boots in under a second with lightweight Electron, SolidJS, and Three.js.
-- **Hardware-accelerated UV projection:** Offscreen WebGL render targets project strokes and decals without CPU bottlenecks.
-- **Real-time 60 FPS viewport:** Smooth orbit, pan, zoom, and wireframe previews even during heavy paint strokes.
-- **Multi-resolution support:** Paint on canvas sizes from retro 512×512 up to high-detail 8192×8192.
-- **100% offline & private:** Zero telemetry, no user tracking, no network calls. Runs entirely on your local machine.
+- **Fast launch:** Lightweight Electron, SolidJS, and Three.js.
+- **Hardware-accelerated UV projection:** Offscreen WebGL render targets handle strokes and decals without CPU overhead.
+- **Real-time 60 FPS viewport:** Smooth orbit, pan, zoom, and wireframe even during heavy paint.
+- **Multi-resolution:** Paint from 512x512 retro up to 8192x8192 high-detail.
+- **100% offline and private:** Zero telemetry, no tracking, no network calls. Runs on your machine only.
 
 ## What It Does
 
-- **Direct 3D Surface Painting:** Paint directly onto 3D geometry with strokes and texture patterns automatically projected onto the model's UV layout.
+- **Direct 3D Surface Painting:** Paint directly onto 3D geometry with strokes and texture patterns automatically projected onto the model's UV layout. The brush is a 3D projector, not a sphere, so it never bleeds through thin walls or paints hidden faces.
 - **Non-Destructive Layer Stack:** Create, hide, reorder, adjust opacity, duplicate, and merge multiple paint layers with live composite blending.
 - **Versatile Tool Suite:**
-  - **Brush (`B`):** Freehand painting with customizable radius, hardness, opacity, spacing, and texture pattern projection.
-  - **Stamp (`T`):** Stamp textures or decals directly onto mesh surfaces at cursor hit points.
-  - **Eraser (`E`):** Erase layer contents with full opacity and edge hardness control.
-  - **Fill Bucket (`G`):** Flood fill active layers with solid colors, or confine fills strictly to selected faces.
-  - **Eyedropper (`I`):** Sample exact RGB colors directly from any point on the textured 3D model.
-  - **Face Selection (`V` / `Ctrl`):** Highlight faces with cyan outlines to restrict brush strokes and fills to specific geometry.
-- **Quick Face Masking (`Ctrl` + Click / Drag):** Hold <kbd>Ctrl</kbd> on **any tool** to click or sweep-drag across faces. All subsequent brush strokes, stamps, and fills are automatically confined to the highlighted selection. Hold <kbd>Ctrl</kbd>+<kbd>Shift</kbd> to deselect, or press <kbd>Esc</kbd> to clear.
-- **Layer Masks:** Toggle any layer between paint mode and mask mode with a single button. Masks modulate the layer(s) below — but only once you explicitly move a layer under one; masking is never applied automatically just because a layer happens to sit below a mask.
-- **Symmetry Mirror Painting:** Mirror every stroke, stamp, and fill across the model's X, Y, or Z axis in real time for fast symmetric texturing.
-- **Edge Wear Wizard:** Procedurally generate ridge highlights, chipped paint, and corrosion along a model's sharp edges, with live 3D preview and metallic/weathering color presets before committing to a new or existing layer.
-- **Integrated Texture Shelf:** Browse folders of PNG/JPG textures on your drive with a 2-wide shelf, instant search, and one-click decal selection. A dedicated "Used" tab keeps the 5 most recent textures you've actually painted, stamped, or filled with close at hand for reuse. Remembers your last folder automatically, restored in the background after launch.
-- **Lighting & View Modes:** Switch between Lit mode (directional + ambient lighting for depth) and Flat mode (unlit color view for pure texture painting).
-- **Wireframe Overlay (`W`):** Toggle wireframe overlay on the fly to inspect topology and UV islands while painting.
-- **Interactive Brush Gestures:** Adjust radius dynamically using <kbd>[</kbd> and <kbd>]</kbd> or by dragging <kbd>RMB</kbd>. Adjust hardness and opacity with <kbd>Shift</kbd> + <kbd>RMB</kbd> drag.
-- **Smooth 3D Navigation:** Standard DCC camera controls: <kbd>Alt</kbd>+<kbd>LMB</kbd> to orbit, <kbd>Alt</kbd>+<kbd>MMB</kbd> to pan, <kbd>Alt</kbd>+<kbd>RMB</kbd> / wheel to zoom, and <kbd>F</kbd> to frame the model.
-- **Format Support:** Loads `.obj`, `.gltf`, and `.glb` files with automatic UV validation.
-- **One-Click PNG Export:** Export the composite base color map directly to disk ready for your game engine or render pipeline.
-- **Undo / Redo:** Long, full-fidelity history (up to 100 steps) for every stroke, fill, and layer operation — layer add/remove/reorder, opacity, visibility, masks, and edge wear — via <kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd> or the Edit menu.
+  - **Brush (`B`):** Freehand painting with radius, hardness, opacity, spacing, and texture projection. Pen pressure controls size and opacity independently. Shift+click draws straight lines following the surface.
+  - **Stamp (`T`):** Place texture decals at cursor points, with full pen pressure support.
+  - **Eraser (`E`):** Erase with independent opacity and hardness control.
+  - **Fill Bucket (`G`):** Flood fill colors or textures across whole model or selected faces only.
+  - **Effects Brush (`U`):** Rework existing paint instead of adding color. Four modes: Blur, Sharpen, Smudge (follows your stroke), Pixelate. Each has independent radius and strength controls.
+  - **Eyedropper (`I`):** Sample RGB colors directly from the 3D model.
+  - **Face Selection (`V`):** Highlight faces to restrict all other tools (brush, eraser, fill, effects) to those surfaces. Hold Ctrl on any tool to select faces without switching modes.
+- **Layer Masks:** Toggle any layer between paint and mask mode. Masks multiply the layers below them, but only when explicitly stacked. No automatic masking.
+- **Symmetry Mirror Painting:** Mirror strokes, stamps, and fills across the model's X, Y, or Z axis in real time.
+- **Edge Wear & Crevice Dirt Wizard:** Two generators for procedural wear, both with live 3D preview and color presets. "Edge Wear" highlights ridges and edges; "Crevice Dirt" fills interior folds and corners. A Smoothness slider trades noise for clean ambient-occlusion look. Preview in new or existing layers, then commit in one click.
+- **Screen-Space Stencil:** Load a PNG that floats on the viewport instead of the model (the Mari/Mudbox workflow). Paint through it with any brush, or click "Stamp Onto Model" to project the entire image as a decal in one pass. Stamp can use the image's colors, or read brightness to mask with your current paint color. Works with pen pressure and face selection.
+- **Integrated Texture Shelf:** Browse PNG/JPG textures from any folder on disk with search and quick-access. "Used" tab shows your 5 most recent picks. Remembers the last folder.
+- **Lighting & View Modes:** Lit mode (directional plus ambient for depth) or Flat mode (unlit colors for pure texture work).
+- **Wireframe Overlay (`W`):** Toggle wireframe to inspect topology and UV seams while painting.
+- **Interactive Brush Gestures:** Adjust radius with <kbd>[</kbd> and <kbd>]</kbd> or right-drag. Shift+right-drag adjusts opacity and hardness.
+- **Smooth 3D Navigation:** Alt+left-click to orbit, Alt+middle-click to pan, Alt+right-click or wheel to zoom. Press <kbd>F</kbd> to frame the model.
+- **Format Support:** Loads .obj, .glb, and .gltf files. Validates UVs automatically.
+- **PNG Export:** Save the composite texture map in one click, ready for any game engine or renderer.
+- **Undo/Redo:** Full 100-step history for every stroke, fill, effect, layer op, and generator run via Ctrl+Z/Ctrl+Y or the Edit menu.
 
 ## Quick Start
 
@@ -81,26 +82,29 @@ Start a new project (`File` > `New Project`), pick your 3D model (`.obj`, `.glb`
 | Key | Action |
 | --- | --- |
 | `B` | Brush tool |
-| `T` | Stamp tool (place texture decal) |
+| `T` | Stamp tool |
 | `E` | Eraser tool |
-| `G` | Fill bucket (layer or selected faces) |
-| `I` | Eyedropper (sample surface color) |
+| `G` | Fill bucket |
+| `U` | Effects brush (blur, sharpen, smudge, pixelate) |
+| `I` | Eyedropper |
 | `V` | Face selection tool |
-| `Ctrl` + Click / Drag | Select & highlight faces on any tool |
+| `Shift` + Click | Draw straight line from last dab (brush, stamp, eraser only) |
+| `S` | Toggle screen stencil panel |
+| `Ctrl` + Click / Drag | Select faces on any tool |
 | `Ctrl` + `Shift` + Drag | Deselect faces |
 | `Esc` | Clear face selection |
 | `[` / `]` | Decrease / increase brush radius |
-| `RMB` + Drag X | Interactively resize brush radius |
-| `Shift` + `RMB` + Drag Y | Interactively adjust opacity / hardness |
-| `Alt` + `LMB` (or `MMB`) | Orbit camera |
-| `Alt` + `MMB` (or `Shift` + `MMB`) | Pan camera |
-| `Alt` + `RMB` (or Wheel) | Zoom camera |
-| `F` | Focus / frame model in view |
+| `RMB` + Drag X | Interactively resize radius |
+| `Shift` + `RMB` + Drag Y | Interactively adjust opacity and hardness |
+| `Alt` + `LMB` | Orbit camera |
+| `Alt` + `MMB` | Pan camera |
+| `Alt` + `RMB` or Wheel | Zoom camera |
+| `F` | Frame model in view |
 | `W` | Toggle wireframe overlay |
-| `Space` (hold) | Open radial quick-access tool wheel |
-| `Ctrl` + `Z` | Undo last stroke / action |
-| `Ctrl` + `Y` (or `Ctrl` + `Shift` + `Z`) | Redo action |
-| `?` | Toggle quick guide & hotkeys |
+| `Space` (hold) | Radial tool wheel |
+| `Ctrl` + `Z` | Undo |
+| `Ctrl` + `Y` or `Ctrl` + `Shift` + `Z` | Redo |
+| `?` | Help and hotkeys |
 
 ## Model Preparation & UVs
 
@@ -130,10 +134,6 @@ bun run build:all    # All targets
 - **Frontend & State:** SolidJS, Tailwind CSS v4, Lucide Icons (`lucide-solid`)
 - **3D Graphics & Viewport:** Three.js, WebGL, custom GLSL projection shaders
 - **Build System:** electron-vite, Vite, TypeScript
-
-## Alternative To
-
-A free, fast, local, and lightweight alternative to Substance 3D Painter, ArmorPaint, Marmoset Toolbag, or Blender's texture painting tab when you want to jump straight into painting textures without setup overhead.
 
 ## License
 
