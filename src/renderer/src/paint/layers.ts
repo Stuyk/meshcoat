@@ -453,6 +453,12 @@ export class LayerStack {
       )
     }
 
+    // Edge Wear "bake to new layer" live preview: composited as an extra top
+    // layer so it doesn't have to mutate any real layer's content.
+    if (this.edgeWearGhost) {
+      drawLayer(this.edgeWearGhost.texture, 1, 'normal')
+    }
+
     // Blit the final ping-pong result into the stable public composite target.
     this.recompositeQuad.material = this.recompositePlainMaterial
     this.recompositePlainMaterial.map = backdrop.texture
@@ -485,9 +491,44 @@ export class LayerStack {
 
   private previewSnapshot: THREE.WebGLRenderTarget | null = null
   private previewLayerId: number | null = null
+  /** Transient PaintEngine used only to preview "bake to new layer" mode —
+   * mirrors what commitEdgeWear would create, composited as an extra top
+   * layer by recomposite(), without touching the active layer's real content
+   * (which is what the "Merge into Active Layer" preview path mutates). */
+  private edgeWearGhost: PaintEngine | null = null
 
-  /** Previews edge wear in real time on the active layer by restoring from snapshot on each slider update. */
-  previewEdgeWear(options: EdgeWearParams): void {
+  /** Previews edge wear in real time — either on the active layer (merge mode) or via a
+   * transient ghost layer that mirrors "bake to new layer" mode's chosen background. */
+  previewEdgeWear(options: EdgeWearParams, asNewLayer = false, newLayerBackground: 'transparent' | 'black' = 'transparent'): void {
+    if (asNewLayer) {
+      // If a "merge into active layer" preview was in progress, revert it first.
+      if (this.previewSnapshot && this.previewLayerId !== null) {
+        const layer = this.layers.find((l) => l.id === this.previewLayerId)
+        layer?.engine.copyFrom(this.previewSnapshot)
+        this.previewSnapshot.dispose()
+        this.previewSnapshot = null
+        this.previewLayerId = null
+      }
+
+      if (!this.edgeWearGhost) {
+        this.edgeWearGhost = new PaintEngine(this.renderer, this.mesh, null, this.textureSize)
+      }
+      if (newLayerBackground === 'black') {
+        this.edgeWearGhost.fill({ color: new THREE.Color(0x000000), alpha: 1 })
+      } else {
+        this.edgeWearGhost.clear()
+      }
+      this.edgeWearGhost.applyEdgeWear(options)
+      this.recomposite()
+      return
+    }
+
+    // Merge-into-active-layer mode: drop any ghost from a previous "new layer" preview.
+    if (this.edgeWearGhost) {
+      this.edgeWearGhost.dispose()
+      this.edgeWearGhost = null
+    }
+
     const active = this.active
     if (!active) return
 
@@ -506,6 +547,11 @@ export class LayerStack {
 
   /** Cancels the edge wear preview and restores the active layer to pristine state. */
   cancelEdgeWearPreview(): void {
+    if (this.edgeWearGhost) {
+      this.edgeWearGhost.dispose()
+      this.edgeWearGhost = null
+      this.recomposite()
+    }
     if (this.previewSnapshot && this.previewLayerId !== null) {
       const layer = this.layers.find((l) => l.id === this.previewLayerId)
       if (layer) {
@@ -519,12 +565,15 @@ export class LayerStack {
   }
 
   /** Commits edge wear, either onto the active layer or as a new dedicated layer. */
-  commitEdgeWear(options: EdgeWearParams, asNewLayer = false): void {
+  commitEdgeWear(options: EdgeWearParams, asNewLayer = false, newLayerBackground: 'transparent' | 'black' = 'transparent'): void {
     if (asNewLayer) {
-      // Revert active layer to snapshot if preview was active
+      // Revert active layer to snapshot / drop the preview ghost if either was active
       this.cancelEdgeWearPreview()
-      // Create new transparent layer
+      // Create new layer — transparent by default, or opaque black if requested
       const newLayer = this.addLayer('Edge Wear')
+      if (newLayerBackground === 'black') {
+        newLayer.engine.fill({ color: new THREE.Color(0x000000), alpha: 1 })
+      }
       newLayer.engine.applyEdgeWear(options)
       this.recomposite()
     } else {
@@ -608,6 +657,7 @@ export class LayerStack {
   dispose(): void {
     this.history?.dispose()
     this.previewSnapshot?.dispose()
+    this.edgeWearGhost?.dispose()
     this.blendMaterial.dispose()
     this.recompositeQuadGeometry.dispose()
     this.recompositePlainMaterial.dispose()

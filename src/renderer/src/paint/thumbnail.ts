@@ -34,9 +34,20 @@ export function renderThumbnail(renderer: THREE.WebGLRenderer, texture: THREE.Te
 
   thumbMaterial.map = texture
   const prevTarget = renderer.getRenderTarget()
+  const prevClearColor = new THREE.Color()
+  renderer.getClearColor(prevClearColor)
+  const prevClearAlpha = renderer.getClearAlpha()
+  // Without an explicit transparent clear here, an empty layer (alpha 0
+  // everywhere) inherits whatever the renderer's ambient clear color/alpha
+  // happens to be — typically opaque black — so its thumbnail renders as a
+  // solid filled square instead of see-through, misleadingly suggesting the
+  // layer actually has content.
+  renderer.setClearColor(0x000000, 0)
   renderer.setRenderTarget(thumbTarget)
+  renderer.clear(true, true, true)
   renderer.render(thumbScene, thumbCamera)
   renderer.setRenderTarget(prevTarget)
+  renderer.setClearColor(prevClearColor, prevClearAlpha)
 
   const pixels = new Uint8Array(THUMB_SIZE * THUMB_SIZE * 4)
   renderer.readRenderTargetPixels(thumbTarget, 0, 0, THUMB_SIZE, THUMB_SIZE, pixels)

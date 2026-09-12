@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.1.1
+
+### Added
+- **Brush projector depth ("Depth (Bleed Through)" slider)**: controls how far a dab reaches along the surface normal, as a percentage of the brush radius (default 35%, presets Thin / Default / Wrap). Lower it when paint reaches the far side of a thin wall or the opposite fold of a crease; raise it to wrap further over sharp edges and tight curvature.
+- **Brush "Max Angle" slider**: widest angle between the surface normal and the brush normal that still takes paint (default 85°), replacing the previous fixed facing cutoff. The contribution ramps to zero approaching the cutoff, so a stroke across curvature no longer shows a hard ring where it ends.
+- **Fill tool "Fill Face" mode**: fill only the single clicked face instead of the whole model / active face selection, switchable from the floating HUD (which now also appears for the Fill tool with no texture selected). The status bar hint reflects the active mode.
+- **Edge Wear "bake to new layer" live preview**: previewing in new-layer mode now composites a transient ghost layer on top rather than mutating the active layer, so what you see during preview is what gets committed.
+- **Edge Wear new-layer background choice**: the baked layer can start transparent (default) or opaque black. Switching the target mode or background retriggers the live preview immediately.
+- Paint diagnostics on the DevTools console: `slipDebug.uvOverlap()` reports what fraction of covered texels carry two or more triangles (overlapping/mirrored UVs mean two faces physically share texels — painting one necessarily paints the other, which looks like bleed-through but is a model problem), and `slipDebug.occlusion()` reports whether the occlusion depth pass is producing data.
+
+### Changed
+- The brush is now modeled as a **projector** rather than a sphere. Each texel is transformed into the brush's local frame (tangent/bitangent spanning the tangent plane, normal as the third axis); the round dab comes from the radial distance in that plane, and penetration is bounded separately along the normal. Radius and depth are now independent, which is what lets a wide brush paint a thin wall.
+- The brush tangent basis is now computed on every dab, not only for stamps, tips, and rotated brushes — the projector bounds are evaluated in that frame, so a stale basis left from an earlier dab would misshape the dab and mis-measure its penetration.
+- The occlusion depth pass was rebuilt (see Fixed) and is now the secondary visibility test, covering the case the projector bounds can't: a front-facing surface hidden behind another part of the model.
+- Segmented control options now flex to fill their track and no longer wrap their labels.
+
+### Fixed
+- **Paint bleeding through to geometry behind the brushed face** (v1.1.0's fix was incomplete — it addressed visibility while leaving the underlying cause in place). The shader masked strokes by `length(worldPos - brushPos)`, a *sphere*: a sphere of radius r paints everything within r in every direction, so it unavoidably caught the far side of any shell thinner than r, the inside of any tube narrower than r, and the neighbouring fold of any crease. No visibility test can undo that, because from the brush's point of view those texels genuinely are in range. Bounding penetration along the surface normal separately from the dab radius removes the cause.
+- **Occlusion depth pass rendered the entire scene**, including the brush cursor ring and tip quad (which sit exactly on the hit point), the face-highlight and wireframe overlays (children of the model mesh itself), the symmetry guide plane, and the grid. All of them wrote depth in front of the surface being painted, so the test rejected the very texels it was meant to allow. The pass now renders only the model meshes, hiding and restoring everything else.
+- **Occlusion depth comparison was unreliable at any camera distance**: it reconstructed view-space Z from a non-linear 24-bit depth buffer spanning near 0.01 to far 1000, where a fixed bias is worth millimetres at one distance and metres at another. The pass now writes linear camera-space distance into a half-float target, so the comparison and its bias are both in world units. Unwritten texels clear to the far plane, so background can no longer read as an occluder, and the map matches the canvas aspect ratio so its texels line up with what the camera rasterized.
+- **Symmetry strokes were rejected wholesale** once occlusion testing was active: the mirrored dab lands on the far side of the model, which is by definition not visible from the paint camera. Mirrored dabs now skip the camera visibility test.
+- **Models with inverted normals would take no paint at all** under the camera-facing test. The sign is now derived per dab from the face actually under the cursor, which is demonstrably one the user can see.
+- **Empty layers rendered opaque thumbnails**: the thumbnail pass inherited the renderer's ambient clear color (typically opaque black) instead of clearing transparent, so a layer with no content showed a solid filled square that implied it had some.
+- Edge Wear texture scale defaulted to `1.0`, which read as an extreme zoom against the rest of the app's tiling convention; it now defaults to `8.0`.
+
 ## v1.1.0
 
 ### Added

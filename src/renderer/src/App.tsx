@@ -974,10 +974,12 @@ export default function App() {
                   initialColor={brush.color()}
                   textures={textures()}
                   onClose={() => setShowEdgeWearWizard(false)}
-                  onPreview={(params) => viewportHandle?.previewEdgeWear(params)}
+                  onPreview={(params, asNewLayer, newLayerBackground) =>
+                    viewportHandle?.previewEdgeWear(params, asNewLayer, newLayerBackground)
+                  }
                   onCancel={() => viewportHandle?.cancelEdgeWearPreview()}
-                  onCommit={(params, asNewLayer) => {
-                    viewportHandle?.commitEdgeWear(params, asNewLayer)
+                  onCommit={(params, asNewLayer, newLayerBackground) => {
+                    viewportHandle?.commitEdgeWear(params, asNewLayer, newLayerBackground)
                     bumpLayers()
                     showToast(asNewLayer ? 'Created "Edge Wear" layer' : 'Applied edge wear to active layer', 'success')
                   }}

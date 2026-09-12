@@ -147,7 +147,8 @@ export default function StatusBar(props: StatusBarProps) {
       <div class="hidden md:flex items-center gap-2 text-zinc-500">
         <Show when={props.tool === 'fill'}>
           <span>
-            <kbd class="px-1 py-0 bg-zinc-900 border border-zinc-800 rounded font-mono text-[9px] text-zinc-400">Click</kbd> Fill {props.selectedFaceCount > 0 ? 'Selection' : 'Model'}
+            <kbd class="px-1 py-0 bg-zinc-900 border border-zinc-800 rounded font-mono text-[9px] text-zinc-400">Click</kbd> Fill{' '}
+            {brush.fillMode() === 'face' ? 'Clicked Face' : props.selectedFaceCount > 0 ? 'Selection' : 'Model'}
           </span>
           <span>·</span>
         </Show>

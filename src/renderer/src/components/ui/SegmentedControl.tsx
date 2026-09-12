@@ -44,7 +44,7 @@ export default function SegmentedControl<T extends string | number>(props: Segme
               type="button"
               title={opt.title ?? opt.label}
               onClick={() => props.onChange(opt.value)}
-              class={`inline-flex items-center justify-center font-medium rounded-md transition-all cursor-pointer ${
+              class={`flex-1 inline-flex items-center justify-center font-medium rounded-md transition-all cursor-pointer whitespace-nowrap ${
                 ITEM_SIZE_CLASSES[size()]
               } ${
                 isSelected()

@@ -22,7 +22,7 @@ import {
   type SymmetryAxis
 } from '../paint/brush'
 import { LayerStack, type StackSnapshot } from '../paint/layers'
-import { type FillOptions, type EdgeWearParams } from '../paint/paintEngine'
+import { type FillOptions, type EdgeWearParams, type OcclusionParams } from '../paint/paintEngine'
 import { OcclusionDepthPass } from '../paint/occlusionDepth'
 import { renderTargetToPngDataUrl } from '../paint/exportTexture'
 import { toAssetUrl } from '../utils/assetUrl'
@@ -48,9 +48,9 @@ export interface ViewportHandle {
   selectAllFaces: () => void
   invertFaceSelection: () => void
   getTotalFaces: () => number
-  previewEdgeWear: (options: EdgeWearParams) => void
+  previewEdgeWear: (options: EdgeWearParams, asNewLayer?: boolean, newLayerBackground?: 'transparent' | 'black') => void
   cancelEdgeWearPreview: () => void
-  commitEdgeWear: (options: EdgeWearParams, asNewLayer?: boolean) => void
+  commitEdgeWear: (options: EdgeWearParams, asNewLayer?: boolean, newLayerBackground?: 'transparent' | 'black') => void
   undo: () => void
   redo: () => void
   canUndo: () => boolean
@@ -65,9 +65,12 @@ interface GizmoHandle {
   stampReticle: THREE.Group
   brushTipMesh: THREE.Mesh
   brushTipMaterial: THREE.ShaderMaterial
+  stampPreviewMesh: THREE.Mesh
+  stampPreviewMaterial: THREE.MeshBasicMaterial
   mirrorGroup: THREE.Group
   mirrorBrushRing: THREE.Mesh
   mirrorBrushTipMesh: THREE.Mesh
+  mirrorStampPreviewMesh: THREE.Mesh
 }
 
 const brushOutlineVertexShader = /* glsl */ `
@@ -237,6 +240,19 @@ function createGizmo(): GizmoHandle {
   brushTipMesh.visible = false
   group.add(brushTipMesh)
 
+  // 5b. Stamp Tool Live Preview (full-color decal, not just an outline) — shows
+  // what the selected shelf texture will actually look like when stamped, so
+  // aiming/rotating the stamp doesn't require a guess-and-check placement.
+  const stampPreviewMaterial = new THREE.MeshBasicMaterial({
+    transparent: true,
+    depthTest: false,
+    side: THREE.DoubleSide,
+    opacity: 0.85
+  })
+  const stampPreviewMesh = new THREE.Mesh(brushTipGeom, stampPreviewMaterial)
+  stampPreviewMesh.visible = false
+  group.add(stampPreviewMesh)
+
   group.visible = false
   group.renderOrder = 999
 
@@ -252,7 +268,9 @@ function createGizmo(): GizmoHandle {
     new THREE.LineBasicMaterial({ color: 0x06b6d4, transparent: true, opacity: 0.35, depthTest: false })
   )
   mirrorBrushTipMesh.add(mirrorBrushTipBounds)
-  mirrorGroup.add(mirrorBrushRing, mirrorBrushTipMesh)
+  const mirrorStampPreviewMesh = new THREE.Mesh(brushTipGeom, stampPreviewMaterial)
+  mirrorStampPreviewMesh.visible = false
+  mirrorGroup.add(mirrorBrushRing, mirrorBrushTipMesh, mirrorStampPreviewMesh)
   mirrorBrushTipMesh.visible = false
   mirrorGroup.visible = false
   mirrorGroup.renderOrder = 999
@@ -264,10 +282,13 @@ function createGizmo(): GizmoHandle {
     bucketReticle,
     stampReticle,
     brushTipMesh,
+    stampPreviewMesh,
+    stampPreviewMaterial,
     brushTipMaterial,
     mirrorGroup,
     mirrorBrushRing,
-    mirrorBrushTipMesh
+    mirrorBrushTipMesh,
+    mirrorStampPreviewMesh
   }
 }
 
@@ -512,6 +533,7 @@ export default function Viewport(props: {
       ;(wf.material as THREE.Material).dispose()
     }
     wireframeMeshes = []
+    occlusionPass?.invalidate()
     layerStack?.dispose()
     layerStack = undefined
     currentModel = undefined
@@ -801,15 +823,23 @@ export default function Viewport(props: {
     const reticleScale = Math.max(0.02, dist * 0.035)
 
     const hasTip = !!brushTipTexture || (tool === 'stamp' && !!brushTexture)
+    // Stamp tool with a shelf texture (not a custom ABR alpha tip) gets a
+    // real full-color preview instead of the blue alpha-silhouette outline —
+    // a decal image's actual colors are the whole point of aiming a stamp.
+    const showStampColorPreview = tool === 'stamp' && !brushTipTexture && !!brushTexture
 
     if (gizmoHandle) {
-      const activeTipTex = brushTipTexture ?? (tool === 'stamp' ? brushTexture : null)
+      const activeTipTex = brushTipTexture ?? (tool === 'stamp' && !showStampColorPreview ? brushTexture : null)
       gizmoHandle.brushTipMaterial.uniforms.uTexture.value = activeTipTex
       gizmoHandle.brushTipMaterial.uniforms.uHasTexture.value = activeTipTex ? 1 : 0
+      gizmoHandle.stampPreviewMaterial.map = showStampColorPreview ? brushTexture : null
+      gizmoHandle.stampPreviewMaterial.needsUpdate = true
 
       const rotRad = (brush.brushRotation() * Math.PI) / 180
       gizmoHandle.brushTipMesh.rotation.z = rotRad
       gizmoHandle.mirrorBrushTipMesh.rotation.z = -rotRad
+      gizmoHandle.stampPreviewMesh.rotation.z = rotRad
+      gizmoHandle.mirrorStampPreviewMesh.rotation.z = -rotRad
     }
 
     if (tool === 'brush' || tool === 'eraser' || tool === 'line') {
@@ -826,6 +856,7 @@ export default function Viewport(props: {
         gizmoHandle.brushRing.visible = true
         gizmoHandle.brushRing.scale.setScalar(brush.radius())
       }
+      gizmoHandle.stampPreviewMesh.visible = false
       if (hoverFaceMesh) hoverFaceMesh.visible = false
     } else if (tool === 'stamp') {
       gizmoHandle.group.visible = true
@@ -834,8 +865,11 @@ export default function Viewport(props: {
       gizmoHandle.bucketReticle.visible = false
       gizmoHandle.stampReticle.visible = true
       gizmoHandle.stampReticle.scale.setScalar(brush.radius())
-      gizmoHandle.brushTipMesh.visible = hasTip
-      if (hasTip) {
+      gizmoHandle.stampPreviewMesh.visible = showStampColorPreview
+      gizmoHandle.brushTipMesh.visible = hasTip && !showStampColorPreview
+      if (showStampColorPreview) {
+        gizmoHandle.stampPreviewMesh.scale.setScalar(brush.radius())
+      } else if (hasTip) {
         gizmoHandle.brushTipMesh.scale.setScalar(brush.radius())
       }
       if (hoverFaceMesh) hoverFaceMesh.visible = false
@@ -846,6 +880,7 @@ export default function Viewport(props: {
       gizmoHandle.eyedropperReticle.scale.setScalar(reticleScale)
       gizmoHandle.bucketReticle.visible = false
       gizmoHandle.stampReticle.visible = false
+      gizmoHandle.stampPreviewMesh.visible = false
       if (hoverFaceMesh) hoverFaceMesh.visible = false
     } else if (tool === 'fill') {
       gizmoHandle.group.visible = true
@@ -854,8 +889,10 @@ export default function Viewport(props: {
       gizmoHandle.bucketReticle.visible = true
       gizmoHandle.bucketReticle.scale.setScalar(reticleScale)
       gizmoHandle.stampReticle.visible = false
+      gizmoHandle.stampPreviewMesh.visible = false
       if (hoverFaceMesh) updateHoverFace(hit.faceIndex)
     } else if (tool === 'faceSelect') {
+      gizmoHandle.stampPreviewMesh.visible = false
       gizmoHandle.group.visible = false
       if (hoverFaceMesh) updateHoverFace(hit.faceIndex)
     }
@@ -869,12 +906,19 @@ export default function Viewport(props: {
         gizmoHandle.mirrorGroup.quaternion.copy(mirrorQuat)
         gizmoHandle.mirrorGroup.visible = true
 
-        if (hasTip && tool !== 'eraser') {
+        if (showStampColorPreview) {
+          gizmoHandle.mirrorBrushRing.visible = false
+          gizmoHandle.mirrorBrushTipMesh.visible = false
+          gizmoHandle.mirrorStampPreviewMesh.visible = true
+          gizmoHandle.mirrorStampPreviewMesh.scale.setScalar(brush.radius())
+        } else if (hasTip && tool !== 'eraser') {
           gizmoHandle.mirrorBrushRing.visible = false
           gizmoHandle.mirrorBrushTipMesh.visible = true
+          gizmoHandle.mirrorStampPreviewMesh.visible = false
           gizmoHandle.mirrorBrushTipMesh.scale.setScalar(brush.radius())
         } else {
           gizmoHandle.mirrorBrushTipMesh.visible = false
+          gizmoHandle.mirrorStampPreviewMesh.visible = false
           gizmoHandle.mirrorBrushRing.visible = true
           gizmoHandle.mirrorBrushRing.scale.setScalar(brush.radius())
         }
@@ -918,22 +962,32 @@ export default function Viewport(props: {
       const isMask = !!layer.isMask
       const engine = layer.engine
 
-      let occlusion:
-        | { depthTexture: THREE.Texture; viewProjMatrix: THREE.Matrix4; viewMatrix: THREE.Matrix4; near: number; far: number }
-        | null = null
-      if (sceneHandle) {
+      // Depth map covers only the model meshes — the cursor gizmo sits right on
+      // the hit point and the highlight/wireframe overlays are children of the
+      // mesh itself, so any of them in the map would occlude the very surface
+      // being painted (see occlusionDepth.ts).
+      let occlusion: OcclusionParams | null = null
+      if (sceneHandle && currentModel && currentModel.meshes.length > 0) {
         if (!occlusionPass) occlusionPass = new OcclusionDepthPass()
-        occlusionPass.capture(sceneHandle.renderer, sceneHandle.scene, sceneHandle.camera)
-        const viewProjMatrix = new THREE.Matrix4().multiplyMatrices(
-          sceneHandle.camera.projectionMatrix,
-          sceneHandle.camera.matrixWorldInverse
-        )
+        const camera = sceneHandle.camera
+        occlusionPass.capture(sceneHandle.renderer, sceneHandle.scene, camera, currentModel.meshes)
+        const camPos = camera.getWorldPosition(new THREE.Vector3())
+        // The face under the cursor is one the user can see, so its normal must
+        // point back towards the camera. If it doesn't, this mesh's normals are
+        // inverted and every camera-facing test has to flip with them.
+        const normalSign = hit.normal.dot(camPos.clone().sub(hit.point)) < 0 ? -1 : 1
         occlusion = {
           depthTexture: occlusionPass.depthTexture,
-          viewProjMatrix,
-          viewMatrix: sceneHandle.camera.matrixWorldInverse.clone(),
-          near: sceneHandle.camera.near,
-          far: sceneHandle.camera.far
+          texelSize: occlusionPass.texelSize,
+          viewProjMatrix: new THREE.Matrix4().multiplyMatrices(
+            camera.projectionMatrix,
+            camera.matrixWorldInverse
+          ),
+          viewMatrix: camera.matrixWorldInverse.clone(),
+          cameraPosition: camPos,
+          normalSign,
+          near: camera.near,
+          far: camera.far
         }
       }
       const color = isMask
@@ -971,6 +1025,8 @@ export default function Viewport(props: {
         radius: strokeRadius,
         hardness: brush.hardness(),
         opacity: brush.opacity(),
+        projectorDepth: brush.projectorDepth(),
+        maxAngle: brush.maxAngle(),
         color,
         alpha,
         brushTexture: strokeTexture,
@@ -990,6 +1046,8 @@ export default function Viewport(props: {
             radius: strokeRadius,
             hardness: brush.hardness(),
             opacity: brush.opacity(),
+            projectorDepth: brush.projectorDepth(),
+            maxAngle: brush.maxAngle(),
             color,
             alpha,
             brushTexture: strokeTexture,
@@ -999,7 +1057,10 @@ export default function Viewport(props: {
             textureMapping: brush.textureMapping(),
             restrictFaces,
             angle: -strokeAngle,
-            occlusion
+            // The mirrored dab lands on the far side of the model, which is by
+            // definition not visible from the paint camera — testing it against
+            // the camera depth map would reject every symmetric stroke.
+            occlusion: null
           })
         }
       }
@@ -1015,7 +1076,9 @@ export default function Viewport(props: {
         scale: brush.textureScale()
       }
       if (!isMask && brushTexture && brush.texturePath()) recordRecentTexture(brush.texturePath()!)
-      if (restrictFaces && restrictFaces.size > 0) {
+      if (brush.fillMode() === 'face') {
+        if (hit.faceIndex >= 0) layerStack.fillActiveFaces(new Set([hit.faceIndex]), fillOpts)
+      } else if (restrictFaces && restrictFaces.size > 0) {
         layerStack.fillActiveFaces(restrictFaces, fillOpts)
       } else {
         layerStack.history.record()
@@ -1272,7 +1335,6 @@ export default function Viewport(props: {
           const strokeTip = brushTipTexture
           if (strokeTexture && brush.texturePath()) recordRecentTexture(brush.texturePath()!)
           const selection = brush.selectedFaces()
-          const restrictFaces = selection.size > 0 ? selection : null
 
           for (let i = 0; i <= steps; i++) {
             const t = i / steps
@@ -1295,7 +1357,7 @@ export default function Viewport(props: {
                 textureScale: brush.textureScale(),
                 stampMode: false,
                 textureMapping: brush.textureMapping(),
-                restrictFaces
+                restrictFaces: selection.size > 0 ? selection : null
               }
             )
 
@@ -1313,7 +1375,7 @@ export default function Viewport(props: {
                   textureScale: brush.textureScale(),
                   stampMode: false,
                   textureMapping: brush.textureMapping(),
-                  restrictFaces
+                  restrictFaces: selection.size > 0 ? selection : null
                 })
               }
             }
@@ -1423,6 +1485,48 @@ export default function Viewport(props: {
     testModel.root.add(symmetryGuide.group)
     symmetryGuide.update(brush.symmetryAxis(), testModel)
 
+    // Paint-bleed diagnostics, run from the DevTools console. Occlusion is one
+    // of two independent ways paint reaches a face it shouldn't; the other is
+    // overlapping UVs, which no visibility test can fix (see debugUvOverlap).
+    ;(window as unknown as { slipDebug: unknown }).slipDebug = {
+      uvOverlap: () => {
+        const engine = layerStack?.active?.engine
+        if (!engine) return 'no active layer'
+        const r = engine.debugUvOverlap()
+        console.log(
+          `[slip] UV overlap: ${(r.overlapRatio * 100).toFixed(1)}% of covered texels carry ` +
+            `2+ triangles (${r.overlappedTexels} / ${r.coveredTexels}). ` +
+            (r.overlapRatio > 0.02
+              ? 'OVERLAPPING UVs — painting one face necessarily paints every other face ' +
+                'sharing those texels. Occlusion cannot fix this; the model needs a ' +
+                'non-overlapping unwrap.'
+              : 'UV layout looks non-overlapping.')
+        )
+        return r
+      },
+      occlusion: () => {
+        if (!sceneHandle || !currentModel) return 'no model'
+        if (!occlusionPass) occlusionPass = new OcclusionDepthPass()
+        occlusionPass.invalidate()
+        occlusionPass.capture(
+          sceneHandle.renderer,
+          sceneHandle.scene,
+          sceneHandle.camera,
+          currentModel.meshes
+        )
+        const r = occlusionPass.debugStats(sceneHandle.renderer, sceneHandle.camera.far)
+        console.log(
+          `[slip] occlusion map ${r.width}x${r.height}, model covers ` +
+            `${(r.coverage * 100).toFixed(1)}% of it, distances ${r.minDist?.toFixed(3)}..` +
+            `${r.maxDist?.toFixed(3)} world units. ` +
+            (r.coverage < 0.001
+              ? 'EMPTY — the depth pass rendered nothing, so the occlusion test is a no-op.'
+              : 'Depth pass is producing data.')
+        )
+        return r
+      }
+    }
+
     window.addEventListener('keydown', onKeyDown)
     canvasRef.addEventListener('pointermove', onPointerMove)
     canvasRef.addEventListener('pointerdown', onPointerDown, { capture: true })
@@ -1455,9 +1559,9 @@ export default function Viewport(props: {
         if (total > 0) invertFaceSelection(total)
       },
       getTotalFaces: () => (facePositions ? facePositions.length / 9 : 0),
-      previewEdgeWear: (options: EdgeWearParams) => {
+      previewEdgeWear: (options: EdgeWearParams, asNewLayer = false, newLayerBackground = 'transparent' as 'transparent' | 'black') => {
         if (!layerStack) return
-        layerStack.previewEdgeWear(options)
+        layerStack.previewEdgeWear(options, asNewLayer, newLayerBackground)
         props.onLayersChanged?.()
       },
       cancelEdgeWearPreview: () => {
@@ -1465,9 +1569,9 @@ export default function Viewport(props: {
         layerStack.cancelEdgeWearPreview()
         props.onLayersChanged?.()
       },
-      commitEdgeWear: (options: EdgeWearParams, asNewLayer = false) => {
+      commitEdgeWear: (options: EdgeWearParams, asNewLayer = false, newLayerBackground = 'transparent' as 'transparent' | 'black') => {
         if (!layerStack) return
-        layerStack.commitEdgeWear(options, asNewLayer)
+        layerStack.commitEdgeWear(options, asNewLayer, newLayerBackground)
         props.onLayersChanged?.()
       },
       undo: () => {
@@ -1527,6 +1631,9 @@ export default function Viewport(props: {
       if (gizmoHandle.brushTipMesh.visible) {
         gizmoHandle.brushTipMesh.scale.setScalar(r)
       }
+      if (gizmoHandle.stampPreviewMesh.visible) {
+        gizmoHandle.stampPreviewMesh.scale.setScalar(r)
+      }
     }
     if (gizmoHandle && gizmoHandle.mirrorGroup.visible) {
       if (gizmoHandle.mirrorBrushRing.visible) {
@@ -1534,6 +1641,9 @@ export default function Viewport(props: {
       }
       if (gizmoHandle.mirrorBrushTipMesh.visible) {
         gizmoHandle.mirrorBrushTipMesh.scale.setScalar(r)
+      }
+      if (gizmoHandle.mirrorStampPreviewMesh.visible) {
+        gizmoHandle.mirrorStampPreviewMesh.scale.setScalar(r)
       }
     }
   })
@@ -1612,6 +1722,8 @@ export default function Viewport(props: {
     if (gizmoHandle) {
       gizmoHandle.brushTipMesh.rotation.z = rotRad
       gizmoHandle.mirrorBrushTipMesh.rotation.z = -rotRad
+      gizmoHandle.stampPreviewMesh.rotation.z = rotRad
+      gizmoHandle.mirrorStampPreviewMesh.rotation.z = -rotRad
     }
   })
 

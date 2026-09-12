@@ -2,6 +2,8 @@ import { createSignal } from 'solid-js'
 
 export type ToolMode = 'brush' | 'line' | 'stamp' | 'eraser' | 'fill' | 'eyedropper' | 'faceSelect'
 export type BrushTextureMapping = 'uv' | 'triplanar' | 'tip'
+/** 'whole' fills the whole model (or the active face selection); 'face' fills only the single face clicked. */
+export type FillMode = 'whole' | 'face'
 
 const MIN_RADIUS = 0.01
 const MAX_RADIUS = 5
@@ -10,14 +12,21 @@ const [radius, setRadiusRaw] = createSignal(0.2)
 const [opacity, setOpacityRaw] = createSignal(1)
 const [hardness, setHardnessRaw] = createSignal(0.6)
 const [spacing, setSpacingRaw] = createSignal(0.25)
-const [textureScale, setTextureScaleRaw] = createSignal(1)
+// Projector reach along the normal, as a fraction of the radius. 0.35 keeps a
+// dab comfortably inside typical wall thickness while still wrapping a little
+// over curvature and sharp edges.
+const [projectorDepth, setProjectorDepthRaw] = createSignal(0.35)
+const [maxAngle, setMaxAngleRaw] = createSignal(85)
+const [textureScale, setTextureScaleRaw] = createSignal(8)
 const [color, setColor] = createSignal('#ffffff')
 /** Selected texture-shelf image: tiles world-space, maps surface UVs, or is stamped whole under the stamp tool. */
 const [texturePath, setTexturePathRaw] = createSignal<string | null>(null)
 /** Selected brush tip image / ABR alpha mask. */
 const [tipTexturePath, setTipTexturePathRaw] = createSignal<string | null>(null)
 /** Projection mapping mode for the brush tool: 'uv' (straightforward UV), 'triplanar' (world triplanar), or 'tip' (brush tip stamp). */
-const [textureMapping, setTextureMappingRaw] = createSignal<BrushTextureMapping>('uv')
+const [textureMapping, setTextureMappingRaw] = createSignal<BrushTextureMapping>('triplanar')
+/** Fill tool mode: whole model/selection, or just the clicked face. */
+const [fillMode, setFillModeRaw] = createSignal<FillMode>('face')
 
 export type SymmetryAxis = 'off' | 'x' | 'y' | 'z'
 
@@ -86,6 +95,10 @@ export function setTextureMapping(mode: BrushTextureMapping): void {
   setTextureMappingRaw(mode)
 }
 
+export function setFillMode(mode: FillMode): void {
+  setFillModeRaw(mode)
+}
+
 export function setTipTexturePath(path: string | null): void {
   setTipTexturePathRaw(path)
 }
@@ -135,6 +148,29 @@ export function setSpacing(v: number): void {
 /** World units per texture repeat for the texture brush's world-space tiling. */
 export function setTextureScale(v: number): void {
   setTextureScaleRaw(clamp(v, 0, 50))
+}
+
+/**
+ * How far the brush projector reaches along the surface normal, as a fraction
+ * of the radius. This is what stops paint reaching the far side of a thin
+ * shell: the brush is a projector box, not a sphere, so a texel is only in
+ * range if it sits within `radius * depth` of the brush's tangent plane. A
+ * sphere of radius r unavoidably swallows anything within r of the hit point,
+ * back faces included — which is why the old spherical falloff bled through
+ * every wall thinner than the brush.
+ */
+export function setProjectorDepth(v: number): void {
+  setProjectorDepthRaw(clamp(v, 0.02, 4))
+}
+
+/**
+ * Widest angle (degrees) between the surface normal and the brush normal that
+ * still takes paint. Below the cutoff the contribution ramps to zero rather
+ * than stopping hard, so a stroke across a curved surface doesn't get a visible
+ * ring where the cutoff lands.
+ */
+export function setMaxAngle(deg: number): void {
+  setMaxAngleRaw(clamp(deg, 5, 180))
 }
 
 /** Multiplicative step so '[' / ']' feel consistent at any current size (spec section 2). */
@@ -197,6 +233,10 @@ export const brush = {
   opacity,
   hardness,
   spacing,
+  projectorDepth,
+  setProjectorDepth,
+  maxAngle,
+  setMaxAngle,
   textureScale,
   color,
   setColor,
@@ -206,6 +246,8 @@ export const brush = {
   selectedFaces,
   textureMapping,
   setTextureMapping,
+  fillMode,
+  setFillMode,
   symmetryAxis,
   setSymmetryAxis,
   symmetryEnabled,

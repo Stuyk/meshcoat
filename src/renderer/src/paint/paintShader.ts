@@ -24,6 +24,10 @@ const fragmentShader = /* glsl */ `
   uniform vec3 uBrushNormal;
   uniform float uBrushRadius;
   uniform float uBrushHardness;
+  // Projector reach along the brush normal, as a fraction of uBrushRadius.
+  uniform float uProjectorDepth;
+  // Widest surface-vs-brush normal angle (degrees) that still takes paint.
+  uniform float uMaxAngle;
   uniform vec4 uBrushColor;
   uniform float uBrushOpacity;
   uniform sampler2D uBrushTexture;
@@ -47,8 +51,11 @@ const fragmentShader = /* glsl */ `
   // aren't actually visible from the paint camera — e.g. a face directly
   // behind the one under the brush — instead of only masking by facing.
   uniform sampler2D uOcclusionDepthTex;
+  uniform vec2 uOcclusionTexel;
   uniform mat4 uCameraViewProjMatrix;
   uniform mat4 uCameraViewMatrix;
+  uniform vec3 uCameraPosition;
+  uniform float uNormalSign;
   uniform float uCameraNear;
   uniform float uCameraFar;
   uniform float uUseOcclusion;
@@ -70,40 +77,91 @@ const fragmentShader = /* glsl */ `
     vec4 prev = vec4(prevColor, prevRaw.a);
 
     vec3 rel = vWorldPosition - uBrushWorldPos;
-    float dist = length(rel);
-    float facing = dot(normalize(vWorldNormal), normalize(uBrushNormal));
+    vec3 brushNormal = normalize(uBrushNormal);
+    vec3 texelNormal = normalize(vWorldNormal);
 
-    float edge0 = uBrushRadius * uBrushHardness;
-    float falloff = 1.0 - smoothstep(edge0, uBrushRadius, dist);
-    // Fade out (instead of a hard cutoff) as a surface turns away from the
-    // brush normal, so a stroke near a sharp edge (e.g. a cube corner)
-    // doesn't paint an adjacent perpendicular face at full strength right up
-    // to the seam — only near-facing surfaces get meaningfully painted.
-    float facingMask = smoothstep(0.0, 0.5, facing);
+    // The brush is a PROJECTOR, not a sphere. Transform the texel into the
+    // brush's local frame — X/Y span the tangent plane at the hit point, Z runs
+    // along the surface normal — and bound it as a box:
+    //
+    //   |local.xy| <= radius      (the round dab, via radial distance below)
+    //   |local.z|  <= reach       (how far it penetrates along the normal)
+    //
+    // The Z bound is the whole reason this doesn't bleed. A spherical falloff
+    // of radius r reaches r in *every* direction, so it unavoidably paints the
+    // far side of any shell thinner than r, the inside of any tube narrower
+    // than r, and the neighbouring fold of any crease — no visibility test can
+    // undo that, because from the brush's point of view those texels genuinely
+    // are within r. Bounding penetration separately from radius decouples "how
+    // wide is my dab" from "how deep does it cut", which is what lets a fat
+    // brush paint a thin wall.
+    vec3 local = vec3(dot(rel, uBrushTangent), dot(rel, uBrushBitangent), dot(rel, brushNormal));
+    float radial = length(local.xy);
+    float reach = uBrushRadius * max(uProjectorDepth, 0.0001);
 
-    // Reject fragments occluded (from the paint camera) by other geometry —
-    // e.g. a face directly behind the one under the brush — instead of only
-    // masking by facing direction. Comparing raw NDC/window depth here would
-    // be almost useless: with a wide near/far range (see scene.ts) depth
-    // precision is compressed brutally at typical painting distance, so a
-    // world-space gap of centimeters collapses to a NDC-depth difference far
-    // smaller than any bias that also has to avoid self-occlusion z-fighting.
-    // Un-projecting to linear view-space distance (world units) makes the
-    // bias mean the same thing regardless of camera distance/near/far.
+    // Radial shape, and a matching soft ramp on the depth slab so a texel
+    // sliding out the back of the projector fades rather than clipping.
+    float falloff = 1.0 - smoothstep(uBrushRadius * uBrushHardness, uBrushRadius, radial);
+    float depthMask = 1.0 - smoothstep(reach * 0.75, reach, abs(local.z));
+
+    // Angle culling, ramped over the last stretch before the cutoff so a
+    // stroke across curvature doesn't show a hard ring where it ends.
+    float facing = dot(texelNormal, brushNormal);
+    float cosMax = cos(radians(clamp(uMaxAngle, 1.0, 180.0)));
+    float facingMask = clamp((facing - cosMax) / max(1.0 - cosMax, 0.0001), 0.0, 1.0);
+    facingMask *= depthMask;
+
+    // Reject texels that aren't actually visible from the paint camera — the
+    // far wall of a thin shell, or a face hidden behind another part of the
+    // model — rather than only masking by how the surface faces the brush.
+    //
+    // Two independent tests, because neither alone is enough:
+    //
+    //  (a) Camera facing. A surface whose normal points away from the camera
+    //      cannot be the one under the cursor. This is what actually kills
+    //      back-of-a-thin-wall bleed, and it needs no depth bias at all — so
+    //      wall thickness can be arbitrarily small without breaking it.
+    //  (b) Linear depth. A front-facing surface can still be hidden behind
+    //      another part of the model; occlusionDepth.ts stores camera-space
+    //      distance / far (not window depth), so this comparison and its bias
+    //      are in world units and mean the same thing at any camera distance.
+    //      The bias can therefore be generous: (a) already covers the tight
+    //      cases, and an over-tight bias here would eat legitimate paint on
+    //      grazing surfaces.
     if (uUseOcclusion > 0.5) {
+      vec3 toCamera = normalize(uCameraPosition - vWorldPosition);
+      // uNormalSign is -1 when the mesh's normals are inverted (the face the
+      // user is demonstrably looking at reports a normal pointing away). Without
+      // it, an inverted import would fail this test everywhere and paint nothing.
+      float camFacing = dot(normalize(vWorldNormal) * uNormalSign, toCamera);
+      // Feathered rather than a hard cutoff so silhouettes don't get a
+      // stair-stepped edge where the stroke stops.
+      facingMask *= smoothstep(0.0, 0.25, camFacing);
+
+      float fragViewZ = -(uCameraViewMatrix * vec4(vWorldPosition, 1.0)).z;
       vec4 clip = uCameraViewProjMatrix * vec4(vWorldPosition, 1.0);
       if (clip.w > 0.0) {
         vec3 ndc = clip.xyz / clip.w;
         vec2 screenUv = ndc.xy * 0.5 + 0.5;
         if (screenUv.x >= 0.0 && screenUv.x <= 1.0 && screenUv.y >= 0.0 && screenUv.y <= 1.0) {
-          float sceneDepthRaw = texture2D(uOcclusionDepthTex, screenUv).r;
-          float sceneNdcZ = sceneDepthRaw * 2.0 - 1.0;
-          float sceneViewZ = (2.0 * uCameraNear * uCameraFar) /
-            (uCameraFar + uCameraNear - sceneNdcZ * (uCameraFar - uCameraNear));
-          float fragViewZ = -(uCameraViewMatrix * vec4(vWorldPosition, 1.0)).z;
-          // A couple centimeters of slack absorbs float error without letting
-          // genuinely separate surfaces (a wall's near/far side, etc) through.
-          if (fragViewZ > sceneViewZ + 0.02) {
+          // Farthest of a 3x3 neighbourhood: one texel of the depth map covers
+          // a wide span of surface at grazing angles, and a texel straddling a
+          // silhouette holds the near surface. Taking the max makes the test
+          // conservative — it can miss occlusion by a texel, but it never
+          // punches speckled holes in a legitimate stroke.
+          float sceneViewZ = 0.0;
+          for (int y = -1; y <= 1; y++) {
+            for (int x = -1; x <= 1; x++) {
+              vec2 uvOff = screenUv + vec2(float(x), float(y)) * uOcclusionTexel;
+              sceneViewZ = max(sceneViewZ, texture2D(uOcclusionDepthTex, uvOff).r);
+            }
+          }
+          sceneViewZ *= uCameraFar;
+
+          // Scales with viewing distance (perspective foreshortening) and with
+          // brush radius (a fat brush reaches further across curvature).
+          float depthBias = max(fragViewZ * 0.02, uBrushRadius * 0.5);
+          if (fragViewZ > sceneViewZ + depthBias) {
             facingMask = 0.0;
           }
         }
@@ -175,6 +233,8 @@ export interface PaintUniforms {
   uBrushNormal: THREE.IUniform<THREE.Vector3>
   uBrushRadius: THREE.IUniform<number>
   uBrushHardness: THREE.IUniform<number>
+  uProjectorDepth: THREE.IUniform<number>
+  uMaxAngle: THREE.IUniform<number>
   uBrushColor: THREE.IUniform<THREE.Vector4>
   uBrushOpacity: THREE.IUniform<number>
   uBrushTexture: THREE.IUniform<THREE.Texture | null>
@@ -190,8 +250,11 @@ export interface PaintUniforms {
   uFillScale: THREE.IUniform<number>
   uTextureMapping: THREE.IUniform<number>
   uOcclusionDepthTex: THREE.IUniform<THREE.Texture | null>
+  uOcclusionTexel: THREE.IUniform<THREE.Vector2>
   uCameraViewProjMatrix: THREE.IUniform<THREE.Matrix4>
   uCameraViewMatrix: THREE.IUniform<THREE.Matrix4>
+  uCameraPosition: THREE.IUniform<THREE.Vector3>
+  uNormalSign: THREE.IUniform<number>
   uCameraNear: THREE.IUniform<number>
   uCameraFar: THREE.IUniform<number>
   uUseOcclusion: THREE.IUniform<number>
@@ -204,6 +267,8 @@ export function createPaintMaterial(): THREE.ShaderMaterial & { uniforms: PaintU
     uBrushNormal: { value: new THREE.Vector3(0, 0, 1) },
     uBrushRadius: { value: 0.2 },
     uBrushHardness: { value: 0.6 },
+    uProjectorDepth: { value: 0.35 },
+    uMaxAngle: { value: 85 },
     uBrushColor: { value: new THREE.Vector4(1, 1, 1, 1) },
     uBrushOpacity: { value: 1 },
     uBrushTexture: { value: null },
@@ -219,8 +284,11 @@ export function createPaintMaterial(): THREE.ShaderMaterial & { uniforms: PaintU
     uFillScale: { value: 1 },
     uTextureMapping: { value: 0 },
     uOcclusionDepthTex: { value: null },
+    uOcclusionTexel: { value: new THREE.Vector2(1 / 2048, 1 / 2048) },
     uCameraViewProjMatrix: { value: new THREE.Matrix4() },
     uCameraViewMatrix: { value: new THREE.Matrix4() },
+    uCameraPosition: { value: new THREE.Vector3() },
+    uNormalSign: { value: 1 },
     uCameraNear: { value: 0.01 },
     uCameraFar: { value: 1000 },
     uUseOcclusion: { value: 0 }

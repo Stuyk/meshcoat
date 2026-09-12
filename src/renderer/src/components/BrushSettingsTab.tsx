@@ -552,6 +552,43 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
           icon={(p) => <FeatherIcon size={p.size} />}
         />
 
+        {/* Projector Depth — how far a dab cuts along the surface normal.
+            Lower it when paint is reaching the far side of a thin wall or the
+            opposite fold of a crease; raise it to wrap further over sharp
+            edges and tight curvature. */}
+        <Slider
+          label="Depth (Bleed Through)"
+          value={brush.projectorDepth()}
+          min={0.02}
+          max={2}
+          step={0.01}
+          onChange={(v) => brush.setProjectorDepth(v)}
+          displayValue={(v) => `${Math.round(v * 100)}%`}
+          presets={[
+            { label: 'Thin', value: 0.15 },
+            { label: 'Default', value: 0.35 },
+            { label: 'Wrap', value: 1 }
+          ]}
+          icon={(p) => <FeatherIcon size={p.size} />}
+        />
+
+        {/* Max Angle — widest surface-vs-brush normal angle that takes paint. */}
+        <Slider
+          label="Max Angle"
+          value={brush.maxAngle()}
+          min={5}
+          max={180}
+          step={1}
+          unit="°"
+          onChange={(v) => brush.setMaxAngle(v)}
+          presets={[
+            { label: '60°', value: 60 },
+            { label: '85°', value: 85 },
+            { label: '120°', value: 120 }
+          ]}
+          icon={(p) => <RotateIcon size={p.size} />}
+        />
+
         {/* Spacing (Dab Rate) */}
         <Slider
           label="Spacing (Dab Rate)"

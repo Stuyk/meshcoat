@@ -18,9 +18,9 @@ export interface EdgeWearWizardProps {
   initialColor?: string
   textures: string[]
   onClose: () => void
-  onPreview: (params: EdgeWearParams) => void
+  onPreview: (params: EdgeWearParams, asNewLayer: boolean, newLayerBackground: 'transparent' | 'black') => void
   onCancel: () => void
-  onCommit: (params: EdgeWearParams, asNewLayer: boolean) => void
+  onCommit: (params: EdgeWearParams, asNewLayer: boolean, newLayerBackground: 'transparent' | 'black') => void
 }
 
 interface Preset {
@@ -118,12 +118,13 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
   const [color, setColor] = createSignal(props.initialColor ?? '#f3f4f6')
   const [opacity, setOpacity] = createSignal(1.0)
   const [asNewLayer, setAsNewLayer] = createSignal(true)
+  const [newLayerBackground, setNewLayerBackground] = createSignal<'transparent' | 'black'>('transparent')
   const [livePreview, setLivePreview] = createSignal(true)
   const [activePreset, setActivePreset] = createSignal<string>('Chipped Paint')
 
   const [materialMode, setMaterialMode] = createSignal<'color' | 'texture'>('color')
   const [selectedTexturePath, setSelectedTexturePath] = createSignal<string | null>(null)
-  const [textureScale, setTextureScale] = createSignal(1.0)
+  const [textureScale, setTextureScale] = createSignal(8.0)
   const [textureMapping, setTextureMapping] = createSignal<'uv' | 'triplanar'>('triplanar')
   const [customTextures, setCustomTextures] = createSignal<string[]>([])
 
@@ -153,7 +154,7 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
   function triggerPreview(): void {
     if (!props.isOpen) return
     if (livePreview()) {
-      props.onPreview(getParams())
+      props.onPreview(getParams(), asNewLayer(), newLayerBackground())
     } else {
       props.onCancel()
     }
@@ -205,7 +206,7 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
   function toggleLivePreview(enabled: boolean): void {
     setLivePreview(enabled)
     if (enabled) {
-      props.onPreview(getParams())
+      props.onPreview(getParams(), asNewLayer(), newLayerBackground())
     } else {
       props.onCancel()
     }
@@ -217,7 +218,7 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
   }
 
   function handleCommit(): void {
-    props.onCommit(getParams(), asNewLayer())
+    props.onCommit(getParams(), asNewLayer(), newLayerBackground())
     props.onClose()
   }
 
@@ -360,6 +361,27 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
               />
             </div>
           </div>
+
+          {/* New Layer Background (only relevant when baking to a new layer) */}
+          <Show when={asNewLayer()}>
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
+                Background
+              </span>
+              <SegmentedControl
+                size="xs"
+                options={[
+                  { value: 'transparent', label: 'Transparent' },
+                  { value: 'black', label: 'Black' }
+                ]}
+                value={newLayerBackground()}
+                onChange={(v) => {
+                  setNewLayerBackground(v)
+                  triggerPreview()
+                }}
+              />
+            </div>
+          </Show>
 
           {/* Solid Color Mode Controls */}
           <Show when={materialMode() === 'color'}>
@@ -709,7 +731,10 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
             <div class="space-y-1.5">
               <button
                 type="button"
-                onClick={() => setAsNewLayer(true)}
+                onClick={() => {
+                  setAsNewLayer(true)
+                  triggerPreview()
+                }}
                 class={`flex items-start gap-2.5 p-2.5 rounded-xl border text-left w-full transition-colors cursor-pointer ${
                   asNewLayer()
                     ? 'bg-blue-600/15 border-blue-500/70'
@@ -733,7 +758,10 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
 
               <button
                 type="button"
-                onClick={() => setAsNewLayer(false)}
+                onClick={() => {
+                  setAsNewLayer(false)
+                  triggerPreview()
+                }}
                 class={`flex items-start gap-2.5 p-2.5 rounded-xl border text-left w-full transition-colors cursor-pointer ${
                   !asNewLayer()
                     ? 'bg-blue-600/15 border-blue-500/70'
@@ -777,7 +805,7 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
           </Button>
           <Button variant="primary" size="sm" onClick={handleCommit}>
             <CheckIcon size={14} />
-            <span>{asNewLayer() ? 'Apply to New Layer' : 'Merge Wear'}</span>
+            <span>{asNewLayer() ? 'Apply' : 'Merge'}</span>
           </Button>
         </div>
       </footer>

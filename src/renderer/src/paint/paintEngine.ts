@@ -86,6 +86,10 @@ export interface StrokeParams {
   radius: number
   hardness: number
   opacity: number
+  /** Projector reach along the surface normal, as a fraction of `radius`. */
+  projectorDepth?: number
+  /** Widest surface-vs-brush normal angle (degrees) that still takes paint. */
+  maxAngle?: number
   color: THREE.Color
   alpha?: number
   brushTexture?: THREE.Texture | null
@@ -100,13 +104,20 @@ export interface StrokeParams {
   /** Rotation angle in radians applied to the brush tip / stamp. */
   angle?: number
   /** Camera-space occlusion test (see occlusionDepth.ts) — rejects paint on faces not actually visible from the paint camera, null/undefined = unrestricted. */
-  occlusion?: {
-    depthTexture: THREE.Texture
-    viewProjMatrix: THREE.Matrix4
-    viewMatrix: THREE.Matrix4
-    near: number
-    far: number
-  } | null
+  occlusion?: OcclusionParams | null
+}
+
+export interface OcclusionParams {
+  depthTexture: THREE.Texture
+  /** 1 / depth-map dimensions, for the shader's neighbourhood sampling. */
+  texelSize: THREE.Vector2
+  viewProjMatrix: THREE.Matrix4
+  viewMatrix: THREE.Matrix4
+  cameraPosition: THREE.Vector3
+  /** +1 normally, -1 when the mesh's normals point the wrong way. */
+  normalSign: number
+  near: number
+  far: number
 }
 
 export interface FillOptions {
@@ -229,6 +240,72 @@ export class PaintEngine {
     maskMaterial.dispose()
   }
 
+  /**
+   * Diagnostic: how much of this mesh's UV layout is *shared* by more than one
+   * triangle. Overlapping UVs (mirrored islands are the usual cause — a
+   * symmetric model reuses one island for both halves) mean two different
+   * faces read and write the same texels, so painting a visible face also
+   * paints whatever else is stacked on those texels. No amount of camera
+   * occlusion testing can fix that: the texel is physically shared, and both
+   * faces sample it when rendered. The only fixes are a non-overlapping unwrap
+   * or a UDIM/second-UV-set workflow.
+   *
+   * Rasterizes the UV mesh with additive blending (each covered texel gets +4
+   * per triangle) and counts texels that came out above one triangle's worth.
+   */
+  debugUvOverlap(): { coveredTexels: number; overlappedTexels: number; overlapRatio: number } {
+    const size = Math.min(this.textureSize, 1024)
+    const target = new THREE.WebGLRenderTarget(size, size, {
+      format: THREE.RGBAFormat,
+      type: THREE.UnsignedByteType,
+      colorSpace: THREE.NoColorSpace,
+      minFilter: THREE.NearestFilter,
+      magFilter: THREE.NearestFilter
+    })
+    const countMaterial = new THREE.ShaderMaterial({
+      vertexShader: 'void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }',
+      fragmentShader: 'void main() { gl_FragColor = vec4(4.0 / 255.0); }',
+      blending: THREE.AdditiveBlending,
+      depthTest: false,
+      depthWrite: false
+    })
+
+    const prevMaterial = this.uvMesh.material
+    const prevTarget = this.renderer.getRenderTarget()
+    const prevClear = new THREE.Color()
+    this.renderer.getClearColor(prevClear)
+    const prevClearAlpha = this.renderer.getClearAlpha()
+
+    this.uvMesh.material = countMaterial
+    this.renderer.setRenderTarget(target)
+    this.renderer.setClearColor(0x000000, 0)
+    this.renderer.clear(true, true, true)
+    this.renderer.render(this.orthoScene, this.orthoCamera)
+
+    const pixels = new Uint8Array(size * size * 4)
+    this.renderer.readRenderTargetPixels(target, 0, 0, size, size, pixels)
+
+    this.renderer.setRenderTarget(prevTarget)
+    this.renderer.setClearColor(prevClear, prevClearAlpha)
+    this.uvMesh.material = prevMaterial
+    countMaterial.dispose()
+    target.dispose()
+
+    let covered = 0
+    let overlapped = 0
+    for (let i = 0; i < pixels.length; i += 4) {
+      const v = pixels[i]
+      if (v >= 2) covered++
+      // 4 = exactly one triangle, 8+ = two or more stacked on this texel.
+      if (v >= 6) overlapped++
+    }
+    return {
+      coveredTexels: covered,
+      overlappedTexels: overlapped,
+      overlapRatio: covered > 0 ? overlapped / covered : 0
+    }
+  }
+
   /** Bleeds `target`'s island-edge colors outward into gutter texels by a couple texels (see dilateFragmentShader). */
   private dilate(target: THREE.WebGLRenderTarget, iterations = 4): void {
     this.ensureCoverageMask()
@@ -291,6 +368,8 @@ export class PaintEngine {
     u.uBrushNormal.value.copy(hit.normal)
     u.uBrushRadius.value = params.radius
     u.uBrushHardness.value = params.hardness
+    u.uProjectorDepth.value = params.projectorDepth ?? 0.35
+    u.uMaxAngle.value = params.maxAngle ?? 85
     u.uBrushOpacity.value = params.opacity
     u.uBrushColor.value.set(params.color.r, params.color.g, params.color.b, params.alpha ?? 1)
     u.uBrushTexture.value = params.brushTexture ?? null
@@ -305,7 +384,12 @@ export class PaintEngine {
     }
     u.uTextureMapping.value = mappingMode
     u.uFillMode.value = 0
-    const restrict = !!params.restrictFaces && params.restrictFaces.size > 0
+    // An empty (but non-null) set is deliberately "restrict to nothing" (e.g.
+    // the brush's geodesic neighborhood doesn't overlap the active face
+    // selection at all) — every caller already passes null, not an empty
+    // set, for "no restriction", so this distinction is intentional and
+    // must not collapse an empty set back into "paint everywhere".
+    const restrict = params.restrictFaces != null
     u.uRestrictFace.value = restrict ? 1 : 0
     if (restrict) this.setSelectionMask(params.restrictFaces)
 
@@ -314,6 +398,9 @@ export class PaintEngine {
       u.uOcclusionDepthTex.value = params.occlusion.depthTexture
       u.uCameraViewProjMatrix.value.copy(params.occlusion.viewProjMatrix)
       u.uCameraViewMatrix.value.copy(params.occlusion.viewMatrix)
+      u.uCameraPosition.value.copy(params.occlusion.cameraPosition)
+      u.uNormalSign.value = params.occlusion.normalSign
+      u.uOcclusionTexel.value.copy(params.occlusion.texelSize)
       u.uCameraNear.value = params.occlusion.near
       u.uCameraFar.value = params.occlusion.far
     } else {
@@ -321,19 +408,20 @@ export class PaintEngine {
       u.uOcclusionDepthTex.value = null
     }
 
-    if (params.stampMode || !!params.brushTipTexture || (params.angle && params.angle !== 0)) {
-      // Arbitrary but stable tangent basis for the stamp's local plane, built
-      // from whichever world axis is least parallel to the surface normal.
-      const up = Math.abs(hit.normal.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0)
-      const tangent = new THREE.Vector3().crossVectors(up, hit.normal).normalize()
-      const bitangent = new THREE.Vector3().crossVectors(hit.normal, tangent).normalize()
-      if (params.angle) {
-        tangent.applyAxisAngle(hit.normal, params.angle)
-        bitangent.applyAxisAngle(hit.normal, params.angle)
-      }
-      u.uBrushTangent.value.copy(tangent)
-      u.uBrushBitangent.value.copy(bitangent)
+    // Arbitrary but stable tangent basis for the brush's local plane, built
+    // from whichever world axis is least parallel to the surface normal. This
+    // is set on *every* stroke, not just stamps: the projector bounds in
+    // paintShader.ts work in this frame, so a stale basis left over from an
+    // earlier dab would misshape the dab and mis-measure its penetration.
+    const up = Math.abs(hit.normal.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0)
+    const tangent = new THREE.Vector3().crossVectors(up, hit.normal).normalize()
+    const bitangent = new THREE.Vector3().crossVectors(hit.normal, tangent).normalize()
+    if (params.angle) {
+      tangent.applyAxisAngle(hit.normal, params.angle)
+      bitangent.applyAxisAngle(hit.normal, params.angle)
     }
+    u.uBrushTangent.value.copy(tangent)
+    u.uBrushBitangent.value.copy(bitangent)
 
     const prevTarget = this.renderer.getRenderTarget()
     this.renderer.setRenderTarget(this.writeTarget)
