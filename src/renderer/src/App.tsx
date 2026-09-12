@@ -1,10 +1,5 @@
-import { createSignal, onMount, onCleanup, Show } from 'solid-js'
+import { createSignal, onMount, onCleanup, Show, Suspense, lazy } from 'solid-js'
 import * as THREE from 'three'
-import HelpModal from './components/HelpModal'
-import SettingsModal from './components/SettingsModal'
-import NewProjectModal from './components/NewProjectModal'
-import BrushManagerModal from './components/BrushManagerModal'
-import EdgeWearWizard from './components/EdgeWearWizard'
 import Viewport, { type ViewportHandle } from './viewport/Viewport'
 import TextureShelf from './components/TextureShelf'
 import StatusBar from './components/BottomDock'
@@ -12,6 +7,14 @@ import { brushPresets, initBrushPresets } from './paint/brushPresets'
 import LayersTab from './components/LayersTab'
 import BrushSettingsTab from './components/BrushSettingsTab'
 import type { LightingMode } from './viewport/scene'
+
+// Lazy-loaded: not needed for first paint, and EdgeWearWizard/BrushManagerModal
+// pull in real weight (ABR parsing, procedural shaders) that shouldn't block boot.
+const HelpModal = lazy(() => import('./components/HelpModal'))
+const SettingsModal = lazy(() => import('./components/SettingsModal'))
+const NewProjectModal = lazy(() => import('./components/NewProjectModal'))
+const BrushManagerModal = lazy(() => import('./components/BrushManagerModal'))
+const EdgeWearWizard = lazy(() => import('./components/EdgeWearWizard'))
 import {
   BrushIcon,
   StampIcon,
@@ -758,6 +761,10 @@ export default function App() {
           textures={textures()}
           onPickFolder={pickTextureFolder}
           onClearFolder={clearTextureFolder}
+          isMaskTarget={() => {
+            void layersVersion()
+            return !!viewportHandle?.getLayerStack()?.active?.isMask
+          }}
         />
 
         {/* 3D Viewport Area */}
@@ -796,19 +803,21 @@ export default function App() {
           <Show
             when={!showEdgeWearWizard()}
             fallback={
-              <EdgeWearWizard
-                isOpen={showEdgeWearWizard()}
-                initialColor={brush.color()}
-                textures={textures()}
-                onClose={() => setShowEdgeWearWizard(false)}
-                onPreview={(params) => viewportHandle?.previewEdgeWear(params)}
-                onCancel={() => viewportHandle?.cancelEdgeWearPreview()}
-                onCommit={(params, asNewLayer) => {
-                  viewportHandle?.commitEdgeWear(params, asNewLayer)
-                  bumpLayers()
-                  showToast(asNewLayer ? 'Created "Edge Wear" layer' : 'Applied edge wear to active layer', 'success')
-                }}
-              />
+              <Suspense fallback={null}>
+                <EdgeWearWizard
+                  isOpen={showEdgeWearWizard()}
+                  initialColor={brush.color()}
+                  textures={textures()}
+                  onClose={() => setShowEdgeWearWizard(false)}
+                  onPreview={(params) => viewportHandle?.previewEdgeWear(params)}
+                  onCancel={() => viewportHandle?.cancelEdgeWearPreview()}
+                  onCommit={(params, asNewLayer) => {
+                    viewportHandle?.commitEdgeWear(params, asNewLayer)
+                    bumpLayers()
+                    showToast(asNewLayer ? 'Created "Edge Wear" layer' : 'Applied edge wear to active layer', 'success')
+                  }}
+                />
+              </Suspense>
             }
           >
             {/* Brush Settings — scrolls independently, always leaves Layers visible below */}
@@ -859,18 +868,20 @@ export default function App() {
         onFrameCamera={frameCamera}
       />
 
-      {/* Modals */}
-      <NewProjectModal
-        isOpen={showNewProjectModal()}
-        onClose={() => setShowNewProjectModal(false)}
-        onImport={importModelFromWizard}
-      />
-      <HelpModal isOpen={showHelp()} onClose={() => setShowHelp(false)} />
-      <SettingsModal isOpen={showSettings()} onClose={() => setShowSettings(false)} />
-      <BrushManagerModal
-        isOpen={brushPresets.isManagerOpen()}
-        onClose={() => brushPresets.closeManager()}
-      />
+      {/* Modals — lazy-loaded, so wrap in Suspense to cover the async chunk load */}
+      <Suspense fallback={null}>
+        <NewProjectModal
+          isOpen={showNewProjectModal()}
+          onClose={() => setShowNewProjectModal(false)}
+          onImport={importModelFromWizard}
+        />
+        <HelpModal isOpen={showHelp()} onClose={() => setShowHelp(false)} />
+        <SettingsModal isOpen={showSettings()} onClose={() => setShowSettings(false)} />
+        <BrushManagerModal
+          isOpen={brushPresets.isManagerOpen()}
+          onClose={() => brushPresets.closeManager()}
+        />
+      </Suspense>
     </div>
   )
 }

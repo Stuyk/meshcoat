@@ -5614,10 +5614,12 @@ kbd {
   padding: 10px;
 }
 
-.shelf-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+/* Virtualized grid: a relatively-positioned sizer sets total scroll height,
+   individual .shelf-card items are absolutely positioned within it (see
+   TextureShelf.tsx) so only visible rows ever mount into the DOM. */
+.shelf-grid-virtual-sizer {
+  position: relative;
+  width: 100%;
 }
 
 .shelf-card {

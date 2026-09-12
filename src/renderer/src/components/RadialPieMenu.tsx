@@ -1,4 +1,4 @@
-import { createSignal, onMount, onCleanup, For } from 'solid-js'
+import { createSignal, onMount, onCleanup, For, Show } from 'solid-js'
 import { brush, setTexturePath, type ToolMode } from '../paint/brush'
 import {
   BrushIcon,
@@ -17,6 +17,7 @@ export interface PieMenuProps {
   y: number
   activeTool: ToolMode
   availableTextures?: string[]
+  isMaskTarget?: () => boolean
   onSelectTool: (tool: ToolMode) => void
   onClose: () => void
 }
@@ -243,14 +244,14 @@ export default function RadialPieMenu(props: PieMenuProps) {
       </svg>
 
       {/* Floating Tool Label underneath center */}
-      <div class="pie-tooltip-card">
-        <span class="pie-tool-name">
-          {WEDGES.find((w) => w.id === hoveredTool())?.name ?? 'Tool'}
-        </span>
-        <span class="pie-tool-key">
-          [{WEDGES.find((w) => w.id === hoveredTool())?.shortcut}]
-        </span>
-      </div>
+      <Show when={WEDGES.find((w) => w.id === hoveredTool())}>
+        {(wedge) => (
+          <div class="pie-tooltip-card">
+            <span class="pie-tool-name">{wedge().name}</span>
+            <span class="pie-tool-key">[{wedge().shortcut}]</span>
+          </div>
+        )}
+      </Show>
 
       {/* Quick Access HUD Card (Colors, Textures, Symmetry, Rotation) */}
       <div class="pie-hud-card" onClick={(e) => e.stopPropagation()}>
@@ -317,7 +318,7 @@ export default function RadialPieMenu(props: PieMenuProps) {
                     title={fileName}
                     onClick={(e) => {
                       e.stopPropagation()
-                      setTexturePath(isSelected() ? null : texPath)
+                      setTexturePath(isSelected() ? null : texPath, !props.isMaskTarget?.())
                     }}
                   >
                     <img src={toAssetUrl(texPath)} alt={fileName} />

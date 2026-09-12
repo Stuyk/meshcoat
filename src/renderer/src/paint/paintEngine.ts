@@ -124,7 +124,9 @@ export class PaintEngine {
   private targetB: THREE.WebGLRenderTarget
   private readTarget: THREE.WebGLRenderTarget
   private writeTarget: THREE.WebGLRenderTarget
-  private coverageMask: THREE.WebGLRenderTarget
+  /** Lazily built on first dilate() call — every layer pays for this render
+   * pass at construction otherwise, even ones nobody ever paints on. */
+  private coverageMask: THREE.WebGLRenderTarget | null = null
   private dilateMaterial: THREE.ShaderMaterial
   private dilateQuad: THREE.Mesh
   private dilateScene = new THREE.Scene()
@@ -169,11 +171,10 @@ export class PaintEngine {
     this.renderer.setRenderTarget(prevTarget)
     this.renderer.setClearColor(prevClearColor, prevClearAlpha)
 
-    this.coverageMask = createRenderTarget(textureSize)
     this.dilateMaterial = new THREE.ShaderMaterial({
       uniforms: {
         uColor: { value: null },
-        uMask: { value: this.coverageMask.texture },
+        uMask: { value: null },
         uTexelSize: { value: new THREE.Vector2(1 / textureSize, 1 / textureSize) }
       },
       vertexShader: dilateVertexShader,
@@ -183,6 +184,14 @@ export class PaintEngine {
     })
     this.dilateQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.dilateMaterial)
     this.dilateScene.add(this.dilateQuad)
+    // Coverage mask (and its render pass) is built lazily — see ensureCoverageMask().
+  }
+
+  /** Allocates and rasterizes the coverage mask the first time it's actually needed. */
+  private ensureCoverageMask(): void {
+    if (this.coverageMask) return
+    this.coverageMask = createRenderTarget(this.textureSize)
+    this.dilateMaterial.uniforms.uMask.value = this.coverageMask.texture
     this.buildCoverageMask()
   }
 
@@ -207,6 +216,7 @@ export class PaintEngine {
 
   /** Bleeds `target`'s island-edge colors outward into gutter texels by a couple texels (see dilateFragmentShader). */
   private dilate(target: THREE.WebGLRenderTarget, iterations = 4): void {
+    this.ensureCoverageMask()
     if (!this.scratchDilateTarget) this.scratchDilateTarget = createRenderTarget(this.textureSize)
     const scratch = this.scratchDilateTarget
 
@@ -625,7 +635,7 @@ export class PaintEngine {
     this.material.dispose()
     this.edgeWearMaterial?.dispose()
     this.uvMesh.geometry.dispose()
-    this.coverageMask.dispose()
+    this.coverageMask?.dispose()
     this.dilateMaterial.dispose()
     this.dilateQuad.geometry.dispose()
     this.scratchDilateTarget?.dispose()

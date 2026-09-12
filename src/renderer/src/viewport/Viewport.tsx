@@ -17,6 +17,7 @@ import {
   invertFaceSelection,
   clearFaceSelection,
   setTextureScale,
+  recordRecentTexture,
   type ToolMode,
   type SymmetryAxis
 } from '../paint/brush'
@@ -921,6 +922,7 @@ export default function Viewport(props: {
         texture: isMask ? null : brushTexture,
         scale: brush.textureScale()
       }
+      if (!isMask && brushTexture && brush.texturePath()) recordRecentTexture(brush.texturePath()!)
       if (restrictFaces && restrictFaces.size > 0) {
         layerStack.fillActiveFaces(restrictFaces, fillOpts)
       } else {
@@ -947,6 +949,7 @@ export default function Viewport(props: {
       texture: isMask ? null : brushTexture,
       scale: brush.textureScale()
     }
+    if (!isMask && brushTexture && brush.texturePath()) recordRecentTexture(brush.texturePath()!)
     if (selection.size > 0) {
       layerStack.fillActiveFaces(selection, fillOpts)
     } else {
@@ -1121,6 +1124,9 @@ export default function Viewport(props: {
       const tool = props.tool()
       if (tool === 'brush' || tool === 'stamp' || tool === 'eraser') {
         layerStack?.history.record()
+        if (tool !== 'eraser' && !layerStack?.active?.isMask && brush.texturePath()) {
+          recordRecentTexture(brush.texturePath()!)
+        }
       }
       painting = true
       lastStampPos = null
@@ -1172,6 +1178,7 @@ export default function Viewport(props: {
           const strokeAlpha = 1
           const strokeTexture = isMask ? null : brushTexture
           const strokeTip = brushTipTexture
+          if (strokeTexture && brush.texturePath()) recordRecentTexture(brush.texturePath()!)
           const selection = brush.selectedFaces()
           const restrictFaces = selection.size > 0 ? selection : null
 
@@ -1535,6 +1542,7 @@ export default function Viewport(props: {
           y={pieMenu()!.y}
           activeTool={props.tool()}
           availableTextures={props.textures}
+          isMaskTarget={() => !!layerStack?.active?.isMask}
           onSelectTool={(tool) => {
             props.onToolChange?.(tool)
             setPieMenu(null)

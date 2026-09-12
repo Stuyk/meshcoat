@@ -3,6 +3,11 @@ import type { LayerStack, StackSnapshot } from './layers'
 
 /** Long history by design (per user spec) — capped only to bound memory, not to feel short. */
 const MAX_HISTORY = 100
+/** Each snapshot copies every layer's full-res texture — cap total GPU memory
+ * spent on undo history (per stack) rather than a fixed entry count, since a
+ * few layers at 8192px would otherwise happily allocate gigabytes. */
+const MAX_HISTORY_BYTES = 768 * 1024 * 1024
+const MIN_HISTORY = 10
 
 /**
  * Undo/redo for a LayerStack. Records full GPU-side snapshots of every layer's
@@ -31,7 +36,11 @@ export class HistoryManager {
     for (const snap of this.redoStack) this.layerStack.disposeSnapshot(snap)
     this.redoStack = []
     this.undoStack.push(this.layerStack.captureState())
-    if (this.undoStack.length > MAX_HISTORY) {
+
+    const perSnapshotBytes = this.layerStack.layers.length * this.layerStack.textureSize ** 2 * 4
+    const byteCap = Math.max(MIN_HISTORY, Math.floor(MAX_HISTORY_BYTES / Math.max(1, perSnapshotBytes)))
+    const entryCap = Math.min(MAX_HISTORY, byteCap)
+    while (this.undoStack.length > entryCap) {
       const dropped = this.undoStack.shift()
       if (dropped) this.layerStack.disposeSnapshot(dropped)
     }

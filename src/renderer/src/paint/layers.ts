@@ -109,18 +109,18 @@ export class LayerStack {
 
   /** Sets or unsets the clipping mask target for a layer. Pass 0 to explicitly unclip. */
   setClipToMask(layerId: number, maskId?: number): void {
-    this.history?.record()
     const layer = this.layers.find((l) => l.id === layerId)
     if (!layer || layer.isMask) return
+    this.history?.record()
     layer.clippedToMaskId = maskId
     this.recomposite()
   }
 
   /** Converts an existing layer into a Mask Layer. */
   convertToMask(layerId: number, fillWhite?: boolean): void {
-    this.history?.record()
     const index = this.layers.findIndex((l) => l.id === layerId)
     if (index === -1) return
+    this.history?.record()
     const layer = this.layers[index]
     layer.isMask = true
     if (fillWhite !== undefined) {
@@ -133,9 +133,9 @@ export class LayerStack {
 
   /** Converts a mask layer back into a normal color layer. */
   unmaskLayer(layerId: number): void {
-    this.history?.record()
     const layer = this.layers.find((l) => l.id === layerId)
     if (!layer || !layer.isMask) return
+    this.history?.record()
     layer.isMask = false
     // Unclip any layers clipped to this mask
     for (const l of this.layers) {
@@ -148,9 +148,9 @@ export class LayerStack {
 
   /** Creates a new paint layer directly underneath a mask layer, clipped to it. */
   addLayerBelow(maskLayerId: number, name?: string): Layer {
-    this.history?.record()
     const index = this.layers.findIndex((l) => l.id === maskLayerId)
     if (index === -1) return this.addLayer(name)
+    this.history?.record()
     const engine = new PaintEngine(this.renderer, this.mesh, null, this.textureSize)
     const mask = this.layers[index]
     const newLayer: Layer = {
@@ -169,18 +169,18 @@ export class LayerStack {
 
   /** Inverts the mask buffer of a layer (swaps black and white). */
   invertMask(layerId: number): void {
-    this.history?.record()
     const layer = this.layers.find((l) => l.id === layerId)
     if (!layer) return
+    this.history?.record()
     layer.engine.invert()
     this.recomposite()
   }
 
   /** Fills a mask layer with pure white (reveal all) or black (hide all). */
   fillMask(layerId: number, fillWhite = true): void {
-    this.history?.record()
     const layer = this.layers.find((l) => l.id === layerId)
     if (!layer) return
+    this.history?.record()
     layer.engine.fill({ color: new THREE.Color(fillWhite ? 0xffffff : 0x000000), alpha: 1 })
     this.recomposite()
   }
@@ -194,10 +194,10 @@ export class LayerStack {
   }
 
   removeLayer(id: number): void {
-    this.history?.record()
     if (this.layers.length <= 1) return
     const index = this.layers.findIndex((l) => l.id === id)
     if (index === -1) return
+    this.history?.record()
     const [removed] = this.layers.splice(index, 1)
     removed.engine.dispose()
     // Unclip any layers clipped to the removed layer
@@ -213,18 +213,18 @@ export class LayerStack {
   }
 
   setVisible(id: number, visible: boolean): void {
-    this.history?.record()
     const layer = this.layers.find((l) => l.id === id)
     if (layer) {
+      this.history?.record()
       layer.visible = visible
       this.recomposite()
     }
   }
 
   setOpacity(id: number, opacity: number): void {
-    this.history?.record()
     const layer = this.layers.find((l) => l.id === id)
     if (layer) {
+      this.history?.record()
       layer.opacity = opacity
       this.recomposite()
     }
@@ -232,9 +232,9 @@ export class LayerStack {
 
   /** Merges the given layer onto the one below it in the stack (spec: Merge Down). */
   mergeDown(id: number): void {
-    this.history?.record()
     const index = this.layers.findIndex((l) => l.id === id)
     if (index <= 0) return
+    this.history?.record()
     const top = this.layers[index]
     const below = this.layers[index - 1]
     top.engine.mergeOnto(below.engine, top.opacity)
@@ -247,11 +247,11 @@ export class LayerStack {
   /** Moving a layer is the only way to attach/detach it from a mask — landing
    * directly below a mask clips it to that mask, landing anywhere else clears it. */
   moveLayer(id: number, direction: 'up' | 'down'): void {
-    this.history?.record()
     const index = this.layers.findIndex((l) => l.id === id)
     if (index === -1) return
     const targetIndex = direction === 'up' ? index + 1 : index - 1
     if (targetIndex < 0 || targetIndex >= this.layers.length) return
+    this.history?.record()
     const [layer] = this.layers.splice(index, 1)
     this.layers.splice(targetIndex, 0, layer)
     if (!layer.isMask) {
@@ -269,9 +269,9 @@ export class LayerStack {
   }
 
   duplicateLayer(id: number): Layer | undefined {
-    this.history?.record()
     const index = this.layers.findIndex((l) => l.id === id)
     if (index === -1) return undefined
+    this.history?.record()
     const source = this.layers[index]
     const engine = new PaintEngine(this.renderer, this.mesh, null, this.textureSize)
     source.engine.copyOnto(engine)
@@ -296,8 +296,9 @@ export class LayerStack {
     options?: FillOptions | THREE.Color,
     alpha = 1
   ): void {
+    if (faces.size === 0 || !this.activePaintEngine) return
     this.history?.record()
-    this.activePaintEngine?.fillFaces(faces, options, alpha)
+    this.activePaintEngine.fillFaces(faces, options, alpha)
     this.recomposite()
   }
 
@@ -306,15 +307,16 @@ export class LayerStack {
     options?: FillOptions | THREE.Color,
     alpha = 1
   ): void {
+    if (!this.activePaintEngine) return
     this.history?.record()
-    this.activePaintEngine?.fill(options, alpha)
+    this.activePaintEngine.fill(options, alpha)
     this.recomposite()
   }
 
   clearLayer(id: number): void {
-    this.history?.record()
     const layer = this.layers.find((l) => l.id === id)
     if (layer) {
+      this.history?.record()
       layer.engine.clear()
       this.recomposite()
     }

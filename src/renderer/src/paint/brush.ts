@@ -97,12 +97,18 @@ export function setTipTexturePath(path: string | null): void {
  */
 const [selectedFaces, setSelectedFacesRaw] = createSignal<ReadonlySet<number>>(new Set())
 
-export function setTexturePath(path: string | null): void {
+/**
+ * Selects a texture-shelf image for the brush. Resets paint color to white by
+ * default so the texture doesn't take on a stale tint — pass `resetColor:
+ * false` when the active layer is a mask, where color is an explicit
+ * grayscale hide/reveal value and textures are never applied anyway.
+ */
+export function setTexturePath(path: string | null, resetColor = true): void {
   setTexturePathRaw(path)
-  if (path) {
-    recordRecentTexture(path)
-    setColor('#ffffff')
-  }
+  // Note: recordRecentTexture() is deliberately NOT called here — the "Used"
+  // shelf tab tracks textures actually applied by a stroke/fill, not merely
+  // browsed/selected. See applyToolAt/fillActive in Viewport.tsx.
+  if (path && resetColor) setColor('#ffffff')
 }
 
 function clamp(v: number, min: number, max: number): number {

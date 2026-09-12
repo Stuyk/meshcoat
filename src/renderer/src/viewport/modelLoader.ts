@@ -1,6 +1,4 @@
 import * as THREE from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 
 export interface LoadedModel {
   root: THREE.Object3D
@@ -43,11 +41,16 @@ export async function loadModel(fileUrl: string, extension: string): Promise<Loa
   const ext = extension.toLowerCase()
   let root: THREE.Object3D
 
+  // Dynamically imported so GLTFLoader/OBJLoader (Draco/KTX2/meshopt support
+  // included) aren't parsed at boot — the default model never needs them,
+  // only an actual file import does.
   if (ext === 'glb' || ext === 'gltf') {
+    const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js')
     const loader = new GLTFLoader()
     const gltf = await loader.loadAsync(fileUrl)
     root = gltf.scene
   } else if (ext === 'obj') {
+    const { OBJLoader } = await import('three/examples/jsm/loaders/OBJLoader.js')
     const loader = new OBJLoader()
     root = await loader.loadAsync(fileUrl)
   } else {
