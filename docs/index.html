@@ -5,17 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>MeshCoat</title>
   <meta name="description" content="Fast, focused 3D model texture painter for game developers and 3D artists. Local, free, no accounts." />
+  <meta property="og:title" content="MeshCoat" />
+  <meta property="og:description" content="Fast, focused 3D model texture painter for game developers and 3D artists." />
+  <meta property="og:image" content="social-preview.png" />
   <link rel="icon" href="icon.png" />
   <style>
     :root {
-      --bg: #0b0c0f;
-      --bg-panel: #14161b;
-      --text: #e8e8ea;
+      --bg: #0a0a0c;
+      --bg-panel: #131318;
+      --bg-panel-2: #1a1a20;
+      --text: #f2f2f4;
       --text-dim: #9a9ba3;
-      --accent: #3b82f6;
-      --border: #23252b;
+      --accent: #7c9eff;
+      --accent-2: #6fd6a8;
+      --border: #232329;
     }
     * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
     body {
       margin: 0;
       background: var(--bg);
@@ -23,91 +29,266 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       line-height: 1.5;
     }
-    .wrap {
-      max-width: 760px;
-      margin: 0 auto;
-      padding: 64px 20px 80px;
+
+    /* Ambient grid backdrop */
+    .backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      background:
+        radial-gradient(ellipse 900px 500px at 50% -10%, rgba(124,158,255,0.16), transparent 60%),
+        radial-gradient(ellipse 700px 500px at 90% 20%, rgba(111,214,168,0.08), transparent 60%);
     }
-    header { text-align: center; margin-bottom: 40px; }
-    header img {
-      width: 96px;
-      height: 96px;
+
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+    /* Hero */
+    header.hero {
+      text-align: center;
+      padding: 88px 24px 56px;
+    }
+    header.hero img.icon {
+      width: 88px;
+      height: 88px;
       border-radius: 20px;
-      margin-bottom: 16px;
+      box-shadow: 0 12px 32px rgba(124,158,255,0.25), 0 0 0 1px rgba(255,255,255,0.08);
+      margin-bottom: 22px;
     }
-    h1 { font-size: 2.25rem; margin: 0 0 8px; }
-    .tagline { color: var(--text-dim); font-size: 1.1rem; margin: 0 0 28px; }
-    .cta {
-      display: inline-block;
-      background: var(--accent);
-      color: #ffffff;
-      font-weight: 600;
-      text-decoration: none;
-      padding: 12px 28px;
-      border-radius: 8px;
-      font-size: 1rem;
+    header.hero h1 {
+      font-size: clamp(2.1rem, 5vw, 3rem);
+      font-weight: 800;
+      letter-spacing: -1.2px;
+      margin: 0 0 12px;
     }
-    .cta:hover { opacity: 0.9; }
-    .sub-link {
-      display: block;
-      margin-top: 12px;
+    header.hero .tagline {
       color: var(--text-dim);
-      font-size: 0.9rem;
-      text-decoration: none;
+      font-size: 1.15rem;
+      max-width: 560px;
+      margin: 0 auto 32px;
     }
-    .sub-link:hover { color: var(--text); }
-    .features {
-      list-style: none;
-      padding: 0;
-      margin: 48px 0 0;
+    header.hero .tagline strong { color: var(--text); font-weight: 600; }
+
+    .cta-row {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--accent);
+      color: #0a0c12;
+      font-weight: 700;
+      text-decoration: none;
+      padding: 13px 28px;
+      border-radius: 10px;
+      font-size: 1rem;
+      box-shadow: 0 8px 24px rgba(124,158,255,0.28);
+    }
+    .cta:hover { filter: brightness(1.06); }
+    .sub-link {
+      color: var(--text-dim);
+      font-size: 0.95rem;
+      text-decoration: none;
+      border: 1px solid var(--border);
+      padding: 12px 22px;
+      border-radius: 10px;
+    }
+    .sub-link:hover { color: var(--text); border-color: #35353d; }
+
+    .platform-row {
+      margin-top: 22px;
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .platform-pill {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--text-dim);
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      padding: 4px 11px;
+      border-radius: 999px;
+      letter-spacing: 0.3px;
+    }
+
+    /* Screenshot gallery */
+    .gallery {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 16px;
+      margin: 64px 0;
     }
-    .features li {
+    .gallery figure {
+      margin: 0;
       background: var(--bg-panel);
       border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 16px;
-      font-size: 0.95rem;
+      border-radius: 14px;
+      overflow: hidden;
     }
-    .features strong { display: block; margin-bottom: 4px; }
-    .features span { color: var(--text-dim); }
+    .gallery img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    .gallery figcaption {
+      padding: 12px 16px 14px;
+      font-size: 0.85rem;
+      color: var(--text-dim);
+    }
+
+    /* Feature grid */
+    section.features { margin: 64px 0; }
+    section.features h2 {
+      text-align: center;
+      font-size: 1.6rem;
+      margin-bottom: 8px;
+      letter-spacing: -0.5px;
+    }
+    section.features > p {
+      text-align: center;
+      color: var(--text-dim);
+      max-width: 560px;
+      margin: 0 auto 36px;
+    }
+    .features-grid {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+    .features-grid li {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px;
+    }
+    .features-grid strong { display: block; margin-bottom: 6px; font-size: 0.98rem; }
+    .features-grid span { color: var(--text-dim); font-size: 0.88rem; }
+
+    /* Performance strip */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      margin: 64px 0;
+    }
+    .stats div {
+      background: var(--bg-panel-2);
+      padding: 22px 16px;
+      text-align: center;
+    }
+    .stats .num {
+      display: block;
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: var(--accent);
+      letter-spacing: -0.5px;
+    }
+    .stats .label {
+      display: block;
+      margin-top: 4px;
+      color: var(--text-dim);
+      font-size: 0.8rem;
+    }
+
     footer {
       text-align: center;
-      margin-top: 56px;
+      padding: 40px 24px 72px;
       color: var(--text-dim);
       font-size: 0.85rem;
     }
     footer a { color: var(--text-dim); }
-    @media (max-width: 560px) {
-      .features { grid-template-columns: 1fr; }
-      h1 { font-size: 1.8rem; }
+    footer .license { margin-top: 6px; opacity: 0.7; }
+
+    @media (max-width: 720px) {
+      .gallery { grid-template-columns: 1fr; }
+      .features-grid { grid-template-columns: 1fr; }
+      .stats { grid-template-columns: repeat(2, 1fr); }
     }
   </style>
 </head>
 <body>
+  <div class="backdrop"></div>
+
+  <header class="hero">
+    <img class="icon" src="icon.png" alt="MeshCoat icon" />
+    <h1>MeshCoat</h1>
+    <p class="tagline">
+      <strong>Fast, focused 3D texture painting.</strong> No bloated installs, no subscriptions &mdash;
+      load a model and start painting in seconds.
+    </p>
+    <div class="cta-row">
+      <a class="cta" href="https://github.com/stuyk/meshcoat/releases">Download MeshCoat</a>
+      <a class="sub-link" href="https://github.com/stuyk/meshcoat">View on GitHub</a>
+    </div>
+    <div class="platform-row">
+      <span class="platform-pill">WINDOWS</span>
+      <span class="platform-pill">LINUX</span>
+      <span class="platform-pill">MACOS</span>
+      <span class="platform-pill">100% FREE</span>
+      <span class="platform-pill">LOCAL-FIRST</span>
+    </div>
+  </header>
+
   <div class="wrap">
-    <header>
-      <img src="icon.png" alt="MeshCoat icon" />
-      <h1>MeshCoat</h1>
-      <p class="tagline">Fast, focused 3D model texture painter.</p>
-      <a class="cta" href="https://github.com/Stuyk/meshcoat/releases">Download</a>
-      <a class="sub-link" href="https://github.com/Stuyk/meshcoat">View on GitHub</a>
-    </header>
+    <div class="gallery">
+      <figure>
+        <img src="screenshots/base-screenshot.png" alt="Brush painting with stroke dynamics" loading="lazy" />
+        <figcaption>Brush painting with live stroke dynamics &mdash; radius, hardness, opacity, spacing.</figcaption>
+      </figure>
+      <figure>
+        <img src="screenshots/texture-symetric-painting.png" alt="Symmetry mirror painting" loading="lazy" />
+        <figcaption>Symmetry mirror painting across X, Y, or Z with triplanar projection.</figcaption>
+      </figure>
+      <figure>
+        <img src="screenshots/texture-brushes.png" alt="Material texture projection" loading="lazy" />
+        <figcaption>Direct UV or triplanar material textures, tiled and scaled per stroke.</figcaption>
+      </figure>
+      <figure>
+        <img src="screenshots/texture-edge-creation-masking.png" alt="Edge Wear Wizard" loading="lazy" />
+        <figcaption>Edge Wear Wizard &mdash; procedural ridge, chip & corrosion generation.</figcaption>
+      </figure>
+    </div>
 
-    <ul class="features">
-      <li><strong>Direct 3D Painting</strong><span>Hardware-accelerated UV projection shaders onto 3D geometry.</span></li>
-      <li><strong>Layer Stack</strong><span>Non-destructive layers with live composite blending.</span></li>
-      <li><strong>Face Masking</strong><span>Hold Ctrl and drag across faces to isolate brush and bucket fills.</span></li>
-      <li><strong>Texture Shelf</strong><span>Direct local folder texture browsing and decal stamping.</span></li>
-      <li><strong>100% Offline & Local</strong><span>No accounts, no subscriptions, zero telemetry.</span></li>
-      <li><strong>One-Click Export</strong><span>Export PNG base color maps ready for game engines.</span></li>
-    </ul>
+    <section class="features">
+      <h2>Everything you need, nothing you don't</h2>
+      <p>A complete texture painting toolset without the bloat of a full DCC suite.</p>
+      <ul class="features-grid">
+        <li><strong>Direct 3D Surface Painting</strong><span>Strokes and patterns project straight onto your model's UV layout.</span></li>
+        <li><strong>Non-Destructive Layers</strong><span>Hide, reorder, adjust opacity, duplicate, and merge with live blending.</span></li>
+        <li><strong>Full Tool Suite</strong><span>Brush, stamp, eraser, fill bucket, eyedropper, and face selection.</span></li>
+        <li><strong>Quick Face Masking</strong><span>Hold Ctrl on any tool to confine strokes and fills to selected faces.</span></li>
+        <li><strong>Integrated Texture Shelf</strong><span>Browse local folders of PNG/JPG textures with instant search.</span></li>
+        <li><strong>Edge Wear Wizard</strong><span>Procedural ridge, chip, and corrosion generation on mesh edges.</span></li>
+        <li><strong>Lighting & Wireframe</strong><span>Toggle lit or flat shading, and overlay wireframe to inspect UVs.</span></li>
+        <li><strong>Format Support</strong><span>Loads .obj, .gltf, and .glb with automatic UV validation.</span></li>
+        <li><strong>One-Click Export</strong><span>Export composite PNGs ready for Godot, Unity, Unreal, or Blender.</span></li>
+      </ul>
+    </section>
 
-    <footer>
-      Windows, Linux & macOS &middot; <a href="https://github.com/Stuyk/meshcoat">github.com/Stuyk/meshcoat</a>
-    </footer>
+    <div class="stats">
+      <div><span class="num">&lt;1s</span><span class="label">Launch Time</span></div>
+      <div><span class="num">60 FPS</span><span class="label">Live Viewport</span></div>
+      <div><span class="num">512&ndash;8192</span><span class="label">Canvas Resolutions</span></div>
+      <div><span class="num">0</span><span class="label">Telemetry / Accounts</span></div>
+    </div>
   </div>
+
+  <footer>
+    <div><a href="https://github.com/stuyk/meshcoat">github.com/stuyk/meshcoat</a></div>
+    <div class="license">GPL-3.0-or-later</div>
+  </footer>
 </body>
 </html>

@@ -19,12 +19,12 @@ MeshCoat is fast, local, and free. Load your 3D model, choose your canvas resolu
 </p>
 
 <p align="center">
-  <img src="screenshots/base-screenshot.png" alt="MeshCoat brush painting with stroke dynamics" width="49%" />
-  <img src="screenshots/texture-symetric-painting.png" alt="MeshCoat symmetry mirror painting" width="49%" />
+  <img src="docs/screenshots/base-screenshot.png" alt="MeshCoat brush painting with stroke dynamics" width="49%" />
+  <img src="docs/screenshots/texture-symetric-painting.png" alt="MeshCoat symmetry mirror painting" width="49%" />
 </p>
 <p align="center">
-  <img src="screenshots/texture-brushes.png" alt="MeshCoat material texture projection" width="49%" />
-  <img src="screenshots/texture-edge-creation-masking.png" alt="MeshCoat Edge Wear Wizard" width="49%" />
+  <img src="docs/screenshots/texture-brushes.png" alt="MeshCoat material texture projection" width="49%" />
+  <img src="docs/screenshots/texture-edge-creation-masking.png" alt="MeshCoat Edge Wear Wizard" width="49%" />
 </p>
 
 ## Core Philosophy

@@ -4,7 +4,7 @@ const fs = require('fs');
 
 const rootDir = path.resolve(__dirname, '..');
 const iconPath = path.join(rootDir, 'build/icon.png');
-const screenshot1Path = path.join(rootDir, 'screenshots/base-screenshot.png');
+const screenshot1Path = path.join(rootDir, 'docs/screenshots/base-screenshot.png');
 
 const iconBase64 = fs.existsSync(iconPath) ? fs.readFileSync(iconPath).toString('base64') : '';
 const screenshot1Base64 = fs.existsSync(screenshot1Path) ? fs.readFileSync(screenshot1Path).toString('base64') : '';
