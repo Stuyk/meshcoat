@@ -1,5 +1,5 @@
 import { createSignal, For, Show } from 'solid-js'
-import { Modal, Button } from './ui'
+import { Modal, Button, SearchInput, Kbd } from './ui'
 import {
   HelpCircleIcon,
   KeyboardIcon,
@@ -7,8 +7,6 @@ import {
   BrushIcon,
   PaletteIcon,
   LayersIcon,
-  SearchIcon,
-  XIcon,
   LineIcon,
   EraserIcon,
   StampIcon,
@@ -128,7 +126,7 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
       footer={
         <div class="flex items-center justify-between w-full">
           <span class="text-[11px] text-zinc-500">
-            Press <kbd class="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-400 font-mono text-[10px]">Esc</kbd> or click outside to dismiss
+            Press <Kbd size="xs">Esc</Kbd> or click outside to dismiss
           </span>
           <Button variant="primary" onClick={props.onClose}>
             Got It
@@ -138,17 +136,17 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
     >
       <div class="flex flex-col gap-4">
         {/* Navigation Tabs */}
-        <div class="flex items-center gap-1.5 p-1 bg-zinc-950/80 border border-zinc-800/80 rounded-xl overflow-x-auto select-none">
+        <div class="flex items-center gap-1.5 p-1 bg-zinc-950/70 border border-zinc-850 rounded-xl overflow-x-auto select-none">
           <button
             type="button"
             class={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
               activeTab() === 'shortcuts'
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850'
+                ? 'bg-blue-600/20 text-blue-300 border border-blue-500/40 font-semibold shadow-xs'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/50 border border-transparent'
             }`}
             onClick={() => setActiveTab('shortcuts')}
           >
-            <KeyboardIcon size={15} />
+            <KeyboardIcon size={14} class={activeTab() === 'shortcuts' ? 'text-blue-400' : 'text-zinc-500'} />
             <span>Shortcuts</span>
           </button>
 
@@ -156,12 +154,12 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
             type="button"
             class={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
               activeTab() === 'workflow'
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850'
+                ? 'bg-blue-600/20 text-blue-300 border border-blue-500/40 font-semibold shadow-xs'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/50 border border-transparent'
             }`}
             onClick={() => setActiveTab('workflow')}
           >
-            <CompassIcon size={15} />
+            <CompassIcon size={14} class={activeTab() === 'workflow' ? 'text-blue-400' : 'text-zinc-500'} />
             <span>Workflow</span>
           </button>
 
@@ -169,12 +167,12 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
             type="button"
             class={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
               activeTab() === 'tools'
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850'
+                ? 'bg-blue-600/20 text-blue-300 border border-blue-500/40 font-semibold shadow-xs'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/50 border border-transparent'
             }`}
             onClick={() => setActiveTab('tools')}
           >
-            <BrushIcon size={15} />
+            <BrushIcon size={14} class={activeTab() === 'tools' ? 'text-blue-400' : 'text-zinc-500'} />
             <span>Tools & Brushes</span>
           </button>
 
@@ -182,12 +180,12 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
             type="button"
             class={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
               activeTab() === 'pbr'
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850'
+                ? 'bg-blue-600/20 text-blue-300 border border-blue-500/40 font-semibold shadow-xs'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/50 border border-transparent'
             }`}
             onClick={() => setActiveTab('pbr')}
           >
-            <PaletteIcon size={15} />
+            <PaletteIcon size={14} class={activeTab() === 'pbr' ? 'text-blue-400' : 'text-zinc-500'} />
             <span>PBR Channels</span>
           </button>
 
@@ -195,12 +193,12 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
             type="button"
             class={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
               activeTab() === 'layers'
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850'
+                ? 'bg-blue-600/20 text-blue-300 border border-blue-500/40 font-semibold shadow-xs'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/50 border border-transparent'
             }`}
             onClick={() => setActiveTab('layers')}
           >
-            <LayersIcon size={15} />
+            <LayersIcon size={14} class={activeTab() === 'layers' ? 'text-blue-400' : 'text-zinc-500'} />
             <span>Layers & Masks</span>
           </button>
         </div>
@@ -209,26 +207,11 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
         <Show when={activeTab() === 'shortcuts'}>
           <div class="flex flex-col gap-3">
             {/* Search Input */}
-            <div class="relative flex items-center">
-              <SearchIcon size={15} class="absolute left-3 text-zinc-500 pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Search shortcuts by key, action, or tool name (e.g. brush, wireframe, mask)..."
-                value={searchQuery()}
-                onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                class="w-full pl-9 pr-9 py-2 rounded-lg bg-zinc-950/70 border border-zinc-800 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-blue-500/80 focus:ring-1 focus:ring-blue-500/40 transition-all"
-              />
-              <Show when={searchQuery()}>
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  class="absolute right-2.5 p-1 text-zinc-500 hover:text-zinc-200 transition-colors cursor-pointer"
-                  title="Clear search"
-                >
-                  <XIcon size={14} />
-                </button>
-              </Show>
-            </div>
+            <SearchInput
+              value={searchQuery()}
+              onInput={setSearchQuery}
+              placeholder="Search shortcuts by key, action, or tool name (e.g. brush, wireframe, mask)..."
+            />
 
             {/* Shortcuts Grid */}
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
@@ -250,9 +233,7 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
                                     <Show when={idx() > 0}>
                                       <span class="text-zinc-500 text-[10px]">+</span>
                                     </Show>
-                                    <kbd class="px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700/80 text-zinc-200 text-[11px] font-medium shadow-xs">
-                                      {k}
-                                    </kbd>
+                                    <Kbd size="xs">{k}</Kbd>
                                   </>
                                 )}
                               </For>
@@ -387,7 +368,7 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
                     <div class="p-1.5 rounded-lg bg-blue-600/20 text-blue-400"><BrushIcon size={16} /></div>
                     <h4 class="font-semibold text-zinc-100">Brush Tool</h4>
                   </div>
-                  <kbd class="px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] font-mono text-zinc-300">1 / B</kbd>
+                  <Kbd size="xs">1 / B</Kbd>
                 </div>
                 <p class="text-[11px] text-zinc-400">
                   Projects smooth circular or textured dabs onto 3D geometry. Customize Radius, Opacity, Hardness (edge falloff), Flow (dab rate), Spacing, Jitter, and Scatter. Supports tiled pattern textures with adjustable scale.
@@ -401,10 +382,10 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
                     <div class="p-1.5 rounded-lg bg-purple-600/20 text-purple-400"><LineIcon size={16} /></div>
                     <h4 class="font-semibold text-zinc-100">Line Tool</h4>
                   </div>
-                  <kbd class="px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] font-mono text-zinc-300">L</kbd>
+                  <Kbd size="xs">L</Kbd>
                 </div>
                 <p class="text-[11px] text-zinc-400">
-                  Draws straight strokes between two points. Raycasts along the screen-space path to hug curved surfaces without cutting through internal geometry. Can also be invoked with <kbd class="px-1 py-0.5 rounded bg-zinc-800 text-[10px] font-mono text-zinc-300">Shift + Click</kbd> while using the brush.
+                  Draws straight strokes between two points. Raycasts along the screen-space path to hug curved surfaces without cutting through internal geometry. Can also be invoked with <Kbd size="xs">Shift + Click</Kbd> while using the brush.
                 </p>
               </div>
 
@@ -415,7 +396,7 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
                     <div class="p-1.5 rounded-lg bg-red-600/20 text-red-400"><EraserIcon size={16} /></div>
                     <h4 class="font-semibold text-zinc-100">Eraser Tool</h4>
                   </div>
-                  <kbd class="px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] font-mono text-zinc-300">2 / E</kbd>
+                  <Kbd size="xs">2 / E</Kbd>
                 </div>
                 <p class="text-[11px] text-zinc-400">
                   Non-destructively reduces alpha on the active layer. Allows carving out highlights or cleaning up edges without affecting layers underneath.
@@ -429,7 +410,7 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
                     <div class="p-1.5 rounded-lg bg-emerald-600/20 text-emerald-400"><StampIcon size={16} /></div>
                     <h4 class="font-semibold text-zinc-100">Stamp Decal</h4>
                   </div>
-                  <kbd class="px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] font-mono text-zinc-300">3 / T</kbd>
+                  <Kbd size="xs">3 / T</Kbd>
                 </div>
                 <p class="text-[11px] text-zinc-400">
                   Projects decals, logos, and emblems onto surfaces. Shows a live on-surface preview orientation ring. Adjust size, angle, and opacity before stamping down.
@@ -443,7 +424,7 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
                     <div class="p-1.5 rounded-lg bg-amber-600/20 text-amber-400"><FillIcon size={16} /></div>
                     <h4 class="font-semibold text-zinc-100">Fill Bucket</h4>
                   </div>
-                  <kbd class="px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] font-mono text-zinc-300">4 / G</kbd>
+                  <Kbd size="xs">4 / G</Kbd>
                 </div>
                 <p class="text-[11px] text-zinc-400">
                   Floods geometry with color or repeating texture. When face selection is active, it fills only the selected faces; otherwise it floods the whole active mesh piece.
@@ -457,7 +438,7 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
                     <div class="p-1.5 rounded-lg bg-cyan-600/20 text-cyan-400"><EyedropperIcon size={16} /></div>
                     <h4 class="font-semibold text-zinc-100">Eyedropper</h4>
                   </div>
-                  <kbd class="px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] font-mono text-zinc-300">5 / I</kbd>
+                  <Kbd size="xs">5 / I</Kbd>
                 </div>
                 <p class="text-[11px] text-zinc-400">
                   Samples colors directly from the 3D surface with a precision magnification loupe preview showing RGB hex values. Also samples active PBR channel data.
@@ -471,10 +452,10 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
                     <div class="p-1.5 rounded-lg bg-indigo-600/20 text-indigo-400"><CubeIcon size={16} /></div>
                     <h4 class="font-semibold text-zinc-100">Face Selection</h4>
                   </div>
-                  <kbd class="px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] font-mono text-zinc-300">6 / V</kbd>
+                  <Kbd size="xs">6 / V</Kbd>
                 </div>
                 <p class="text-[11px] text-zinc-400">
-                  Isolates sub-mesh triangles. <kbd class="px-1 py-0.5 rounded bg-zinc-800 text-[10px] font-mono text-zinc-300">Double-click</kbd> selects a connected UV island. <kbd class="px-1 py-0.5 rounded bg-zinc-800 text-[10px] font-mono text-zinc-300">Ctrl + Drag</kbd> paint-selects faces. Constrains all paint operations exclusively to selected geometry.
+                  Isolates sub-mesh triangles. <Kbd size="xs">Double-click</Kbd> selects a connected UV island. <Kbd size="xs">Ctrl + Drag</Kbd> paint-selects faces. Constrains all paint operations exclusively to selected geometry.
                 </p>
               </div>
 
@@ -485,7 +466,7 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
                     <div class="p-1.5 rounded-lg bg-pink-600/20 text-pink-400"><SparklesIcon size={16} /></div>
                     <h4 class="font-semibold text-zinc-100">Effect Brush</h4>
                   </div>
-                  <kbd class="px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] font-mono text-zinc-300">7 / U</kbd>
+                  <Kbd size="xs">7 / U</Kbd>
                 </div>
                 <p class="text-[11px] text-zinc-400">
                   Filters texels directly on the active layer in premultiplied alpha space. Modes include <span class="text-zinc-200 font-medium">Blur</span> (soften seams), <span class="text-zinc-200 font-medium">Sharpen</span> (enhance details), <span class="text-zinc-200 font-medium">Smudge</span> (blend strokes), and <span class="text-zinc-200 font-medium">Pixelate</span>.
@@ -499,10 +480,10 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
                     <div class="p-1.5 rounded-lg bg-teal-600/20 text-teal-400"><ImagesIcon size={16} /></div>
                     <h4 class="font-semibold text-zinc-100">Screen Stencil</h4>
                   </div>
-                  <kbd class="px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] font-mono text-zinc-300">S</kbd>
+                  <Kbd size="xs">S</Kbd>
                 </div>
                 <p class="text-[11px] text-zinc-400">
-                  Floats a 2D guide image over the viewport. Use <kbd class="px-1 py-0.5 rounded bg-zinc-800 text-[10px] font-mono text-zinc-300">Alt + LMB</kbd> to drag and <kbd class="px-1 py-0.5 rounded bg-zinc-800 text-[10px] font-mono text-zinc-300">Alt + RMB</kbd> to scale and rotate. Paint through it to project intricate patterns directly onto geometry.
+                  Floats a 2D guide image over the viewport. Use <Kbd size="xs">Alt + LMB</Kbd> to drag and <Kbd size="xs">Alt + RMB</Kbd> to scale and rotate. Paint through it to project intricate patterns directly onto geometry.
                 </p>
               </div>
 
@@ -513,7 +494,7 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
                     <div class="p-1.5 rounded-lg bg-orange-600/20 text-orange-400"><SymmetryIcon size={16} /></div>
                     <h4 class="font-semibold text-zinc-100">Radial Pie Menu</h4>
                   </div>
-                  <kbd class="px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] font-mono text-zinc-300">Space</kbd>
+                  <Kbd size="xs">Space</Kbd>
                 </div>
                 <p class="text-[11px] text-zinc-400">
                   Tap Space to open a radial menu right at your cursor. Flick your mouse towards any tool wedge or color swatch for instant hands-free switching without moving to the toolbar.
@@ -643,7 +624,7 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
                 <span class="text-[10px] text-zinc-400 font-mono">White reveals · Black hides</span>
               </div>
               <p class="text-zinc-400 text-[11px]">
-                Attach a mask to any layer to selectively hide or reveal areas without deleting paint. Press <kbd class="px-1 py-0.5 rounded bg-zinc-800 text-[10px] font-mono text-zinc-300">X</kbd> while editing a mask to instantly swap between White (Reveal) and Black (Hide).
+                Attach a mask to any layer to selectively hide or reveal areas without deleting paint. Press <Kbd size="xs">X</Kbd> while editing a mask to instantly swap between White (Reveal) and Black (Hide).
               </p>
             </div>
 
@@ -671,7 +652,7 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
                 <span class="text-[10px] text-blue-300 font-mono">Top Bar Quick Control</span>
               </div>
               <p class="text-zinc-400 text-[11px]">
-                When painting complex characters or vehicles containing multiple pieces (e.g. Head, Torso, Gear), click the <span class="text-zinc-200 font-medium">Isolate Active Piece</span> button in the top bar to hide all other meshes. This lets you work inside tight crevices without obstruction. Switching pieces via <kbd class="px-1 py-0.5 rounded bg-zinc-800 text-[10px] font-mono text-zinc-300">Tab</kbd> or the layer panel dropdown automatically isolates the newly active piece!
+                When painting complex characters or vehicles containing multiple pieces (e.g. Head, Torso, Gear), click the <span class="text-zinc-200 font-medium">Isolate Active Piece</span> button in the top bar to hide all other meshes. This lets you work inside tight crevices without obstruction. Switching pieces via <Kbd size="xs">Tab</Kbd> or the layer panel dropdown automatically isolates the newly active piece!
               </p>
             </div>
           </div>

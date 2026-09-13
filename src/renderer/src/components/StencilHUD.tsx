@@ -19,15 +19,19 @@ import {
   StampIcon,
   Trash2Icon,
   ContrastIcon,
+  ClipboardIcon,
   BrushIcon,
   FocusIcon,
   EyeIcon,
   EyeOffIcon
 } from './icons'
-import { Button, IconButton, Slider, SegmentedControl } from './ui'
+import { Button, IconButton, Slider, SegmentedControl, Label } from './ui'
 import { toAssetUrl } from '../utils/assetUrl'
+import { fileName } from '../utils/paths'
 
 export interface StencilHUDProps {
+  /** Rendered inside the tool panel dock rather than floating over the viewport. */
+  docked?: boolean
   /** Projects the stencil onto the model as a decal; false if it couldn't run. */
   onStamp: () => boolean
   onClose: () => void
@@ -43,7 +47,7 @@ export interface StencilHUDProps {
 export default function StencilHUD(props: StencilHUDProps) {
   const [showTexturePicker, setShowTexturePicker] = createSignal(false)
 
-  const filename = () => stencil.texturePath()?.split('/').pop() ?? 'Stencil'
+  const filename = () => stencil.textureLabel() ?? 'Stencil'
 
   async function browse(): Promise<void> {
     const paths = await window.api.openFileDialog({
@@ -55,8 +59,23 @@ export default function StencilHUD(props: StencilHUDProps) {
     }
   }
 
-  function loadStencil(path: string): void {
-    setStencilTexturePath(path)
+  /**
+   * Loads whatever image is on the system clipboard as the stencil — a crop
+   * from a browser, a render, a screenshot — without saving it to disk first.
+   * It arrives as a PNG data URL, which every path that consumes the stencil
+   * already handles (toAssetUrl passes data: through untouched).
+   */
+  async function pasteFromClipboard(): Promise<void> {
+    const image = await window.api.readClipboardImage()
+    if (!image) {
+      props.onToast?.('No image on the clipboard — copy one first', 'warning')
+      return
+    }
+    loadStencil(image.dataUrl, `Clipboard ${image.width}x${image.height}`)
+  }
+
+  function loadStencil(path: string, label?: string): void {
+    setStencilTexturePath(path, label)
     resetStencilTransform()
     // Straight into transform mode: a freshly loaded stencil is never in the
     // right place, and this saves the artist a click every single time.
@@ -79,46 +98,56 @@ export default function StencilHUD(props: StencilHUDProps) {
 
   return (
     <div
-      class="absolute top-3 left-3 z-30 w-72 p-3 bg-zinc-900/95 backdrop-blur-md border border-zinc-800 rounded-md shadow-2xl flex flex-col gap-2.5 select-none animate-in fade-in slide-in-from-top-2 duration-150"
+      class={
+          props.docked
+            ? // Docked: the dock owns the frame, so no card chrome of its own.
+              'w-full flex flex-col gap-2.5 select-none'
+            : 'absolute top-3 left-3 z-30 w-72 p-3 bg-zinc-900/95 backdrop-blur-md border border-zinc-800 rounded-md shadow-2xl flex flex-col gap-2.5 select-none animate-in fade-in slide-in-from-top-2 duration-150'
+        }
       onClick={(e) => e.stopPropagation()}
     >
-      {/* Header: Title, Active Image Name, and Close Panel Button */}
-      <div class="flex items-center justify-between pb-2 border-b border-zinc-800/80">
-        <div class="flex items-center gap-2 min-w-0 pr-1">
-          <ImagesIcon size={14} class="text-teal-400 flex-shrink-0" />
-          <div class="flex flex-col min-w-0">
-            <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider leading-none">
-              Screen Stencil
-            </span>
-            <span class="text-xs font-semibold text-zinc-100 truncate mt-0.5" title={filename()}>
-              {stencil.texturePath() ? filename() : 'Projection Mask'}
-            </span>
+      {/* The dock draws this panel's title, summary and actions in its own
+          section header, so a second one here blurs where one panel ends
+          and the next begins. */}
+      <Show when={!props.docked}>
+        {/* Header: Title, Active Image Name, and Close Panel Button */}
+        <div class="flex items-center justify-between pb-2 border-b border-zinc-800/80">
+          <div class="flex items-center gap-2 min-w-0 pr-1">
+            <ImagesIcon size={14} class="text-teal-400 flex-shrink-0" />
+            <div class="flex flex-col min-w-0">
+              <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider leading-none">
+                Screen Stencil
+              </span>
+              <span class="text-xs font-semibold text-zinc-100 truncate mt-0.5" title={filename()}>
+                {stencil.texturePath() ? filename() : 'Projection Mask'}
+              </span>
+            </div>
           </div>
-        </div>
 
-        <div class="flex items-center gap-0.5">
-          <Show when={stencil.texturePath()}>
+          <div class="flex items-center gap-0.5">
+            <Show when={stencil.texturePath()}>
+              <IconButton
+                size="xs"
+                variant="ghost"
+                onClick={() => setStencilVisible(!stencil.visible())}
+                title={stencil.visible() ? 'Hide stencil sheet from viewport' : 'Show stencil sheet in viewport'}
+              >
+                <Show when={stencil.visible()} fallback={<EyeOffIcon size={13} class="text-zinc-500" />}>
+                  <EyeIcon size={13} class="text-teal-400" />
+                </Show>
+              </IconButton>
+            </Show>
             <IconButton
               size="xs"
               variant="ghost"
-              onClick={() => setStencilVisible(!stencil.visible())}
-              title={stencil.visible() ? 'Hide stencil sheet from viewport' : 'Show stencil sheet in viewport'}
+              onClick={props.onClose}
+              title="Close stencil panel"
             >
-              <Show when={stencil.visible()} fallback={<EyeOffIcon size={13} class="text-zinc-500" />}>
-                <EyeIcon size={13} class="text-teal-400" />
-              </Show>
+              <XIcon size={13} />
             </IconButton>
-          </Show>
-          <IconButton
-            size="xs"
-            variant="ghost"
-            onClick={props.onClose}
-            title="Close stencil panel"
-          >
-            <XIcon size={13} />
-          </IconButton>
+          </div>
         </div>
-      </div>
+      </Show>
 
       {/* Content */}
       <Show
@@ -144,21 +173,31 @@ export default function StencilHUD(props: StencilHUDProps) {
               </div>
             </div>
 
+            {/* Clipboard paste — the fastest route in for a screenshot or a
+                crop that was never a file on disk. */}
+            <Button
+              variant="secondary"
+              size="xs"
+              onClick={pasteFromClipboard}
+              class="w-full justify-center h-7"
+              title="Use the image currently on the clipboard (Ctrl+V)"
+            >
+              <ClipboardIcon size={12} />
+              <span>Paste From Clipboard</span>
+            </Button>
+
             {/* Quick-Pick from Project Textures if available */}
             <Show when={props.textures && props.textures.length > 0}>
               <div class="space-y-1.5 pt-1 border-t border-zinc-800/80">
                 <div class="flex items-center justify-between">
-                  <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
+                  <Label uppercase badge={props.textures!.length}>
                     Or Use Project Texture
-                  </span>
-                  <span class="text-[10px] font-mono text-zinc-500">
-                    {props.textures!.length}
-                  </span>
+                  </Label>
                 </div>
                 <div class="grid grid-cols-4 gap-1.5 max-h-28 overflow-y-auto p-1 bg-zinc-950/60 rounded border border-zinc-800/80">
                   <For each={props.textures}>
                     {(texPath) => {
-                      const name = () => texPath.split('/').pop() ?? 'texture'
+                      const name = () => fileName(texPath, 'texture')
                       return (
                         <button
                           type="button"
@@ -224,9 +263,7 @@ export default function StencilHUD(props: StencilHUDProps) {
 
         {/* Viewport Interaction Mode */}
         <div class="space-y-1">
-          <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
-            Viewport Mode
-          </span>
+          <Label uppercase>Viewport Mode</Label>
           <SegmentedControl
             size="xs"
             options={[
@@ -321,6 +358,14 @@ export default function StencilHUD(props: StencilHUDProps) {
             <FolderOpenIcon size={12} />
             <span>Replace…</span>
           </Button>
+          <IconButton
+            size="xs"
+            variant="ghost"
+            onClick={pasteFromClipboard}
+            title="Replace with the image on the clipboard (Ctrl+V)"
+          >
+            <ClipboardIcon size={13} />
+          </IconButton>
         </div>
 
         {/* Alternate project texture picker drawer if project textures exist */}
@@ -345,7 +390,7 @@ export default function StencilHUD(props: StencilHUDProps) {
                       <button
                         type="button"
                         onClick={() => loadStencil(texPath)}
-                        title={texPath.split('/').pop() ?? 'texture'}
+                        title={fileName(texPath, 'texture')}
                         class={`aspect-square rounded overflow-hidden checkerboard-bg border transition-all cursor-pointer relative group ${
                           isCurrent() ? 'border-teal-400 ring-1 ring-teal-400/50' : 'border-zinc-750 hover:border-zinc-600'
                         }`}
@@ -367,9 +412,7 @@ export default function StencilHUD(props: StencilHUDProps) {
         {/* Decal Stamping Section */}
         <div class="pt-2 border-t border-zinc-800/80 flex flex-col gap-2">
           <div class="space-y-1">
-            <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
-              Stamp Projection
-            </span>
+            <Label uppercase>Stamp Projection</Label>
             <SegmentedControl
               size="xs"
               options={[

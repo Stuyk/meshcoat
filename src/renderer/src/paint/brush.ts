@@ -1,4 +1,4 @@
-import { createSignal } from 'solid-js'
+import { createSignal, untrack } from 'solid-js'
 import * as THREE from 'three'
 import type { EffectMode } from './effectShader'
 import type { ChannelPayload, PaintChannel } from './channels'
@@ -14,11 +14,43 @@ export type ToolMode =
   | 'faceSelect'
   | 'effect'
 export type BrushTextureMapping = 'uv' | 'triplanar' | 'tip'
+/**
+ * How the selected region repeats across a stroke.
+ *   tile   — edge to edge, the crop as its own little pattern
+ *   mirror — every other copy flips, so a non-tiling crop has no seam
+ *   once   — a single copy, nothing outside it (decal / reveal painting)
+ */
+export type BrushTextureRepeat = 'tile' | 'mirror' | 'once'
 /** 'whole' fills the whole model (or the active face selection); 'face' fills only the single face clicked. */
 export type FillMode = 'whole' | 'face'
 
-const MIN_RADIUS = 0.01
-const MAX_RADIUS = 5
+/**
+ * Brush radius is in WORLD units, so its usable range depends entirely on how
+ * big the model is: 0.01 is a fine detail brush on a character and wider than
+ * the whole thing on a gemstone. The range (and the slider built from it) is
+ * therefore expressed as a fraction of the model's radius, which the viewport
+ * reports whenever a model loads.
+ */
+const [sceneScale, setSceneScaleRaw] = createSignal(1)
+const MIN_RADIUS_FRACTION = 0.004
+const MAX_RADIUS_FRACTION = 2
+
+export function radiusRange(): { min: number; max: number } {
+  const scale = sceneScale()
+  return { min: scale * MIN_RADIUS_FRACTION, max: scale * MAX_RADIUS_FRACTION }
+}
+
+/**
+ * Tells the brush how big the current model is. The radius is rescaled with it,
+ * so loading a model a hundredth the size doesn't leave a brush that covers the
+ * entire thing (and can't be dialled down, because the slider bottomed out).
+ */
+export function setSceneScale(modelRadius: number): void {
+  const next = Math.max(modelRadius, 0.0001)
+  const previous = untrack(sceneScale)
+  setSceneScaleRaw(next)
+  if (previous > 0) setRadius(untrack(radius) * (next / previous))
+}
 
 const [radius, setRadiusRaw] = createSignal(0.2)
 const [opacity, setOpacityRaw] = createSignal(1)
@@ -30,13 +62,36 @@ const [spacing, setSpacingRaw] = createSignal(0.25)
 const [projectorDepth, setProjectorDepthRaw] = createSignal(0.35)
 const [maxAngle, setMaxAngleRaw] = createSignal(85)
 const [textureScale, setTextureScaleRaw] = createSignal(8)
+/**
+ * Which part of the source texture the brush draws from — x/y offset and
+ * width/height, all 0-1 in texture space, plus a rotation in degrees about the
+ * crop's own centre. A texture sheet usually holds several usable details
+ * (one plate of a trim sheet, a single scratch, one letter); this picks one out
+ * mid-stroke instead of asking the artist to go and cut a new file.
+ */
+const [textureRegion, setTextureRegionRaw] = createSignal({ x: 0, y: 0, w: 1, h: 1, rotation: 0 })
 const [color, setColor] = createSignal('#ffffff')
 /** Selected texture-shelf image: tiles world-space, maps surface UVs, or is stamped whole under the stamp tool. */
 const [texturePath, setTexturePathRaw] = createSignal<string | null>(null)
 /** Selected brush tip image / ABR alpha mask. */
 const [tipTexturePath, setTipTexturePathRaw] = createSignal<string | null>(null)
 /** Projection mapping mode for the brush tool: 'uv' (straightforward UV), 'triplanar' (world triplanar), or 'tip' (brush tip stamp). */
-const [textureMapping, setTextureMappingRaw] = createSignal<BrushTextureMapping>('triplanar')
+/**
+ * Defaults to surface UV, not world triplanar: "paint the picture I picked onto
+ * the surface I'm pointing at" is what an artist expects, and a world-aligned
+ * projection instead slides the pattern under the brush as the model curves.
+ * Triplanar stays available for dressing a whole model in a seamless material.
+ */
+const [textureMapping, setTextureMappingRaw] = createSignal<BrushTextureMapping>('uv')
+const [textureRepeat, setTextureRepeatRaw] = createSignal<BrushTextureRepeat>('tile')
+/**
+ * Tiling scale remembered per placement, because the number means a different
+ * thing in each: repeats across the UV square for Surface, repeats per world
+ * unit for World, one copy per dab for Cursor. Carrying a world value (often
+ * well under 1) into Surface stretches a single copy over the whole unwrap,
+ * which reads as "tiling is broken".
+ */
+const scaleByMapping: Record<BrushTextureMapping, number> = { uv: 4, triplanar: 8, tip: 1 }
 /** Fill tool mode: whole model/selection, or just the clicked face. */
 const [fillMode, setFillModeRaw] = createSignal<FillMode>('face')
 
@@ -104,6 +159,7 @@ export function setMaterialSet(set: MaterialSet | null): void {
   if (set.maps.metalness) setMetalnessValueRaw(1)
   if (set.maps.normal) setNormalStrengthRaw(1)
   setTexturePathRaw(set.maps.baseColor ?? null)
+  setTextureRegionRaw({ x: 0, y: 0, w: 1, h: 1, rotation: 0 })
   // A set carries its own color; a stale tint would recolour every map.
   setColor('#ffffff')
 }
@@ -319,8 +375,16 @@ export function hasPressure(event: PointerEvent | undefined): boolean {
 }
 
 export function setTextureMapping(mode: BrushTextureMapping): void {
+  const previous = untrack(textureMapping)
+  if (previous !== mode) {
+    scaleByMapping[previous] = untrack(textureScale)
+    setTextureMappingRaw(mode)
+    setTextureScaleRaw(scaleByMapping[mode])
+    return
+  }
   setTextureMappingRaw(mode)
 }
+
 
 export function setFillMode(mode: FillMode): void {
   setFillModeRaw(mode)
@@ -349,6 +413,9 @@ export function setTexturePath(path: string | null, resetColor = true): void {
   // under a stamp the artist chose for its color alone.
   setMaterialSetRaw(null)
   setTexturePathRaw(path)
+  // A crop is meaningful only for the image it was drawn on — carrying one
+  // across to a different texture would silently paint a corner of it.
+  setTextureRegionRaw({ x: 0, y: 0, w: 1, h: 1, rotation: 0 })
   // Note: recordRecentTexture() is deliberately NOT called here — the "Used"
   // shelf tab tracks textures actually applied by a stroke/fill, not merely
   // browsed/selected. See applyToolAt/fillActive in Viewport.tsx.
@@ -360,7 +427,8 @@ function clamp(v: number, min: number, max: number): number {
 }
 
 export function setRadius(v: number): void {
-  setRadiusRaw(clamp(v, MIN_RADIUS, MAX_RADIUS))
+  const { min, max } = radiusRange()
+  setRadiusRaw(clamp(v, min, max))
 }
 
 export function setOpacity(v: number): void {
@@ -377,8 +445,52 @@ export function setSpacing(v: number): void {
 }
 
 /** World units per texture repeat for the texture brush's world-space tiling. */
+export function setTextureRepeat(mode: BrushTextureRepeat): void {
+  setTextureRepeatRaw(mode)
+}
+
+export function setTextureRegion(region: {
+  x?: number
+  y?: number
+  w?: number
+  h?: number
+  rotation?: number
+}): void {
+  const current = textureRegion()
+  // A zero-area crop would sample a single texel across the whole stroke, so
+  // the size floor is small but never zero.
+  const w = clamp(region.w ?? current.w, 0.01, 1)
+  const h = clamp(region.h ?? current.h, 0.01, 1)
+  setTextureRegionRaw({
+    // Kept inside the image: an offset past 1 - size would sample off the edge,
+    // which clamps to a smear of the border texels.
+    x: clamp(region.x ?? current.x, 0, 1 - w),
+    y: clamp(region.y ?? current.y, 0, 1 - h),
+    w,
+    h,
+    rotation: region.rotation ?? current.rotation
+  })
+}
+
+/** Back to the whole image. */
+export function resetTextureRegion(): void {
+  setTextureRegionRaw({ x: 0, y: 0, w: 1, h: 1, rotation: 0 })
+}
+
+/** True when only part of the source texture is in use. */
+export function hasTextureRegion(): boolean {
+  const r = textureRegion()
+  return r.x !== 0 || r.y !== 0 || r.w !== 1 || r.h !== 1 || r.rotation !== 0
+}
+
 export function setTextureScale(v: number): void {
-  setTextureScaleRaw(clamp(v, 0, 50))
+  const next = clamp(v, 0, 50)
+  setTextureScaleRaw(next)
+  // untrack: this setter is called from inside effects (choosing a material set
+  // picks a scale). A tracked read here would make those effects depend on the
+  // scale itself, so every slider drag would re-run them and they would set the
+  // scale straight back — the slider would appear frozen.
+  scaleByMapping[untrack(textureMapping)] = next
 }
 
 /**
@@ -461,6 +573,9 @@ export function clearFaceSelection(): void {
 
 export const brush = {
   radius,
+  sceneScale,
+  setSceneScale,
+  radiusRange,
   opacity,
   hardness,
   spacing,
@@ -470,6 +585,12 @@ export const brush = {
   setMaxAngle,
   textureScale,
   setTextureScale,
+  textureRegion,
+  setTextureRegion,
+  textureRepeat,
+  setTextureRepeat,
+  resetTextureRegion,
+  hasTextureRegion,
   color,
   setColor,
   texturePath,
@@ -525,4 +646,16 @@ export const brush = {
   materialSet,
   setMaterialSet,
   setSuppliesChannel
+}
+
+/**
+ * This module is a singleton store: every consumer holds a live binding to the
+ * functions below. A partial hot update can leave some of them bound to an
+ * older copy of the module, which surfaces as "brush.someSetter is not a
+ * function" from code that is provably correct on disk. Accepting the update
+ * and immediately invalidating turns any edit here into a full reload, which is
+ * cheap and always consistent.
+ */
+if (import.meta.hot) {
+  import.meta.hot.accept(() => import.meta.hot!.invalidate())
 }

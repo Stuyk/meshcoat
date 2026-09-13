@@ -18,6 +18,12 @@ import { createSignal } from 'solid-js'
  */
 
 const [texturePath, setTexturePathRaw] = createSignal<string | null>(null)
+/**
+ * Human-readable name for the loaded stencil. A file path carries its own name,
+ * but a clipboard paste arrives as a data URL — showing the first 40 characters
+ * of base64 in the panel header helps nobody.
+ */
+const [textureLabel, setTextureLabelRaw] = createSignal<string | null>(null)
 /** Whether the stencil is currently enabled/visible on screen. Defaults to false until stencil tool is opened. */
 const [visible, setVisibleRaw] = createSignal(false)
 /** Center of the stencil, as a fraction of canvas width/height (0-1, origin top-left, CSS convention). */
@@ -51,8 +57,9 @@ function clamp(v: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, v))
 }
 
-export function setStencilTexturePath(path: string | null): void {
+export function setStencilTexturePath(path: string | null, label?: string): void {
   setTexturePathRaw(path)
+  setTextureLabelRaw(path ? (label ?? path.split(/[/\\]/).pop() ?? 'Stencil') : null)
   if (!path) setTransformingRaw(false)
 }
 
@@ -130,6 +137,7 @@ export function stencilRect(canvasWidth: number, canvasHeight: number): {
 
 export const stencil = {
   texturePath,
+  textureLabel,
   setStencilTexturePath,
   visible,
   setStencilVisible,
@@ -153,4 +161,16 @@ export const stencil = {
   resetStencilTransform,
   stencilActive,
   stencilRect
+}
+
+/**
+ * This module is a singleton store: every consumer holds a live binding to the
+ * functions below. A partial hot update can leave some of them bound to an
+ * older copy of the module, which surfaces as "brush.someSetter is not a
+ * function" from code that is provably correct on disk. Accepting the update
+ * and immediately invalidating turns any edit here into a full reload, which is
+ * cheap and always consistent.
+ */
+if (import.meta.hot) {
+  import.meta.hot.accept(() => import.meta.hot!.invalidate())
 }

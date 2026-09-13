@@ -103,6 +103,10 @@ export interface StrokeParams {
   brushTexture?: THREE.Texture | null
   brushTipTexture?: THREE.Texture | null
   textureScale?: number
+  /** Sub-rectangle of the source texture to draw from (see brush.textureRegion). */
+  textureRegion?: { x: number; y: number; w: number; h: number; rotation: number }
+  /** How that region repeats: 'tile' (default), 'mirror', or 'once'. */
+  textureRepeat?: 'tile' | 'mirror' | 'once'
   /** true = Stamp tool (whole image projected flat, once per application); false = Texture Brush (world-space tiling). */
   stampMode?: boolean
   /** Texture mapping mode: 'uv' (straightforward) or 'triplanar' (world triplanar). */
@@ -168,6 +172,10 @@ export interface FillOptions {
   alpha?: number
   texture?: THREE.Texture | null
   scale?: number
+  /** Sub-rectangle of the source texture to draw from (see brush.textureRegion). */
+  textureRegion?: { x: number; y: number; w: number; h: number; rotation: number }
+  /** How that region repeats: 'tile' (default), 'mirror', or 'once'. */
+  textureRepeat?: 'tile' | 'mirror' | 'once'
   /** Fill PBR channels too (see channels.ts); omitted = base color only. */
   channels?: ChannelPayload
   /** Per-channel source maps for a material-set fill (see StrokeParams.channelMaps). */
@@ -713,7 +721,11 @@ export class PaintEngine {
     u.uBrushTipTexture.value = params.brushTipTexture ?? null
     u.uUseTipTexture.value = params.brushTipTexture ? 1 : 0
     u.uTextureScale.value = params.textureScale ?? 1
-    u.uStampMode.value = params.stampMode ? 1 : 0
+    this.applyTextureRegion(params.textureRegion, params.textureRepeat)
+    // 'tip' placement means one copy of the region per dab, centred and rotated
+    // with the cursor — which is exactly the stamp projection, so the brush
+    // borrows it rather than having a third code path.
+    u.uStampMode.value = params.stampMode || params.textureMapping === 'tip' ? 1 : 0
     let mappingMode = 0 // 0 = uv, 1 = triplanar
     if (params.textureMapping === 'triplanar' || params.textureMapping === 1) {
       mappingMode = 1
@@ -982,12 +994,14 @@ export class PaintEngine {
     if (channels.length === 0) return
 
     const maps = options instanceof THREE.Color ? undefined : options?.channelMaps
+    const region = options instanceof THREE.Color ? undefined : options?.textureRegion
+    const repeat = options instanceof THREE.Color ? undefined : options?.textureRepeat
     for (const channel of channels) {
       // A material-set fill goes through the textured path even when the base
       // color itself is a flat swatch, since the data channels still have maps
       // of their own to tile across the model.
       if (texture || maps?.[channel]) {
-        this.fillChannelWithTexture(channel, payload, texture, scale, alpha, null, maps)
+        this.fillChannelWithTexture(channel, payload, texture, scale, alpha, null, maps, region, repeat)
       } else {
         this.fillChannelFlat(channel, payload, alpha)
       }
@@ -1041,6 +1055,32 @@ export class PaintEngine {
    * given face selection) and, for a data channel, contributes its alpha as a
    * mask only — see the uChannelMode note in paintShader.ts.
    */
+  /**
+   * Pushes a texture crop into the shader, defaulting to the whole image. Set
+   * on every pass rather than once, because the material's uniforms are shared
+   * by strokes, fills and stamps — a crop left over from the last stroke would
+   * otherwise silently apply to an unrelated fill.
+   */
+  private applyTextureRegion(
+    region?: { x: number; y: number; w: number; h: number; rotation: number },
+    repeat?: 'tile' | 'mirror' | 'once'
+  ): void {
+    const u = this.material.uniforms
+    u.uRepeatMode.value = repeat === 'once' ? 2 : repeat === 'mirror' ? 1 : 0
+    if (region) {
+      // The picker measures y from the TOP of the image (how it is displayed
+      // and how CSS lays it out); texture space measures v from the bottom, and
+      // an image loaded with flipY puts its top row at v = 1. Converting here,
+      // once, is what keeps "the square I dragged over" and "the pixels the
+      // brush lays down" the same square rather than mirrored halves.
+      u.uTextureRegion.value.set(region.x, 1 - region.y - region.h, region.w, region.h)
+      u.uTextureRegionRotation.value = (region.rotation * Math.PI) / 180
+    } else {
+      u.uTextureRegion.value.set(0, 0, 1, 1)
+      u.uTextureRegionRotation.value = 0
+    }
+  }
+
   private fillChannelWithTexture(
     channel: PaintChannel,
     payload: ChannelPayload,
@@ -1048,7 +1088,9 @@ export class PaintEngine {
     scale: number,
     alpha: number,
     faces: ReadonlySet<number> | null,
-    maps?: ChannelMaps
+    maps?: ChannelMaps,
+    region?: { x: number; y: number; w: number; h: number; rotation: number },
+    repeat?: 'tile' | 'mirror' | 'once'
   ): void {
     const buffers = this.buf(channel)
     const u = this.material.uniforms
@@ -1066,6 +1108,7 @@ export class PaintEngine {
     u.uBrushTexture.value = texture
     u.uFillScale.value = scale
     u.uStampMode.value = 0
+    this.applyTextureRegion(region, repeat)
 
     const prevTarget = this.renderer.getRenderTarget()
     this.renderer.setRenderTarget(buffers.write)
@@ -1119,8 +1162,10 @@ export class PaintEngine {
     if (channels.length === 0) return
 
     const maps = options instanceof THREE.Color ? undefined : options?.channelMaps
+    const region = options instanceof THREE.Color ? undefined : options?.textureRegion
+    const repeat = options instanceof THREE.Color ? undefined : options?.textureRepeat
     for (const channel of channels) {
-      this.fillChannelWithTexture(channel, payload, texture, scale, alpha, faces, maps)
+      this.fillChannelWithTexture(channel, payload, texture, scale, alpha, faces, maps, region, repeat)
     }
     this._contentVersion++
   }
@@ -1147,6 +1192,12 @@ export class PaintEngine {
     const channels = new Set([...this.allocatedChannels, ...other.allocatedChannels])
     const prevAutoClear = this.renderer.autoClear
     const prevTarget = this.renderer.getRenderTarget()
+    // Transparent clear, for the same reason as copyOnto: an inherited opaque
+    // clear colour would give the merged result a solid backing.
+    const prevMergeClear = new THREE.Color()
+    this.renderer.getClearColor(prevMergeClear)
+    const prevMergeClearAlpha = this.renderer.getClearAlpha()
+    this.renderer.setClearColor(0x000000, 0)
     this.renderer.autoClear = false
     for (const channel of channels) {
       const mine = this.buf(channel)
@@ -1158,6 +1209,7 @@ export class PaintEngine {
       other.swap(channel)
     }
     this.renderer.setRenderTarget(prevTarget)
+    this.renderer.setClearColor(prevMergeClear, prevMergeClearAlpha)
     this.renderer.autoClear = prevAutoClear
     other._contentVersion++
   }
@@ -1166,6 +1218,16 @@ export class PaintEngine {
   copyOnto(other: PaintEngine): void {
     const prevAutoClear = this.renderer.autoClear
     const prevTarget = this.renderer.getRenderTarget()
+    // The destination must be cleared to TRANSPARENT, explicitly. clear() uses
+    // the renderer's current clear colour, which belongs to whatever ran last
+    // (a depth pass, a mask pass, the viewport itself) — inheriting an opaque
+    // one leaves the copy sitting on a solid sheet, since the premultiplied
+    // blend below only adds where the source has coverage. That is what made a
+    // duplicated layer look like it had filled its background.
+    const prevClear = new THREE.Color()
+    this.renderer.getClearColor(prevClear)
+    const prevClearAlpha = this.renderer.getClearAlpha()
+    this.renderer.setClearColor(0x000000, 0)
     this.renderer.autoClear = false
     for (const channel of this.allocatedChannels) {
       const mat = new THREE.MeshBasicMaterial({ map: this.buf(channel).read.texture })
@@ -1181,6 +1243,7 @@ export class PaintEngine {
       other.swap(channel)
     }
     this.renderer.setRenderTarget(prevTarget)
+    this.renderer.setClearColor(prevClear, prevClearAlpha)
     this.renderer.autoClear = prevAutoClear
     other._contentVersion++
   }
@@ -1494,6 +1557,10 @@ export interface EdgeWearParams {
   seed?: number
   texture?: THREE.Texture | null
   textureScale?: number
+  /** Sub-rectangle of the source texture to draw from (see brush.textureRegion). */
+  textureRegion?: { x: number; y: number; w: number; h: number; rotation: number }
+  /** How that region repeats: 'tile' (default), 'mirror', or 'once'. */
+  textureRepeat?: 'tile' | 'mirror' | 'once'
   textureMapping?: 'uv' | 'triplanar'
   /**
    * Which curvature population to target. 'wear' chips convex ridges and

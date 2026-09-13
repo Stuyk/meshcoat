@@ -17,6 +17,7 @@ import {
   FocusIcon,
   XIcon
 } from './icons'
+import { Kbd } from './ui'
 
 export interface StatusBarProps {
   tool: ToolMode
@@ -60,9 +61,7 @@ export default function StatusBar(props: StatusBarProps) {
             return <Icon size={12} class="text-blue-400" />
           })()}
           <span class="font-medium text-zinc-200">{currentTool().label}</span>
-          <kbd class="px-1 py-0 bg-black/40 border border-white/10 rounded font-mono text-[9px] text-zinc-400">
-            {currentTool().num}
-          </kbd>
+          <Kbd size="xs">{currentTool().num}</Kbd>
         </div>
 
         {/* Selected Faces Indicator */}
@@ -73,9 +72,7 @@ export default function StatusBar(props: StatusBarProps) {
               class="hidden sm:flex items-center gap-1 text-zinc-500"
               title="Hold Ctrl and drag to isolate faces (Ctrl+A selects all)"
             >
-              <kbd class="px-1 py-0 bg-zinc-900 border border-zinc-800 rounded font-mono text-[9px] text-zinc-400">
-                Ctrl
-              </kbd>
+              <Kbd size="xs">Ctrl</Kbd>
               <span>+Drag to isolate faces</span>
             </div>
           }
@@ -207,28 +204,35 @@ export default function StatusBar(props: StatusBarProps) {
       {/* Center Area: Camera / Navigation Shortcuts */}
       <div class="hidden md:flex items-center gap-2 text-zinc-500">
         <Show when={props.tool === 'brush' || props.tool === 'eraser' || props.tool === 'stamp'}>
-          <span>
-            <kbd class="px-1 py-0 bg-zinc-900 border border-zinc-800 rounded font-mono text-[9px] text-zinc-400">Shift</kbd>+Click Straight Line
+          <span class="inline-flex items-center gap-1">
+            <Kbd size="xs">Shift</Kbd>
+            <span>+Click Straight Line</span>
           </span>
           <span>·</span>
         </Show>
         <Show when={props.tool === 'fill'}>
-          <span>
-            <kbd class="px-1 py-0 bg-zinc-900 border border-zinc-800 rounded font-mono text-[9px] text-zinc-400">Click</kbd> Fill{' '}
-            {brush.fillMode() === 'face' ? 'Clicked Face' : props.selectedFaceCount > 0 ? 'Selection' : 'Model'}
+          <span class="inline-flex items-center gap-1">
+            <Kbd size="xs">Click</Kbd>
+            <span>
+              Fill{' '}
+              {brush.fillMode() === 'face' ? 'Clicked Face' : props.selectedFaceCount > 0 ? 'Selection' : 'Model'}
+            </span>
           </span>
           <span>·</span>
         </Show>
-        <span title="Middle Mouse Button drag or Alt+LMB drag">
-          <kbd class="px-1 py-0 bg-zinc-900 border border-zinc-800 rounded font-mono text-[9px] text-zinc-400">MMB</kbd> Orbit
+        <span class="inline-flex items-center gap-1" title="Middle Mouse Button drag or Alt+LMB drag">
+          <Kbd size="xs">MMB</Kbd>
+          <span>Orbit</span>
         </span>
         <span>·</span>
-        <span title="Shift + Middle Mouse Button drag or Alt+MMB drag">
-          <kbd class="px-1 py-0 bg-zinc-900 border border-zinc-800 rounded font-mono text-[9px] text-zinc-400">Shift</kbd>+<kbd class="px-1 py-0 bg-zinc-900 border border-zinc-800 rounded font-mono text-[9px] text-zinc-400">MMB</kbd> Pan
+        <span class="inline-flex items-center gap-1" title="Shift + Middle Mouse Button drag or Alt+MMB drag">
+          <Kbd size="xs">Shift</Kbd>+<Kbd size="xs">MMB</Kbd>
+          <span>Pan</span>
         </span>
         <span>·</span>
-        <span title="Scroll wheel or Alt+RMB drag">
-          <kbd class="px-1 py-0 bg-zinc-900 border border-zinc-800 rounded font-mono text-[9px] text-zinc-400">Wheel</kbd> Zoom
+        <span class="inline-flex items-center gap-1" title="Scroll wheel or Alt+RMB drag">
+          <Kbd size="xs">Wheel</Kbd>
+          <span>Zoom</span>
         </span>
         <span>·</span>
         <button

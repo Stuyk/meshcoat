@@ -20,7 +20,7 @@ import {
   UnlinkIcon,
   CornerDownRightIcon
 } from './icons'
-import { IconButton } from './ui'
+import { IconButton, Label, Select, TextInput } from './ui'
 
 export default function LayersTab(props: {
   getStack: () => LayerStack | undefined
@@ -73,9 +73,9 @@ export default function LayersTab(props: {
       {/* Layers Toolbar (hidden when parent provides unified header) */}
       <Show when={!props.hideHeader}>
         <div class="h-9 px-3.5 flex items-center justify-between border-b border-zinc-850 bg-zinc-900/40 flex-shrink-0">
-          <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
+          <Label uppercase>
             {layerCount()} {layerCount() === 1 ? 'Layer' : 'Layers'}
-          </span>
+          </Label>
           <IconButton
             size="xs"
             variant="ghost"
@@ -229,21 +229,21 @@ export default function LayersTab(props: {
                         }
                       >
                         <div class="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                          <input
-                            type="text"
+                          <TextInput
+                            size="xs"
                             value={editName()}
-                            onInput={(e) => setEditName(e.currentTarget.value)}
+                            onInput={(val) => setEditName(val)}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') commitEditing(layer.id)
                               if (e.key === 'Escape') setEditingId(null)
                             }}
-                            class="h-6 px-1.5 bg-zinc-950 border border-blue-500 rounded text-xs text-zinc-100 focus:outline-none w-full"
                             autofocus
+                            class="w-full"
                           />
                           <button
                             type="button"
                             onClick={() => commitEditing(layer.id)}
-                            class="p-1 text-emerald-400 hover:text-emerald-300"
+                            class="p-1 text-emerald-400 hover:text-emerald-300 cursor-pointer"
                             title="Confirm rename"
                           >
                             <CheckIcon size={13} />
@@ -271,16 +271,17 @@ export default function LayersTab(props: {
                       when={!isMaskFlag()}
                       fallback={<span class="text-[10px] font-medium text-zinc-500 w-16">Strength</span>}
                     >
-                      <select
-                        class="h-6 px-1.5 bg-zinc-950 border border-zinc-800 rounded text-[11px] text-zinc-300 focus:outline-none focus:border-blue-500 cursor-pointer w-22 truncate"
+                      <Select
+                        size="xs"
+                        class="w-24 truncate"
                         title="Blend mode"
                         value={blendMode()}
-                        onChange={(e) => run((s) => s.setBlendMode(layer.id, e.currentTarget.value as BlendMode))}
+                        onChange={(val) => run((s) => s.setBlendMode(layer.id, val as BlendMode))}
                       >
                         <For each={BLEND_MODES}>
                           {(mode) => <option value={mode}>{BLEND_MODE_LABELS[mode]}</option>}
                         </For>
-                      </select>
+                      </Select>
                     </Show>
 
                     <input

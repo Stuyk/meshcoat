@@ -1,4 +1,5 @@
 import { type JSX } from 'solid-js'
+import Kbd from './Kbd'
 
 export interface ButtonProps {
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'outline'
@@ -42,9 +43,9 @@ export default function Button(props: ButtonProps) {
     >
       {props.children}
       {props.shortcut && (
-        <kbd class="ml-1.5 px-1 py-0.2 rounded bg-black/25 border border-white/10 font-mono text-[10px] text-zinc-400 uppercase">
-          {props.shortcut}
-        </kbd>
+        <span class="ml-1.5">
+          <Kbd size="xs">{props.shortcut}</Kbd>
+        </span>
       )}
     </button>
   )

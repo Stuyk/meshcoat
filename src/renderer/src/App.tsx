@@ -13,7 +13,7 @@ import LayersTab from './components/LayersTab'
 import type { LayerStack } from './paint/layers'
 import BrushSettingsTab from './components/BrushSettingsTab'
 import type { LightingMode } from './viewport/scene'
-import { DropdownMenu, IconButton, SegmentedControl, Toast, type MenuItem, type ToastData } from './components/ui'
+import { DropdownMenu, IconButton, SegmentedControl, Toast, Label, type MenuItem, type ToastData } from './components/ui'
 
 // Lazy-loaded modals
 const HelpModal = lazy(() => import('./components/HelpModal'))
@@ -54,13 +54,18 @@ import {
   CubeIcon,
   ChevronDownIcon,
   CheckIcon,
+  PanelRightIcon,
   EyeOffIcon
 } from './components/icons'
-import MaterialTextureHUD from './components/MaterialTextureHUD'
-import StencilHUD from './components/StencilHUD'
-import EffectHUD from './components/EffectHUD'
+import ToolPanelDock from './components/ToolPanelDock'
 import { EFFECT_MODES, EFFECT_MODE_LABELS } from './paint/effectShader'
-import { stencil, setStencilVisible, setStencilTransforming } from './paint/stencil'
+import {
+  stencil,
+  setStencilVisible,
+  setStencilTransforming,
+  setStencilTexturePath,
+  resetStencilTransform
+} from './paint/stencil'
 import {
   brush,
   setTexturePath,
@@ -104,8 +109,16 @@ export default function App() {
   const [layersVersion, setLayersVersion] = createSignal(0)
   const [piecesVersion, setPiecesVersion] = createSignal(0)
   const [showStencilPanel, setShowStencilPanel] = createSignal(false)
-  const [showEffectHUD, setShowEffectHUD] = createSignal(true)
+
+  /** The docked tool-panel column beside the brush settings. */
+  const [showPanelDock, setShowPanelDock] = createSignal(true)
   const [showExportWizard, setShowExportWizard] = createSignal(false)
+
+  createEffect(() => {
+    // Picking a texture makes the material and crop panels relevant, so make
+    // sure the dock they live in is actually on screen.
+    if (brush.texturePath()) setShowPanelDock(true)
+  })
 
   createEffect(() => {
     const show = showStencilPanel()
@@ -141,6 +154,7 @@ export default function App() {
   const [toast, setToast] = createSignal<ToastData | null>(null)
   const [showFileMenu, setShowFileMenu] = createSignal(false)
   const [showEditMenu, setShowEditMenu] = createSignal(false)
+  const [showPanelMenu, setShowPanelMenu] = createSignal(false)
   const [showPieceMenu, setShowPieceMenu] = createSignal(false)
   const [showEdgeWearWizard, setShowEdgeWearWizard] = createSignal(false)
   const [modelName, setModelName] = createSignal('Default Model')
@@ -568,6 +582,23 @@ export default function App() {
         setShowStartWizard(true)
         return
       }
+      // Ctrl+V pastes a clipboard image straight into the stencil, but only
+      // while that panel is open — anywhere else it stays the browser's paste.
+      if (e.key.toLowerCase() === 'v' && showStencilPanel()) {
+        e.preventDefault()
+        void (async () => {
+          const image = await window.api.readClipboardImage()
+          if (!image) {
+            showToast('No image on the clipboard — copy one first', 'warning')
+            return
+          }
+          setStencilTexturePath(image.dataUrl, `Clipboard ${image.width}x${image.height}`)
+          resetStencilTransform()
+          setStencilTransforming(true)
+          showToast(`Stencil pasted from clipboard (${image.width}x${image.height})`, 'success')
+        })()
+        return
+      }
       if (e.key.toLowerCase() === 'o') {
         e.preventDefault()
         void handleBrowseAndOpenModel()
@@ -642,11 +673,10 @@ export default function App() {
         if (activeTool() === 'effect') {
           const nextMode = EFFECT_MODES[(EFFECT_MODES.indexOf(brush.effectMode()) + 1) % EFFECT_MODES.length]
           brush.setEffectMode(nextMode)
-          setShowEffectHUD(true)
           showToast(`Effect: ${EFFECT_MODE_LABELS[nextMode]}`, 'info', 1000)
         } else {
           setActiveTool('effect')
-          setShowEffectHUD(true)
+          setShowPanelDock(true)
         }
         break
       case 's': {
@@ -692,6 +722,14 @@ export default function App() {
           showToast('Switched to Solid Color mode', 'info')
         } else {
           showToast('Solid Color active', 'info')
+        }
+        break
+      }
+      case 'c': {
+        if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+          const next = !showPanelDock()
+          setShowPanelDock(next)
+          showToast(next ? 'Tool panels shown' : 'Tool panels hidden', 'info')
         }
         break
       }
@@ -777,6 +815,39 @@ export default function App() {
       document.title = `${dirtyPrefix}${modelName()} — MeshCoat`
     }
   })
+
+  /**
+   * Every floating panel, with a tick next to the ones on screen. Each of these
+   * has a close button of its own, and before this menu existed closing one was
+   * a one-way door — nothing in the UI could bring it back.
+   */
+  /**
+   * The dock holds every tool panel now, so this menu is about the dock itself
+   * plus the one panel that is a mode as well as a panel (the stencil).
+   */
+  const panelMenuItems = (): MenuItem[] => [
+    { type: 'header', label: 'Workspace' },
+    {
+      label: showPanelDock() ? 'Hide Tool Panels' : 'Show Tool Panels',
+      shortcut: 'C',
+      icon: (p) => <PanelRightIcon size={p.size} class="text-blue-400" />,
+      onClick: () => {
+        setShowPanelDock((v) => !v)
+        setShowPanelMenu(false)
+      }
+    },
+    {
+      label: showStencilPanel() ? 'Disable Screen Stencil' : 'Enable Screen Stencil',
+      shortcut: 'S',
+      icon: (p) => (showStencilPanel() ? <CheckIcon size={p.size} class="text-teal-400" /> : <span />),
+      onClick: () => {
+        const next = !showStencilPanel()
+        setShowStencilPanel(next)
+        if (next) setShowPanelDock(true)
+        setShowPanelMenu(false)
+      }
+    }
+  ]
 
   const fileMenuItems = (): MenuItem[] => [
     {
@@ -886,7 +957,7 @@ export default function App() {
   return (
     <div class="flex flex-col h-screen w-screen bg-zinc-950 text-zinc-100 select-none overflow-hidden font-sans">
       {/* Top Application Header */}
-      <header class="h-11 min-h-11 px-3.5 bg-zinc-950 border-b border-zinc-850 flex items-center justify-between select-none z-30 flex-shrink-0">
+      <header class="h-11 min-h-11 px-3.5 bg-zinc-950 border-b border-zinc-850 flex items-center justify-between select-none z-50 flex-shrink-0">
         <div class="flex items-center gap-3 min-w-0">
           {/* App Branding & Document Title */}
           <div class="flex items-center gap-2 pr-3 border-r border-zinc-800 min-w-0">
@@ -950,6 +1021,30 @@ export default function App() {
                 items={editMenuItems()}
               />
             </div>
+
+            {/* Panels Menu — the way back for any floating panel that was closed */}
+            <div class="relative">
+              <button
+                type="button"
+                class={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
+                  showPanelMenu()
+                    ? 'bg-zinc-800 text-zinc-100'
+                    : 'text-zinc-300 hover:text-zinc-100 hover:bg-zinc-900'
+                }`}
+                onClick={() => {
+                  setShowPanelMenu((v) => !v)
+                  setShowFileMenu(false)
+                  setShowEditMenu(false)
+                }}
+              >
+                Panels
+              </button>
+              <DropdownMenu
+                isOpen={showPanelMenu()}
+                onClose={() => setShowPanelMenu(false)}
+                items={panelMenuItems()}
+              />
+            </div>
           </div>
         </div>
 
@@ -974,6 +1069,17 @@ export default function App() {
           />
 
           <div class="w-px h-4 bg-zinc-800 mx-0.5" />
+
+          {/* Tool panel dock toggle — the slide-out column beside the brush
+              settings that holds every tool panel. */}
+          <IconButton
+            size="sm"
+            active={showPanelDock()}
+            onClick={() => setShowPanelDock((v) => !v)}
+            title="Toggle tool panels (C)"
+          >
+            <PanelRightIcon size={16} />
+          </IconButton>
 
           {/* Wireframe Button */}
           <IconButton
@@ -1124,12 +1230,8 @@ export default function App() {
             size="md"
             active={activeTool() === 'effect'}
             onClick={() => {
-              if (activeTool() === 'effect') {
-                setShowEffectHUD((v) => !v)
-              } else {
-                setActiveTool('effect')
-                setShowEffectHUD(true)
-              }
+              setActiveTool('effect')
+              setShowPanelDock(true)
             }}
             shortcut="U"
             title="Effects Brush — Blur / Sharpen / Smudge / Pixelate (U)"
@@ -1143,7 +1245,11 @@ export default function App() {
           <IconButton
             size="md"
             active={showStencilPanel()}
-            onClick={() => setShowStencilPanel((v) => !v)}
+            onClick={() => {
+              const next = !showStencilPanel()
+              setShowStencilPanel(next)
+              if (next) setShowPanelDock(true)
+            }}
             shortcut="S"
             title="Screen Stencil (S)"
             class="relative"
@@ -1251,37 +1357,28 @@ export default function App() {
             onIsolatePieceChanged={setIsolatePieceSignal}
           />
 
-          {/* Floating Material Texture HUD Card (bottom-right of viewport) */}
-          <MaterialTextureHUD
-            activeTool={activeTool()}
-            isMaskTarget={() => {
-              void layersVersion()
-              return !!viewportHandle?.getLayerStack()?.active?.isMask
-            }}
-          />
-
-          {/* Floating Effect Brush HUD Card (bottom-right of viewport) */}
-          <EffectHUD
-            activeTool={activeTool()}
-            isOpen={showEffectHUD()}
-            onClose={() => setShowEffectHUD(false)}
-          />
-
-          {/* Screen Stencil panel, anchored to the left toolbar that opens it */}
-          <Show when={showStencilPanel()}>
-            <StencilHUD
-              onStamp={() => viewportHandle?.stampStencil() ?? false}
-              onClose={() => setShowStencilPanel(false)}
-              onToast={showToast}
-              textures={textures()}
-            />
-          </Show>
-
           {/* Floating Toast Notification */}
           <Toast toast={toast()} onClose={() => setToast(null)} />
         </main>
 
         {/* Right Sidebar Inspector */}
+        {/* Tool panel dock: everything that used to float over the viewport,
+            in one column that slides out beside the brush settings. */}
+        <Show when={showPanelDock()}>
+          <div class="w-[300px] min-w-[300px] max-w-[300px] h-full z-20 flex-shrink-0 animate-in slide-in-from-right-4 duration-150">
+            <ToolPanelDock
+              activeTool={activeTool()}
+              textures={textures()}
+              isMaskTarget={() => {
+                void layersVersion()
+                return !!viewportHandle?.getLayerStack()?.active?.isMask
+              }}
+              onStamp={() => viewportHandle?.stampStencil() ?? false}
+              onToast={showToast}
+            />
+          </div>
+        </Show>
+
         <aside class="w-[320px] min-w-[320px] max-w-[320px] h-full bg-zinc-900 border-l border-zinc-800 flex flex-col select-none z-20 flex-shrink-0">
           <Show
             when={!showEdgeWearWizard()}
@@ -1313,7 +1410,7 @@ export default function App() {
             <div class="flex-1 overflow-y-auto border-b border-zinc-800">
               <div class="h-9 px-3.5 flex items-center gap-2 border-b border-zinc-800 bg-zinc-850/50">
                 <SlidersIcon size={15} class="text-blue-400" />
-                <span class="text-xs font-semibold text-zinc-200 tracking-tight">Brush Settings</span>
+                <Label uppercase>Brush Settings</Label>
               </div>
               <BrushSettingsTab
                 activeTool={activeTool()}
@@ -1332,10 +1429,7 @@ export default function App() {
               <div class="h-9 px-3.5 flex items-center justify-between border-b border-zinc-800 bg-zinc-850/50 flex-shrink-0">
                 <div class="flex items-center gap-2">
                   <LayersIcon size={15} class="text-purple-400" />
-                  <span class="text-xs font-semibold text-zinc-200 tracking-tight">Layers</span>
-                  <span class="px-1.5 py-0.2 rounded bg-zinc-800 border border-zinc-700/60 font-mono text-[10px] text-zinc-400 tabular-nums">
-                    {currentLayerCount()}
-                  </span>
+                  <Label uppercase badge={currentLayerCount()}>Layers</Label>
                 </div>
                 <IconButton
                   size="xs"

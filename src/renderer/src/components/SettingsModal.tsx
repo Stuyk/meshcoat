@@ -1,5 +1,5 @@
 import { createSignal, createEffect, Show } from 'solid-js'
-import { Modal, Button, Badge } from './ui'
+import { Modal, Button, Badge, Label, TextInput } from './ui'
 import { SettingsIcon, FolderOpenIcon, CheckIcon, XIcon, RefreshCwIcon } from './icons'
 
 export interface SettingsModalProps {
@@ -190,14 +190,15 @@ export default function SettingsModal(props: SettingsModalProps) {
 
           {/* Current Path & Config Input */}
           <div class="flex flex-col gap-1.5 pt-1">
-            <label class="text-[11px] font-medium text-zinc-300">Blender Executable Location</label>
+            <Label>Blender Executable Location</Label>
             <div class="flex items-center gap-2">
-              <input
-                type="text"
+              <TextInput
                 value={blenderPath()}
-                onInput={(e) => setBlenderPath(e.currentTarget.value)}
+                onInput={setBlenderPath}
                 placeholder="/usr/bin/blender or C:\Program Files\Blender Foundation\Blender\blender.exe"
-                class="flex-1 px-3 py-1.5 rounded-lg bg-zinc-950/70 border border-zinc-800 text-xs text-zinc-200 font-mono placeholder:text-zinc-600 focus:outline-none focus:border-blue-500/80"
+                mono
+                size="sm"
+                class="flex-1"
               />
               <Button
                 variant="secondary"
@@ -250,10 +251,10 @@ export default function SettingsModal(props: SettingsModalProps) {
         </div>
 
         {/* 2. Format Capabilities Summary */}
-        <div class="flex flex-col gap-2 p-3.5 rounded-xl border border-zinc-800 bg-zinc-950/40">
-          <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
+        <div class="flex flex-col gap-2.5 p-3.5 rounded-xl border border-zinc-800 bg-zinc-950/40">
+          <Label uppercase>
             Supported 3D Model Formats
-          </span>
+          </Label>
           <div class="grid grid-cols-2 gap-2 text-xs text-zinc-300">
             <div class="flex items-center gap-2 p-2 rounded-lg bg-zinc-900/40 border border-zinc-850">
               <span class="font-mono text-blue-400 font-semibold">.glb / .gltf</span>

@@ -12,7 +12,8 @@ import {
   ImagesIcon,
   LayersIcon,
   FolderIcon,
-  CopyIcon
+  CopyIcon,
+  ChevronDownIcon
 } from './icons'
 import { DEFAULT_TEXTURE_SIZE, type TextureSize } from '../paint/paintEngine'
 import { parseChannelSuffix } from '../paint/materialSets'
@@ -51,6 +52,7 @@ export interface StartWizardModalProps {
 
 export default function StartWizardModal(props: StartWizardModalProps) {
   const [activeTab, setActiveTab] = createSignal<WizardTab>('model')
+  const [showAdvanced, setShowAdvanced] = createSignal(false)
   const [modelPath, setModelPath] = createSignal<string | null>(null)
 
   // Multi-component inspection
@@ -591,9 +593,21 @@ export default function StartWizardModal(props: StartWizardModalProps) {
             <Button variant="ghost" onClick={handleUserClose} disabled={isLoading()} class="text-xs">
               Close
             </Button>
-            <Show when={activeTab() === 'model' && modelPath()}>
-              <Button variant="primary" onClick={handleOpenModel} disabled={isLoading()} class="text-xs font-medium">
-                {isLoading() ? 'Importing Model...' : 'Import Model & Start Painting'}
+            <Show when={activeTab() === 'model'}>
+              <Button
+                variant="primary"
+                onClick={handleOpenModel}
+                disabled={!modelPath() || isLoading()}
+                class="text-xs font-medium"
+              >
+                <CubeIcon size={14} />
+                <span>
+                  {isLoading()
+                    ? 'Importing Model...'
+                    : modelPath()
+                      ? `Import ${modelFilename()} & Start Painting`
+                      : 'Choose a 3D Model to Proceed'}
+                </span>
               </Button>
             </Show>
           </div>
@@ -786,11 +800,61 @@ export default function StartWizardModal(props: StartWizardModalProps) {
               </Show>
             </div>
 
+            {/* Step 2: Canvas Resolution */}
+            <div class="flex flex-col gap-1.5 p-3 rounded-xl border border-zinc-800 bg-zinc-900/40">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-semibold text-zinc-200">2. Canvas Resolution</span>
+                <span class="text-[10px] text-zinc-500">Affects layer detail & VRAM usage</span>
+              </div>
+              <div class="grid grid-cols-4 gap-1.5">
+                {([1024, 2048, 4096, 8192] as TextureSize[]).map((sz) => {
+                  const isSelected = () => textureSize() === sz
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => setTextureSize(sz)}
+                      class={`flex flex-col items-center justify-center p-2 rounded-lg border text-center transition-all cursor-pointer ${
+                        isSelected()
+                          ? 'bg-blue-600/20 border-blue-500 text-blue-400 font-semibold shadow-sm'
+                          : 'bg-zinc-950/40 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/40'
+                      }`}
+                    >
+                      <span class="text-xs font-mono">{SIZE_DESCRIPTIONS[sz].label}</span>
+                      <span class="text-[9px] text-zinc-500 truncate">{SIZE_DESCRIPTIONS[sz].desc}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Advanced import options.
+                Collapsed by default: the common path is "pick a model, pick a
+                resolution, go", and a wall of channel slots in front of that
+                implies decisions a new user does not have to make. Anyone
+                bringing existing maps along knows to look for them. */}
+            <div class="flex flex-col gap-3">
+              <button
+                type="button"
+                onClick={() => setShowAdvanced((v) => !v)}
+                class="flex items-center gap-2 text-[11px] font-medium text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer"
+              >
+                <span class={`transition-transform ${showAdvanced() ? '' : '-rotate-90'}`}>
+                  <ChevronDownIcon size={13} />
+                </span>
+                <span>Advanced — existing PBR maps, per-component mapping, texture shelf</span>
+                <Show when={configuredPbrCount() > 0}>
+                  <span class="px-1.5 py-0.5 rounded bg-blue-600/20 border border-blue-500/40 text-[10px] text-blue-300">
+                    {configuredPbrCount()} map{configuredPbrCount() === 1 ? '' : 's'}
+                  </span>
+                </Show>
+              </button>
+
+              <Show when={showAdvanced()}>
             {/* Step 2: PBR Texture Channels & Multi-Component Mapping */}
             <div class="flex flex-col gap-3 p-3.5 rounded-xl border border-zinc-800 bg-zinc-900/40">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
-                  <span class="text-xs font-semibold text-zinc-200">2. PBR Channel Textures</span>
+                  <span class="text-xs font-semibold text-zinc-200">Existing PBR Maps</span>
                   <span class="text-[10px] text-zinc-500">(Base layer map assignments)</span>
                 </div>
                 <Show when={configuredPbrCount() > 0}>
@@ -1162,11 +1226,10 @@ export default function StartWizardModal(props: StartWizardModalProps) {
                 </div>
               </div>
             </div>
-
             {/* Step 3: Texture Library Folder (Optional Preload) */}
             <div class="flex flex-col gap-1.5 p-3 rounded-xl border border-zinc-800 bg-zinc-900/40">
               <div class="flex items-center justify-between">
-                <span class="text-xs font-semibold text-zinc-200">3. Preload Texture Shelf Folder</span>
+                <span class="text-xs font-semibold text-zinc-200">Preload Texture Shelf Folder</span>
                 <span class="text-[10px] text-zinc-500">Optional brush texture stamps</span>
               </div>
               <Show
@@ -1185,10 +1248,9 @@ export default function StartWizardModal(props: StartWizardModalProps) {
                 <div class="flex items-center justify-between p-2 rounded-lg bg-zinc-950/60 border border-zinc-800">
                   <div class="flex items-center gap-2 min-w-0">
                     <FolderIcon size={14} class="text-amber-400 shrink-0" />
+                    {/* Folder name only: the full path is long, wraps the row
+                        and tells the artist nothing they don't already know. */}
                     <span class="text-xs font-medium text-zinc-200 truncate">{folderDisplayName()}</span>
-                    <span class="text-[10px] text-zinc-500 truncate" title={textureFolderPath() || ''}>
-                      {textureFolderPath()}
-                    </span>
                   </div>
                   <div class="flex items-center gap-1 shrink-0">
                     <Button variant="ghost" size="xs" onClick={browseTextureFolder}>
@@ -1205,52 +1267,9 @@ export default function StartWizardModal(props: StartWizardModalProps) {
                 </div>
               </Show>
             </div>
-
-            {/* Step 4: Canvas Resolution */}
-            <div class="flex flex-col gap-1.5 p-3 rounded-xl border border-zinc-800 bg-zinc-900/40">
-              <div class="flex items-center justify-between">
-                <span class="text-xs font-semibold text-zinc-200">4. Canvas Resolution</span>
-                <span class="text-[10px] text-zinc-500">Affects layer detail & VRAM usage</span>
-              </div>
-              <div class="grid grid-cols-4 gap-1.5">
-                {([1024, 2048, 4096, 8192] as TextureSize[]).map((sz) => {
-                  const isSelected = () => textureSize() === sz
-                  return (
-                    <button
-                      type="button"
-                      onClick={() => setTextureSize(sz)}
-                      class={`flex flex-col items-center justify-center p-2 rounded-lg border text-center transition-all cursor-pointer ${
-                        isSelected()
-                          ? 'bg-blue-600/20 border-blue-500 text-blue-400 font-semibold shadow-sm'
-                          : 'bg-zinc-950/40 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/40'
-                      }`}
-                    >
-                      <span class="text-xs font-mono">{SIZE_DESCRIPTIONS[sz].label}</span>
-                      <span class="text-[9px] text-zinc-500 truncate">{SIZE_DESCRIPTIONS[sz].desc}</span>
-                    </button>
-                  )
-                })}
-              </div>
+              </Show>
             </div>
 
-            {/* Import & Start CTA */}
-            <div class="pt-1">
-              <Button
-                variant="primary"
-                onClick={handleOpenModel}
-                disabled={!modelPath() || isLoading()}
-                class="w-full justify-center h-10 text-xs font-semibold shadow-md"
-              >
-                <CubeIcon size={15} />
-                <span>
-                  {isLoading()
-                    ? 'Importing Model & Baking Textures...'
-                    : modelPath()
-                      ? `Import ${modelFilename()} & Start Painting`
-                      : 'Choose a 3D Model to Proceed'}
-                </span>
-              </Button>
-            </div>
           </div>
         </Show>
 

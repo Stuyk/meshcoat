@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, protocol, nativeImage, net } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, protocol, nativeImage, net, clipboard } from 'electron'
 import { join, extname } from 'path'
 import { pathToFileURL } from 'url'
 import { readdir, writeFile, readFile } from 'fs/promises'
@@ -222,6 +222,19 @@ app.whenReady().then(() => {
   ipcMain.handle('project:clear-recent', () => {
     clearRecentProjects()
     return []
+  })
+
+  /**
+   * Reads an image off the system clipboard as a PNG data URL, for the stencil's
+   * paste action. Returns null when the clipboard holds no image at all (text,
+   * files, or empty) — nativeImage gives back an empty image rather than
+   * throwing, so emptiness is what has to be checked.
+   */
+  ipcMain.handle('clipboard:read-image', () => {
+    const image = clipboard.readImage()
+    if (!image || image.isEmpty()) return null
+    const { width, height } = image.getSize()
+    return { dataUrl: image.toDataURL(), width, height }
   })
 
   ipcMain.handle('blender:detect', async () => {

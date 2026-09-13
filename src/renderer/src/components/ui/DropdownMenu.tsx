@@ -1,5 +1,6 @@
 import { Show, For, type JSX } from 'solid-js'
 import { ChevronRightIcon } from '../icons'
+import Kbd from './Kbd'
 
 export interface MenuItem {
   type?: 'item' | 'divider' | 'header'
@@ -68,9 +69,9 @@ function MenuList(props: { items: MenuItem[]; onClose: () => void }) {
                 when={hasSubmenu()}
                 fallback={
                   <Show when={item.shortcut}>
-                    <kbd class="ml-auto pl-5 font-mono text-[10px] text-zinc-400 group-hover:text-blue-100 whitespace-nowrap shrink-0">
-                      {item.shortcut}
-                    </kbd>
+                    <span class="ml-auto pl-5 shrink-0">
+                      <Kbd size="xs">{item.shortcut}</Kbd>
+                    </span>
                   </Show>
                 }
               >

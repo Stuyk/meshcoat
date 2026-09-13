@@ -1,7 +1,7 @@
 import { For, Show, type JSX } from 'solid-js'
 import { brush } from '../paint/brush'
 import { CHANNEL_SPECS, PAINT_CHANNELS, type PaintChannel } from '../paint/channels'
-import { PanelSection, Slider } from './ui'
+import { PanelSection, Slider, Label } from './ui'
 import { SparklesIcon, CircleDotIcon, FeatherIcon, CheckIcon } from './icons'
 
 /** Distinct accent colors per channel for quick recognition. */
@@ -74,9 +74,7 @@ export default function MaterialChannelsPanel(props: MaterialChannelsPanelProps)
 
         {/* Channel toggles grid */}
         <div class="space-y-1.5">
-          <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
-            Active Channels
-          </span>
+          <Label uppercase>Active Channels</Label>
           <div class="grid grid-cols-2 gap-1.5">
             <For each={PAINT_CHANNELS}>
               {(channel) => {

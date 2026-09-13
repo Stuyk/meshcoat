@@ -29,7 +29,7 @@ import {
   RefreshCwIcon,
   DropletsIcon
 } from './icons'
-import { PanelSection, Slider, Button, IconButton, ColorPicker } from './ui'
+import { PanelSection, Slider, Button, IconButton, ColorPicker, Label, Select, ToggleSwitch, ColorSwatch, Kbd } from './ui'
 import { toAssetUrl } from '../utils/assetUrl'
 import {
   PALETTE_PRESETS,
@@ -42,12 +42,16 @@ import {
 import { normalizeHex } from '../utils/colorUtils'
 import MaterialChannelsPanel from './MaterialChannelsPanel'
 
-const RADIUS_PRESETS = [
-  { label: 'Fine', value: 0.05 },
-  { label: 'Sm', value: 0.15 },
-  { label: 'Med', value: 0.3 },
-  { label: 'Lg', value: 0.6 },
-  { label: 'XL', value: 1.2 }
+/**
+ * Radius presets are fractions of the model's own size, not fixed world units:
+ * "Medium" has to mean the same thing on a gemstone and on a building.
+ */
+const RADIUS_PRESET_FRACTIONS = [
+  { label: 'Fine', fraction: 0.025 },
+  { label: 'Sm', fraction: 0.075 },
+  { label: 'Med', fraction: 0.15 },
+  { label: 'Lg', fraction: 0.3 },
+  { label: 'XL', fraction: 0.6 }
 ]
 
 const OPACITY_PRESETS = [
@@ -183,7 +187,7 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
             <span>Editing Layer Mask</span>
           </div>
           <p class="text-[11px] text-zinc-400 leading-tight">
-            White reveals the layer, Black hides it. Press <kbd class="px-1 py-0.2 rounded bg-zinc-800 border border-zinc-700 font-mono text-zinc-300">X</kbd> to swap.
+            White reveals the layer, Black hides it. Press <Kbd size="xs">X</Kbd> to swap.
           </p>
         </div>
       </Show>
@@ -349,10 +353,7 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
           {/* Saved Colors ("My Swatches") */}
           <div class="flex flex-col gap-2 pt-1 border-t border-zinc-800/80">
             <div class="flex items-center justify-between">
-              <div class="flex items-center gap-1.5 text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
-                <span>Saved Colors</span>
-                <span class="text-[10px] text-zinc-500 font-mono">({savedSwatches().length})</span>
-              </div>
+              <Label uppercase badge={savedSwatches().length}>Saved Colors</Label>
               <div class="flex items-center gap-1">
                 <button
                   type="button"
@@ -388,30 +389,17 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
                   {(hex, idx) => {
                     const isActive = () => brush.color().toLowerCase() === hex.toLowerCase()
                     return (
-                      <button
-                        type="button"
-                        class={`group relative w-full aspect-square rounded-full border transition-all cursor-pointer ${
-                          isActive()
-                            ? 'ring-2 ring-blue-500 ring-offset-1 ring-offset-zinc-950 border-white scale-110 z-10 shadow-xs'
-                            : 'border-white/15 hover:scale-110 hover:border-white/40'
-                        }`}
-                        style={{ 'background-color': hex }}
+                      <ColorSwatch
+                        color={hex}
+                        active={isActive()}
                         onClick={() => brush.setColor(hex)}
                         onContextMenu={(e) => {
                           e.preventDefault()
                           handleRemoveSavedColor(idx(), e)
                         }}
+                        onRemove={(e) => handleRemoveSavedColor(idx(), e)}
                         title={`${hex.toUpperCase()} (Right-click to remove)`}
-                      >
-                        {/* Hover Delete Button */}
-                        <span
-                          onClick={(e) => handleRemoveSavedColor(idx(), e)}
-                          title="Remove color"
-                          class="opacity-0 group-hover:opacity-100 absolute -top-1 -right-1 w-3 h-3 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-400 hover:text-red-400 hover:border-red-500/50 flex items-center justify-center transition-opacity shadow-xs"
-                        >
-                          <XIcon size={8} />
-                        </span>
-                      </button>
+                      />
                     )
                   }}
                 </For>
@@ -422,18 +410,16 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
           {/* Preset Palettes ("Load Palette") */}
           <div class="flex flex-col gap-2 pt-2 border-t border-zinc-800/80">
             <div class="flex items-center justify-between">
-              <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
-                Preset Palette
-              </span>
-              <select
+              <Label uppercase>Preset Palette</Label>
+              <Select
+                size="xs"
                 value={activePresetId()}
-                onChange={(e) => setActivePresetId(e.currentTarget.value)}
-                class="bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 rounded px-2 py-0.5 text-xs text-zinc-200 outline-hidden cursor-pointer"
+                onChange={(val) => setActivePresetId(val)}
               >
                 <For each={PALETTE_PRESETS}>
                   {(preset) => <option value={preset.id}>{preset.name}</option>}
                 </For>
-              </select>
+              </Select>
             </div>
 
             {/* Selected Preset Description */}
@@ -447,16 +433,10 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
                 {(hex) => {
                   const isActive = () => brush.color().toLowerCase() === hex.toLowerCase()
                   return (
-                    <button
-                      type="button"
-                      class={`w-full aspect-square rounded-full border transition-all cursor-pointer ${
-                        isActive()
-                          ? 'ring-2 ring-blue-500 ring-offset-1 ring-offset-zinc-950 border-white scale-110 z-10 shadow-xs'
-                          : 'border-white/15 hover:scale-110 hover:border-white/40'
-                      }`}
-                      style={{ 'background-color': hex }}
+                    <ColorSwatch
+                      color={hex}
+                      active={isActive()}
                       onClick={() => brush.setColor(hex)}
-                      title={hex.toUpperCase()}
                     />
                   )
                 }}
@@ -524,9 +504,7 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
           icon={(p) => <DropletsIcon size={p.size} class="text-teal-400" />}
         >
           <div class="space-y-1.5">
-            <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
-              Mode
-            </span>
+            <Label uppercase>Mode</Label>
             <div class="grid grid-cols-2 gap-1.5">
               <For each={EFFECT_MODES}>
                 {(mode) => (
@@ -603,21 +581,28 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
 
       {/* Stroke Dynamics Section */}
       <PanelSection
-        title="Stroke Dynamics"
+        title={props.activeTool === 'fill' ? 'Fill Settings' : 'Stroke Dynamics'}
         icon={(p) => <SlidersHorizontalIcon size={p.size} class="text-blue-400" />}
       >
-        {/* Radius / Size */}
-        <Slider
-          label="Radius / Size"
-          value={brush.radius()}
-          min={0.01}
-          max={2}
-          step={0.01}
-          onChange={(v) => setRadius(v)}
-          displayValue={(v) => v.toFixed(2)}
-          presets={RADIUS_PRESETS}
-          icon={(p) => <CircleDotIcon size={p.size} />}
-        />
+        {/* Radius / Size. The bucket is a point-and-click tool: it fills the
+            model, a face selection or one clicked face, none of which a radius
+            has any say in — so the whole dab geometry group is hidden for it. */}
+        <Show when={props.activeTool !== 'fill'}>
+          <Slider
+            label="Radius / Size"
+            value={brush.radius()}
+            min={brush.radiusRange().min}
+            max={brush.radiusRange().max}
+            step={brush.radiusRange().max / 200}
+            onChange={(v) => setRadius(v)}
+            displayValue={(v) => (v < 0.1 ? v.toFixed(3) : v.toFixed(2))}
+            presets={RADIUS_PRESET_FRACTIONS.map((p) => ({
+              label: p.label,
+              value: brush.sceneScale() * p.fraction
+            }))}
+            icon={(p) => <CircleDotIcon size={p.size} />}
+          />
+        </Show>
 
         {/* Opacity / Flow */}
         <Slider
@@ -633,6 +618,7 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
         />
 
         {/* Hardness (Falloff) */}
+        <Show when={props.activeTool !== 'fill'}>
         <Slider
           label="Hardness (Falloff)"
           value={brush.hardness()}
@@ -644,14 +630,17 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
           presets={HARDNESS_PRESETS}
           icon={(p) => <FeatherIcon size={p.size} />}
         />
+        </Show>
 
+        {/* Everything below shapes a DAB — pressure, spacing, tip rotation,
+            jitter. A bucket fill has no dab: it floods the model, the face
+            selection or one clicked face, so none of it applies. */}
+        <Show when={props.activeTool !== 'fill'}>
         {/* Stylus pressure mapping. PointerEvent.pressure is 0.5 on a mouse and
             0 when nothing is pressed, so these toggles are inert without a
             real tablet — no need to hide them per input device. */}
         <div class="space-y-1.5 pt-1">
-          <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
-            Stylus Pressure
-          </span>
+          <Label uppercase>Stylus Pressure</Label>
           <div class="flex items-center gap-2">
             <button
               type="button"
@@ -759,22 +748,13 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
         />
 
         {/* Follow Stroke Direction Toggle */}
-        <button
-          type="button"
-          onClick={() => brush.setAngleFollowStroke(!brush.angleFollowStroke())}
-          class={`flex items-center justify-between w-full p-2.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
-            brush.angleFollowStroke()
-              ? 'bg-blue-600/20 text-blue-300 border-blue-500/50'
-              : 'bg-zinc-950/40 text-zinc-400 hover:text-zinc-200 border-zinc-800'
-          }`}
+        <ToggleSwitch
+          checked={brush.angleFollowStroke()}
+          onChange={(val) => brush.setAngleFollowStroke(val)}
+          label="Follow Stroke Direction"
+          icon={(p) => <RotateIcon size={p.size} />}
           title="Automatically rotates brush tip along stroke path"
-        >
-          <div class="flex items-center gap-2">
-            <RotateIcon size={14} class="text-blue-400" />
-            <span>Follow Stroke Direction</span>
-          </div>
-          <span class={`w-2 h-2 rounded-full ${brush.angleFollowStroke() ? 'bg-blue-400' : 'bg-zinc-600'}`} />
-        </button>
+        />
 
         {/* Jitter Controls */}
         <Slider
@@ -796,6 +776,7 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
           onChange={(v) => brush.setSizeJitter(v)}
           displayValue={(v) => `${Math.round(v * 100)}%`}
         />
+        </Show>
       </PanelSection>
     </div>
   )

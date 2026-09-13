@@ -60,6 +60,8 @@ const api = {
     ipcRenderer.invoke('folder:list-textures-in', dir),
   savePng: (filePath: string, dataUrl: string): Promise<boolean> =>
     ipcRenderer.invoke('file:save-png', filePath, dataUrl),
+  readClipboardImage: (): Promise<{ dataUrl: string; width: number; height: number } | null> =>
+    ipcRenderer.invoke('clipboard:read-image'),
   readBinaryFile: (filePath: string): Promise<Uint8Array | null> =>
     ipcRenderer.invoke('file:read-binary', filePath),
   loadBrushPacks: (): Promise<any | null> => ipcRenderer.invoke('brushes:load'),

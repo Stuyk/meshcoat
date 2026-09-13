@@ -1,5 +1,6 @@
 import { Show } from 'solid-js'
 import { SearchIcon, XIcon } from '../icons'
+import Kbd from './Kbd'
 
 export interface SearchInputProps {
   value: string
@@ -41,9 +42,9 @@ export default function SearchInput(props: SearchInputProps) {
         </button>
       </Show>
       <Show when={!props.value && props.shortcut}>
-        <kbd class="absolute right-2 px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-[10px] font-mono text-zinc-500 pointer-events-none">
-          {props.shortcut}
-        </kbd>
+        <div class="absolute right-2 pointer-events-none">
+          <Kbd size="xs">{props.shortcut}</Kbd>
+        </div>
       </Show>
     </div>
   )

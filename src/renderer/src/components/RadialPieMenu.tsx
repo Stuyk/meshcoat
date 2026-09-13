@@ -11,6 +11,7 @@ import {
   SymmetryIcon
 } from './icons'
 import { toAssetUrl } from '../utils/assetUrl'
+import { fileName as displayName } from '../utils/paths'
 
 export interface PieMenuProps {
   x: number
@@ -331,7 +332,7 @@ export default function RadialPieMenu(props: PieMenuProps) {
             </button>
             <For each={quickTextures()}>
               {(texPath) => {
-                const fileName = texPath.split('/').pop()?.split('\\').pop() ?? ''
+                const label = displayName(texPath, '')
                 const isSelected = () => brush.texturePath() === texPath
                 return (
                   <button
@@ -341,13 +342,13 @@ export default function RadialPieMenu(props: PieMenuProps) {
                         ? 'ring-2 ring-blue-500 border-white'
                         : 'border-zinc-700 hover:border-zinc-500'
                     }`}
-                    title={fileName}
+                    title={label}
                     onClick={(e) => {
                       e.stopPropagation()
                       setTexturePath(isSelected() ? null : texPath, !props.isMaskTarget?.())
                     }}
                   >
-                    <img src={toAssetUrl(texPath)} alt={fileName} class="w-full h-full object-cover" />
+                    <img src={toAssetUrl(texPath)} alt={label} class="w-full h-full object-cover" />
                   </button>
                 )
               }}

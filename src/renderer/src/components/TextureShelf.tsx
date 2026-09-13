@@ -2,7 +2,7 @@ import { For, Show, createSignal, createMemo, createEffect, on, onMount, onClean
 import { brush, setTexturePath, setMaterialSet } from '../paint/brush'
 import { groupMaterialSets, paintableChannels, type MaterialSet } from '../paint/materialSets'
 import { CHANNEL_SPECS } from '../paint/channels'
-import { Button, IconButton, SearchInput } from './ui'
+import { Button, IconButton, SearchInput, Label } from './ui'
 import {
   FolderOpenIcon,
   XIcon,
@@ -11,6 +11,7 @@ import {
 } from './icons'
 import { toAssetUrl } from '../utils/assetUrl'
 import { isBrowserDisplayable } from '../utils/textureLoad'
+import { fileName } from '../utils/paths'
 
 const COLS = 2
 const ROW_CONTENT_HEIGHT = 133 // thumb + gap + label
@@ -47,7 +48,7 @@ export default function TextureShelf(props: {
   const filteredSets = (): MaterialSet[] => grouped().sets.filter((set) => matchesQuery(set.name))
 
   const filteredTextures = (): string[] =>
-    grouped().loose.filter((p) => matchesQuery(p.split('/').pop() ?? ''))
+    grouped().loose.filter((p) => matchesQuery(fileName(p, '')))
 
   const hasResults = (): boolean => filteredSets().length > 0 || filteredTextures().length > 0
 
@@ -110,12 +111,7 @@ export default function TextureShelf(props: {
     <aside class="w-[260px] min-w-[260px] max-w-[260px] h-full flex flex-col bg-zinc-925 border-r border-zinc-800 select-none z-20 flex-shrink-0">
       {/* Header Bar */}
       <div class="h-10 px-3 flex items-center justify-between border-b border-zinc-800 bg-zinc-900/60 flex-shrink-0">
-        <div class="flex items-center gap-2">
-          <span class="text-xs font-semibold text-zinc-200 tracking-tight">Textures</span>
-          <span class="px-1.5 py-0.2 rounded bg-zinc-800 border border-zinc-700/60 font-mono text-[10px] text-zinc-400">
-            {props.textures.length}
-          </span>
-        </div>
+        <Label uppercase badge={props.textures.length}>Textures</Label>
 
         <div class="flex items-center gap-1.5">
           <Button variant="secondary" size="xs" onClick={props.onPickFolder} title="Load folder of textures">
@@ -329,7 +325,7 @@ export default function TextureShelf(props: {
 
                     const path = item
                     const isSelected = () => brush.texturePath() === path && !brush.materialSet()
-                    const filename = path.split('/').pop() ?? ''
+                    const filename = fileName(path, '')
 
                     return (
                       <button

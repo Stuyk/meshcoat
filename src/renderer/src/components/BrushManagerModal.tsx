@@ -1,5 +1,5 @@
 import { createSignal, createMemo, Show, For } from 'solid-js'
-import { Modal, Button, SearchInput } from './ui'
+import { Modal, Button, SearchInput, Label } from './ui'
 import {
   brushPresets,
   type AbrBrushPreset
@@ -172,12 +172,7 @@ export default function BrushManagerModal(props: {
         {/* Left Sidebar: Packs List */}
         <div class="w-56 flex flex-col bg-zinc-950/50 border border-zinc-800/80 rounded-xl overflow-hidden flex-shrink-0">
           <div class="flex items-center justify-between px-3 py-2 border-b border-zinc-800/80 bg-zinc-900/40">
-            <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
-              Packs
-            </span>
-            <span class="px-1.5 py-0.2 rounded bg-zinc-800 text-[10px] font-mono text-zinc-400">
-              {packs().length}
-            </span>
+            <Label uppercase badge={packs().length}>Packs</Label>
           </div>
 
           <div class="flex-1 overflow-y-auto p-1.5 space-y-1">

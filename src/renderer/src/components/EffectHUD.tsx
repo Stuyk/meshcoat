@@ -10,9 +10,11 @@ import {
 } from '../paint/brush'
 import { EFFECT_MODES, EFFECT_MODE_LABELS, type EffectMode } from '../paint/effectShader'
 import { DropletsIcon, SparklesIcon, FeatherIcon, WireframeIcon, XIcon } from './icons'
-import { Slider, IconButton } from './ui'
+import { Slider, IconButton, Label } from './ui'
 
 export interface EffectHUDProps {
+  /** Rendered inside the tool panel dock rather than floating over the viewport. */
+  docked?: boolean
   activeTool: ToolMode
   isOpen?: boolean
   onClose?: () => void
@@ -40,41 +42,49 @@ export default function EffectHUD(props: EffectHUDProps) {
   return (
     <Show when={isVisible()}>
       <div
-        class="absolute bottom-4 right-4 z-20 w-72 p-3 bg-zinc-900/95 backdrop-blur-md border border-zinc-800 rounded-md shadow-2xl flex flex-col gap-2.5 select-none animate-in fade-in slide-in-from-bottom-2 duration-150"
+        class={
+          props.docked
+            ? // Docked: the dock owns the frame, so no card chrome of its own.
+              'w-full flex flex-col gap-2.5 select-none'
+            : 'absolute bottom-4 right-4 z-20 w-72 p-3 bg-zinc-900/95 backdrop-blur-md border border-zinc-800 rounded-md shadow-2xl flex flex-col gap-2.5 select-none animate-in fade-in slide-in-from-bottom-2 duration-150'
+        }
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header: Title, Active Mode, and Optional Close Button */}
-        <div class="flex items-center justify-between pb-2 border-b border-zinc-800/80">
-          <div class="flex items-center gap-2 min-w-0 pr-1">
-            <DropletsIcon size={14} class="text-teal-400 flex-shrink-0" />
-            <div class="flex flex-col min-w-0">
-              <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider leading-none">
-                Effects Brush
-              </span>
-              <span class="text-xs font-semibold text-zinc-100 truncate mt-0.5">
-                {EFFECT_MODE_LABELS[activeMode()]} Filter
-              </span>
+        {/* The dock draws this panel's title, summary and actions in its own
+            section header, so a second one here is just noise that blurs where
+            one panel ends and the next begins. */}
+        <Show when={!props.docked}>
+          {/* Header: Title, Active Mode, and Optional Close Button */}
+          <div class="flex items-center justify-between pb-2 border-b border-zinc-800/80">
+            <div class="flex items-center gap-2 min-w-0 pr-1">
+              <DropletsIcon size={14} class="text-teal-400 flex-shrink-0" />
+              <div class="flex flex-col min-w-0">
+                <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider leading-none">
+                  Effects Brush
+                </span>
+                <span class="text-xs font-semibold text-zinc-100 truncate mt-0.5">
+                  {EFFECT_MODE_LABELS[activeMode()]} Filter
+                </span>
+              </div>
             </div>
-          </div>
 
-          <Show when={props.onClose}>
-            <IconButton
-              size="xs"
-              variant="ghost"
-              onClick={props.onClose}
-              title="Close panel"
-            >
-              <XIcon size={13} />
-            </IconButton>
-          </Show>
-        </div>
+            <Show when={props.onClose}>
+              <IconButton
+                size="xs"
+                variant="ghost"
+                onClick={props.onClose}
+                title="Close panel"
+              >
+                <XIcon size={13} />
+              </IconButton>
+            </Show>
+          </div>
+        </Show>
 
         {/* 2x2 Mode Choice Selector Grid */}
         <div class="space-y-1">
           <div class="flex items-center justify-between">
-            <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
-              Filter Choice
-            </span>
+            <Label uppercase>Filter Choice</Label>
             <span class="text-[10px] text-zinc-500 font-mono">
               Press U to cycle
             </span>

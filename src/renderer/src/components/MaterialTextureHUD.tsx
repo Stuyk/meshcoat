@@ -4,14 +4,21 @@ import {
   setTexturePath,
   setTextureScale,
   setTextureMapping,
+  setTextureRepeat,
   setFillMode,
   type ToolMode
 } from '../paint/brush'
-import { ImagesIcon, XIcon } from './icons'
-import { Slider, SegmentedControl, IconButton } from './ui'
+import { ImagesIcon, XIcon, Trash2Icon } from './icons'
+import { Slider, SegmentedControl, IconButton, Label } from './ui'
 import { toAssetUrl } from '../utils/assetUrl'
+import { fileName } from '../utils/paths'
 
 export interface MaterialTextureHUDProps {
+  /** Rendered inside the tool panel dock rather than floating over the viewport. */
+  docked?: boolean
+  /** Closable, and reopened from the Panels menu in the header. */
+  isOpen: boolean
+  onClose: () => void
   activeTool: ToolMode
   isMaskTarget?: () => boolean
 }
@@ -20,40 +27,58 @@ export default function MaterialTextureHUD(props: MaterialTextureHUDProps) {
   const isApplicableTool = () =>
     props.activeTool === 'brush' || props.activeTool === 'fill' || props.activeTool === 'stamp'
 
-  const isVisible = () => (!!brush.texturePath() && isApplicableTool()) || props.activeTool === 'fill'
+  const isVisible = () =>
+    props.isOpen && ((!!brush.texturePath() && isApplicableTool()) || props.activeTool === 'fill')
 
-  const filename = () => brush.texturePath()?.split('/').pop() ?? 'Texture'
+  const filename = () => fileName(brush.texturePath())
 
   return (
     <Show when={isVisible()}>
       <div
-        class="absolute bottom-4 right-4 z-20 w-72 p-3 bg-zinc-900/95 backdrop-blur-md border border-zinc-800 rounded-md shadow-2xl flex flex-col gap-2.5 select-none animate-in fade-in slide-in-from-bottom-2 duration-150"
+        class={
+          props.docked
+            ? // Docked: the dock owns the frame, so no card chrome of its own.
+              'w-full flex flex-col gap-2.5 select-none'
+            : 'absolute bottom-4 right-4 z-20 w-72 p-3 bg-zinc-900/95 backdrop-blur-md border border-zinc-800 rounded-md shadow-2xl flex flex-col gap-2.5 select-none animate-in fade-in slide-in-from-bottom-2 duration-150'
+        }
         onClick={(e) => e.stopPropagation()}
       >
         <Show when={brush.texturePath()}>
-          {/* Header: Title, Filename & Close Button */}
-          <div class="flex items-center justify-between pb-2 border-b border-zinc-800/80">
-            <div class="flex items-center gap-2 min-w-0 pr-1">
-              <ImagesIcon size={14} class="text-purple-400 flex-shrink-0" />
-              <div class="flex flex-col min-w-0">
-                <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider leading-none">
-                  Material Texture
-                </span>
-                <span class="text-xs font-semibold text-zinc-100 truncate mt-0.5" title={filename()}>
-                  {filename()}
-                </span>
+          {/* The dock draws this panel's title, summary and actions in its own
+              section header, so a second one here is just noise that blurs where
+              one panel ends and the next begins. */}
+          <Show when={!props.docked}>
+            {/* Header: Title, Filename & Close Button */}
+            <div class="flex items-center justify-between pb-2 border-b border-zinc-800/80">
+              <div class="flex items-center gap-2 min-w-0 pr-1">
+                <ImagesIcon size={14} class="text-purple-400 flex-shrink-0" />
+                <div class="flex flex-col min-w-0">
+                  <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider leading-none">
+                    Material Texture
+                  </span>
+                  <span class="text-xs font-semibold text-zinc-100 truncate mt-0.5" title={filename()}>
+                    {filename()}
+                  </span>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-0.5">
+                <IconButton
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => setTexturePath(null, !props.isMaskTarget?.())}
+                  title="Remove texture (switch back to solid color)"
+                >
+                  <Trash2Icon size={13} />
+                </IconButton>
+                {/* Distinct from removing the texture: this only hides the panel,
+                    and the header's Panels menu brings it back. */}
+                <IconButton size="xs" variant="ghost" onClick={props.onClose} title="Hide this panel">
+                  <XIcon size={13} />
+                </IconButton>
               </div>
             </div>
-
-            <IconButton
-              size="xs"
-              variant="ghost"
-              onClick={() => setTexturePath(null, !props.isMaskTarget?.())}
-              title="Remove texture (Switch back to solid color)"
-            >
-              <XIcon size={13} />
-            </IconButton>
-          </div>
+          </Show>
 
           {/* Thumbnail & Mode Badge */}
           <div class="flex items-center gap-2.5 p-2 bg-zinc-950/60 border border-zinc-800/80 rounded-md">
@@ -76,9 +101,6 @@ export default function MaterialTextureHUD(props: MaterialTextureHUDProps) {
                         ? 'Triplanar Mode'
                         : 'Brush Tip Mode'}
               </span>
-              <span class="text-[10px] font-mono text-zinc-500 truncate">
-                {brush.texturePath()}
-              </span>
             </div>
           </div>
         </Show>
@@ -86,9 +108,7 @@ export default function MaterialTextureHUD(props: MaterialTextureHUDProps) {
         {/* Fill Mode (Fill Tool only) */}
         <Show when={props.activeTool === 'fill'}>
           <div class="space-y-1">
-            <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
-              Fill Mode
-            </span>
+            <Label uppercase>Fill Mode</Label>
             <SegmentedControl
               size="xs"
               options={[
@@ -102,21 +122,39 @@ export default function MaterialTextureHUD(props: MaterialTextureHUDProps) {
           </div>
         </Show>
 
-        {/* Projection Mode (Brush Tool only) */}
+        {/* Placement + Repeat (Brush Tool only).
+            Renamed from the old UV / Triplanar / Tip trio, which described the
+            implementation rather than what the artist gets: "Surface" means the
+            picture lands on the surface you point at, "World" means the pattern
+            is fixed in space and the model moves through it, "Cursor" means one
+            copy per dab under the brush. */}
         <Show when={props.activeTool === 'brush'}>
           <div class="space-y-1">
-            <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
-              Projection
-            </span>
+            <Label uppercase>Placement</Label>
             <SegmentedControl
               size="xs"
               options={[
-                { value: 'uv', label: 'UV', title: 'Direct surface UV mapping' },
-                { value: 'triplanar', label: 'Triplanar', title: 'Seamless 3D world projection' },
-                { value: 'tip', label: 'Tip', title: 'Brush tip dab decal' }
+                { value: 'uv', label: 'Surface', title: 'Texture follows the model surface (UV). Predictable, matches the exported map.' },
+                { value: 'triplanar', label: 'World', title: 'Pattern fixed in world space. For dressing a whole model in a seamless material.' },
+                { value: 'tip', label: 'Cursor', title: 'One copy of the region per dab, centred on the cursor and rotated with the brush.' }
               ]}
               value={brush.textureMapping()}
               onChange={(m) => setTextureMapping(m as any)}
+              class="w-full justify-between"
+            />
+          </div>
+
+          <div class="space-y-1">
+            <Label uppercase>Repeat</Label>
+            <SegmentedControl
+              size="xs"
+              options={[
+                { value: 'tile', label: 'Tile', title: 'The selected region repeats edge to edge' },
+                { value: 'mirror', label: 'Mirror', title: 'Every other copy flips, so a non-tiling region has no visible seam' },
+                { value: 'once', label: 'Once', title: 'A single copy, nothing outside it — brush to reveal a decal' }
+              ]}
+              value={brush.textureRepeat()}
+              onChange={(m) => setTextureRepeat(m as any)}
               class="w-full justify-between"
             />
           </div>
@@ -125,7 +163,11 @@ export default function MaterialTextureHUD(props: MaterialTextureHUDProps) {
         {/* Tiling Scale Slider */}
         <Show when={props.activeTool === 'brush' || props.activeTool === 'fill'}>
           <Slider
-            label="Tiling Scale"
+            label={
+              brush.textureMapping() === 'triplanar'
+                ? 'Tiling (repeats / world unit)'
+                : 'Tiling (repeats across UV)'
+            }
             value={brush.textureScale()}
             min={0}
             max={16}

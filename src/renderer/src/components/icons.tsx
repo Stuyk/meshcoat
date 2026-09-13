@@ -1,4 +1,7 @@
 export {
+  Clipboard as ClipboardIcon,
+  Crop as CropIcon,
+  PanelRightOpen as PanelRightIcon,
   Folder as FolderIcon,
   FolderOpen as FolderOpenIcon,
   RefreshCw as RefreshCwIcon,

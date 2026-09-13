@@ -60,7 +60,19 @@ function createChannelFlattenMaterial(): THREE.ShaderMaterial {
   })
 }
 
-let nextId = 1
+/**
+ * Layer ids only have to be unique within their own stack: `activeId` and
+ * `clippedToMaskId` are both stack-local. Deriving the next id from the layers
+ * present beats a module-level counter, which a hot reload resets while the
+ * live stacks keep their layers — handing a new layer the id the background
+ * already had, so both rendered as the active one. It also can't collide with
+ * the ids restoreState() brings back from a saved project.
+ */
+function nextLayerId(layers: readonly Layer[]): number {
+  let highest = 0
+  for (const layer of layers) highest = Math.max(highest, layer.id)
+  return highest + 1
+}
 
 export interface LayerSnapshot {
   id: number
@@ -259,7 +271,7 @@ export class LayerStack {
     }
     const engine = new PaintEngine(this.renderer, this.mesh, baseCol, this.textureSize)
     const layer: Layer = {
-      id: nextId++,
+      id: nextLayerId(this.layers),
       name: name ?? (isMask ? `Mask ${this.layers.length + 1}` : `Layer ${this.layers.length + 1}`),
       visible: true,
       opacity: 1,
@@ -319,7 +331,7 @@ export class LayerStack {
     const engine = new PaintEngine(this.renderer, this.mesh, null, this.textureSize)
     const mask = this.layers[index]
     const newLayer: Layer = {
-      id: nextId++,
+      id: nextLayerId(this.layers),
       name: name ?? `Paint (under ${mask.name})`,
       visible: true,
       opacity: 1,
@@ -457,7 +469,7 @@ export class LayerStack {
     const engine = new PaintEngine(this.renderer, this.mesh, null, this.textureSize)
     source.engine.copyOnto(engine)
     const layer: Layer = {
-      id: nextId++,
+      id: nextLayerId(this.layers),
       name: `${source.name} Copy`,
       visible: source.visible,
       opacity: source.opacity,
@@ -476,10 +488,12 @@ export class LayerStack {
   fillActiveFaces(
     faces: ReadonlySet<number>,
     options?: FillOptions | THREE.Color,
-    alpha = 1
+    alpha = 1,
+    /** False while continuing a drag, so the whole drag is one undo step. */
+    recordHistory = true
   ): void {
     if (faces.size === 0 || !this.activePaintEngine) return
-    this.history?.record()
+    if (recordHistory) this.history?.record()
     this.activePaintEngine.fillFaces(faces, options, alpha)
     this.recomposite()
   }

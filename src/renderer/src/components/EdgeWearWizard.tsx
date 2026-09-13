@@ -10,8 +10,9 @@ import {
   RefreshCwIcon,
   SlidersIcon
 } from './icons'
-import { Button, IconButton, Slider, SegmentedControl } from './ui'
+import { Button, IconButton, Slider, SegmentedControl, Label, Checkbox } from './ui'
 import type { EdgeWearParams, EdgeWearMode } from '../paint/paintEngine'
+import { fileName } from '../utils/paths'
 
 export interface EdgeWearWizardProps {
   isOpen: boolean
@@ -453,7 +454,7 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
               <span class="text-xs font-semibold text-zinc-200 truncate block mb-1.5">
                 {materialMode() === 'color'
                   ? color().toUpperCase()
-                  : (selectedTexturePath()?.split('/').pop() ?? 'No Texture Selected')}
+                  : fileName(selectedTexturePath(), 'No Texture Selected')}
               </span>
               <SegmentedControl
                 size="xs"
@@ -499,7 +500,7 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
           <Show when={materialMode() === 'color'}>
             <div class="space-y-3">
               <div class="space-y-1.5">
-                <span class="text-[11px] font-semibold text-zinc-400">Metallic Presets</span>
+                <Label uppercase>Metallic Presets</Label>
                 <div class="grid grid-cols-3 gap-1.5">
                   <For each={METAL_COLORS}>
                     {(item) => {
@@ -528,7 +529,7 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
               </div>
 
               <div class="space-y-1.5">
-                <span class="text-[11px] font-semibold text-zinc-400">Corrosion & Weathering</span>
+                <Label uppercase>Corrosion & Weathering</Label>
                 <div class="grid grid-cols-3 gap-1.5">
                   <For each={WEATHER_COLORS}>
                     {(item) => {
@@ -597,13 +598,17 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
           {/* Texture Pattern Mode Controls */}
           <Show when={materialMode() === 'texture'}>
             <div class="space-y-3">
-              <div class="flex items-center justify-between">
-                <span class="text-[11px] font-semibold text-zinc-400">Available Textures</span>
-                <Button variant="ghost" size="xs" onClick={browseForTexture}>
-                  <FolderOpenIcon size={12} />
-                  <span>Browse...</span>
-                </Button>
-              </div>
+              <Label
+                uppercase
+                actions={
+                  <Button variant="ghost" size="xs" onClick={browseForTexture}>
+                    <FolderOpenIcon size={12} />
+                    <span>Browse...</span>
+                  </Button>
+                }
+              >
+                Available Textures
+              </Label>
 
               <Show
                 when={allTextures().length > 0}
@@ -622,7 +627,7 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
                   <For each={allTextures()}>
                     {(path) => {
                       const isSelected = () => selectedTexturePath() === path
-                      const filename = path.split('/').pop() ?? path
+                      const filename = fileName(path, '')
                       return (
                         <button
                           type="button"
@@ -706,7 +711,7 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
 
           {/* Style Presets */}
           <div class="space-y-1.5 pt-2">
-            <span class="text-[11px] font-semibold text-zinc-400">Style Presets</span>
+            <Label uppercase>Style Presets</Label>
             <div class="grid grid-cols-2 gap-2">
               <For each={presetsForMode()}>
                 {(preset) => {
@@ -741,9 +746,9 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
         <Show when={activeTab() === 'tuning'}>
           {/* Edge Detection */}
           <div class="space-y-3">
-            <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider block">
+            <Label uppercase>
               {mode() === 'cavity' ? 'Cavity Fold Detection' : 'Edge Ridge Detection'}
-            </span>
+            </Label>
             <Slider
               label="Angle Threshold"
               value={threshold()}
@@ -787,15 +792,17 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
 
           {/* Chips & Noise */}
           <div class="space-y-3 pt-2">
-            <div class="flex items-center justify-between">
-              <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
-                Procedural Chips
-              </span>
-              <Button variant="ghost" size="xs" onClick={rerollSeed} title="Shuffle noise seed">
-                <RefreshCwIcon size={12} />
-                <span>Reroll</span>
-              </Button>
-            </div>
+            <Label
+              uppercase
+              actions={
+                <Button variant="ghost" size="xs" onClick={rerollSeed} title="Shuffle noise seed">
+                  <RefreshCwIcon size={12} />
+                  <span>Reroll</span>
+                </Button>
+              }
+            >
+              Procedural Chips
+            </Label>
 
             <Slider
               label="Chips Frequency"
@@ -852,9 +859,7 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
 
           {/* Bake Destination */}
           <div class="space-y-2 pt-2">
-            <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider block">
-              Bake Destination
-            </span>
+            <Label uppercase>Bake Destination</Label>
             <div class="space-y-1.5">
               <button
                 type="button"
@@ -916,15 +921,11 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
 
       {/* Sticky Bottom Action Bar */}
       <footer class="h-12 px-3.5 flex items-center justify-between border-t border-zinc-800 bg-zinc-950/80 flex-shrink-0">
-        <label class="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={livePreview()}
-            onChange={(e) => toggleLivePreview(e.currentTarget.checked)}
-            class="rounded border-zinc-700 bg-zinc-900 text-blue-600 focus:ring-0 cursor-pointer"
-          />
-          <span>Live 3D Preview</span>
-        </label>
+        <Checkbox
+          checked={livePreview()}
+          onChange={toggleLivePreview}
+          label="Live 3D Preview"
+        />
 
         <div class="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={handleClose}>

@@ -1,5 +1,5 @@
 import { createSignal, createEffect, For, Show } from 'solid-js'
-import { Modal, Button, SegmentedControl } from './ui'
+import { Modal, Button, SegmentedControl, Checkbox, TextInput, Label } from './ui'
 import {
   DownloadIcon,
   HelpCircleIcon,
@@ -355,7 +355,7 @@ export default function ExportWizardModal(props: ExportWizardModalProps) {
           }
         >
           <div class="flex flex-col gap-2">
-            <label class="font-semibold text-zinc-200">Piece Export Mode</label>
+            <Label>Piece Export Mode</Label>
             <div class="grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -408,94 +408,77 @@ export default function ExportWizardModal(props: ExportWizardModalProps) {
 
         {/* Channels to Export */}
         <div class="flex flex-col gap-2">
-          <div class="flex items-center justify-between">
-            <label class="font-semibold text-zinc-200">Channels to Export</label>
-            <div class="flex items-center gap-1.5 text-[11px]">
-              <span class="text-zinc-500">Presets:</span>
-              <button
-                type="button"
-                class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-750 text-zinc-300 hover:text-zinc-100 transition-colors cursor-pointer"
-                onClick={() => applyPreset('pbr')}
-              >
-                PBR + ORM
-              </button>
-              <button
-                type="button"
-                class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-750 text-zinc-300 hover:text-zinc-100 transition-colors cursor-pointer"
-                onClick={() => applyPreset('colorOnly')}
-              >
-                Color Only
-              </button>
-              <button
-                type="button"
-                class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-750 text-zinc-300 hover:text-zinc-100 transition-colors cursor-pointer"
-                onClick={() => applyPreset('allUnpacked')}
-              >
-                All Unpacked
-              </button>
-            </div>
-          </div>
+          <Label
+            actions={
+              <div class="flex items-center gap-1.5 text-[11px]">
+                <span class="text-zinc-500">Presets:</span>
+                <button
+                  type="button"
+                  class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-750 text-zinc-300 hover:text-zinc-100 transition-colors cursor-pointer"
+                  onClick={() => applyPreset('pbr')}
+                >
+                  PBR + ORM
+                </button>
+                <button
+                  type="button"
+                  class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-750 text-zinc-300 hover:text-zinc-100 transition-colors cursor-pointer"
+                  onClick={() => applyPreset('colorOnly')}
+                >
+                  Color Only
+                </button>
+                <button
+                  type="button"
+                  class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-750 text-zinc-300 hover:text-zinc-100 transition-colors cursor-pointer"
+                  onClick={() => applyPreset('allUnpacked')}
+                >
+                  All Unpacked
+                </button>
+              </div>
+            }
+          >
+            Channels to Export
+          </Label>
 
-          <div class="grid grid-cols-2 md:grid-cols-3 gap-2.5 p-3 rounded-xl bg-zinc-950/60 border border-zinc-800">
+          <div class="grid grid-cols-2 md:grid-cols-3 gap-3 p-3 rounded-xl bg-zinc-950/60 border border-zinc-800">
             {/* Base Color */}
-            <label class="flex items-center gap-2 select-none cursor-pointer">
-              <input
-                type="checkbox"
-                checked={exportBaseColor()}
-                onChange={(e) => setExportBaseColor(e.currentTarget.checked)}
-                class="rounded bg-zinc-900 border-zinc-700 text-blue-600 focus:ring-0 focus:ring-offset-0 cursor-pointer"
-              />
-              <span class="font-medium text-zinc-200">Base Color</span>
-              <span class="text-[10px] text-zinc-500 font-mono">_BaseColor</span>
-            </label>
+            <Checkbox
+              checked={exportBaseColor()}
+              onChange={setExportBaseColor}
+              label="Base Color"
+              subtext="_BaseColor"
+            />
 
             {/* Packed ORM */}
-            <label class="flex items-center gap-2 select-none cursor-pointer">
-              <input
-                type="checkbox"
-                checked={exportOrm()}
-                onChange={(e) => setExportOrm(e.currentTarget.checked)}
-                class="rounded bg-zinc-900 border-zinc-700 text-blue-600 focus:ring-0 focus:ring-offset-0 cursor-pointer"
-              />
-              <span class="font-medium text-zinc-200">Packed ORM</span>
-              <span class="text-[10px] text-purple-400 font-mono">_ORM</span>
-            </label>
+            <Checkbox
+              checked={exportOrm()}
+              onChange={setExportOrm}
+              label="Packed ORM"
+              subtext="_ORM"
+            />
 
             {/* Normal */}
-            <label class="flex items-center gap-2 select-none cursor-pointer">
-              <input
-                type="checkbox"
-                checked={exportNormal()}
-                onChange={(e) => setExportNormal(e.currentTarget.checked)}
-                class="rounded bg-zinc-900 border-zinc-700 text-blue-600 focus:ring-0 focus:ring-offset-0 cursor-pointer"
-              />
-              <span class="font-medium text-zinc-200">Normal Map</span>
-              <span class="text-[10px] text-zinc-500 font-mono">_Normal</span>
-            </label>
+            <Checkbox
+              checked={exportNormal()}
+              onChange={setExportNormal}
+              label="Normal Map"
+              subtext="_Normal"
+            />
 
             {/* Roughness */}
-            <label class="flex items-center gap-2 select-none cursor-pointer">
-              <input
-                type="checkbox"
-                checked={exportRoughness()}
-                onChange={(e) => setExportRoughness(e.currentTarget.checked)}
-                class="rounded bg-zinc-900 border-zinc-700 text-blue-600 focus:ring-0 focus:ring-offset-0 cursor-pointer"
-              />
-              <span class="font-medium text-zinc-200">Roughness</span>
-              <span class="text-[10px] text-zinc-500 font-mono">_Roughness</span>
-            </label>
+            <Checkbox
+              checked={exportRoughness()}
+              onChange={setExportRoughness}
+              label="Roughness"
+              subtext="_Roughness"
+            />
 
             {/* Metalness */}
-            <label class="flex items-center gap-2 select-none cursor-pointer">
-              <input
-                type="checkbox"
-                checked={exportMetalness()}
-                onChange={(e) => setExportMetalness(e.currentTarget.checked)}
-                class="rounded bg-zinc-900 border-zinc-700 text-blue-600 focus:ring-0 focus:ring-offset-0 cursor-pointer"
-              />
-              <span class="font-medium text-zinc-200">Metalness</span>
-              <span class="text-[10px] text-zinc-500 font-mono">_Metalness</span>
-            </label>
+            <Checkbox
+              checked={exportMetalness()}
+              onChange={setExportMetalness}
+              label="Metalness"
+              subtext="_Metalness"
+            />
           </div>
         </div>
 
@@ -503,19 +486,19 @@ export default function ExportWizardModal(props: ExportWizardModalProps) {
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           {/* Filename Stem */}
           <div class="flex flex-col gap-1.5">
-            <label class="font-semibold text-zinc-200">Filename Prefix</label>
-            <input
-              type="text"
+            <Label>Filename Prefix</Label>
+            <TextInput
               value={stem()}
-              onInput={(e) => setStem(e.currentTarget.value)}
+              onInput={setStem}
               placeholder="e.g. MyModel"
-              class="w-full px-3 py-1.5 rounded-lg bg-zinc-950/70 border border-zinc-800 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-blue-500/80 focus:ring-1 focus:ring-blue-500/40 font-mono"
+              mono
+              size="sm"
             />
           </div>
 
           {/* Resolution Override */}
           <div class="flex flex-col gap-1.5">
-            <label class="font-semibold text-zinc-200">Resolution</label>
+            <Label>Resolution</Label>
             <SegmentedControl
               size="sm"
               options={[
@@ -532,10 +515,9 @@ export default function ExportWizardModal(props: ExportWizardModalProps) {
 
         {/* Files Preview Box */}
         <div class="flex flex-col gap-1.5">
-          <div class="flex items-center justify-between">
-            <label class="font-semibold text-zinc-200">Files to be Exported</label>
-            <span class="text-[10px] text-zinc-500 font-mono">{previewFiles().length} file(s)</span>
-          </div>
+          <Label badge={`${previewFiles().length} file(s)`}>
+            Files to be Exported
+          </Label>
           <div class="max-h-28 overflow-y-auto p-2.5 rounded-lg bg-zinc-950/80 border border-zinc-800/80 font-mono text-[11px] text-zinc-400 space-y-1 select-none">
             <Show
               when={previewFiles().length > 0}

@@ -1,4 +1,4 @@
-import { onMount, onCleanup, createEffect, createSignal, Show } from 'solid-js'
+import { onMount, onCleanup, createEffect, createSignal, untrack, Show } from 'solid-js'
 import * as THREE from 'three'
 import { createScene, type SceneHandle, type LightingMode } from './scene'
 import { loadModel, createDefaultTestModel, type LoadedModel } from './modelLoader'
@@ -142,7 +142,10 @@ interface PaintPiece {
   /** Local-space triangle positions for the selection/hover overlays. */
   facePositions: Float32Array
   highlightMesh: THREE.LineSegments
+  /** Translucent wash under the selection outline — a 1px line can't carry it alone. */
+  selectionFillMesh: THREE.Mesh
   hoverFaceMesh: THREE.LineSegments
+  hoverFillMesh: THREE.Mesh
   shadedMaterial: THREE.MeshStandardMaterial
   /**
    * What the imported file already had on this mesh, per material slot, baked
@@ -199,21 +202,40 @@ const brushOutlineVertexShader = /* glsl */ `
 const brushOutlineFragmentShader = /* glsl */ `
   uniform sampler2D uTexture;
   uniform float uHasTexture;
+  uniform vec4 uRegion;
+  uniform float uRegionRotation;
   varying vec2 vUv;
+
+  /**
+   * Same crop the paint shader applies (uTextureRegion there). The cursor is
+   * only useful if it previews what the stroke will actually lay down — showing
+   * the whole sheet while painting a cropped detail is worse than no preview,
+   * because it aims the artist at the wrong thing.
+   */
+  vec2 regionUv(vec2 uv) {
+    vec2 r = clamp(uv, 0.0, 1.0);
+    if (uRegionRotation != 0.0) {
+      float cr = cos(uRegionRotation);
+      float sr = sin(uRegionRotation);
+      vec2 c = r - 0.5;
+      r = vec2(c.x * cr - c.y * sr, c.x * sr + c.y * cr) + 0.5;
+    }
+    return uRegion.xy + clamp(r, 0.0, 1.0) * uRegion.zw;
+  }
 
   void main() {
     if (uHasTexture < 0.5) {
       discard;
     }
     vec2 uv = vUv;
-    float centerAlpha = texture2D(uTexture, uv).a;
+    float centerAlpha = texture2D(uTexture, regionUv(uv)).a;
 
     // 4-sample cross edge detection for silhouette contour
     float off = 1.0 / 64.0;
-    float aL = texture2D(uTexture, uv - vec2(off, 0.0)).a;
-    float aR = texture2D(uTexture, uv + vec2(off, 0.0)).a;
-    float aU = texture2D(uTexture, uv - vec2(0.0, off)).a;
-    float aD = texture2D(uTexture, uv + vec2(0.0, off)).a;
+    float aL = texture2D(uTexture, regionUv(uv - vec2(off, 0.0))).a;
+    float aR = texture2D(uTexture, regionUv(uv + vec2(off, 0.0))).a;
+    float aU = texture2D(uTexture, regionUv(uv - vec2(0.0, off))).a;
+    float aD = texture2D(uTexture, regionUv(uv + vec2(0.0, off))).a;
 
     float edge = max(abs(centerAlpha - aL), max(abs(centerAlpha - aR), max(abs(centerAlpha - aU), abs(centerAlpha - aD))));
     float isEdge = smoothstep(0.06, 0.35, edge);
@@ -328,7 +350,9 @@ function createGizmo(): GizmoHandle {
   const brushTipMaterial = new THREE.ShaderMaterial({
     uniforms: {
       uTexture: { value: null },
-      uHasTexture: { value: 0 }
+      uHasTexture: { value: 0 },
+      uRegion: { value: new THREE.Vector4(0, 0, 1, 1) },
+      uRegionRotation: { value: 0 }
     },
     vertexShader: brushOutlineVertexShader,
     fragmentShader: brushOutlineFragmentShader,
@@ -595,6 +619,13 @@ export default function Viewport(props: {
   let lastBrushDabPos: THREE.Vector3 | null = null
   /** Previous dab's UV, so the smudge effect knows which way the stroke is heading. */
   let lastEffectUv: THREE.Vector2 | null = null
+  /**
+   * Faces already filled during the current Fill Face drag. Dragging across a
+   * model streams the same triangle for many pointer samples, and each fill is
+   * a full render pass plus a history entry — so each face is filled once per
+   * drag, and the whole drag is one undo step.
+   */
+  let fillDragFaces: Set<number> | null = null
   let stencilTexture: THREE.Texture | null = null
   /** Active stencil-transform drag (Transform Stencil mode), in client pixels. */
   let stencilDrag: { lastX: number; lastY: number } | null = null
@@ -608,6 +639,8 @@ export default function Viewport(props: {
   let wireframeMeshes: THREE.LineSegments[] = []
   let wireframeVisible = false
   let highlightMesh: THREE.LineSegments | undefined
+  let selectionFillMesh: THREE.Mesh | undefined
+  let hoverFillMesh: THREE.Mesh | undefined
   /** Local-space positions, 9 floats per triangle, in the same order as SurfaceHit.faceIndex — built once per model so the highlight overlay can slice out selected triangles without recomputing toNonIndexed(). */
   let facePositions: Float32Array | undefined
 
@@ -701,7 +734,12 @@ export default function Viewport(props: {
     for (const piece of pieces) {
       piece.stack.dispose()
       piece.channelViewMaterial?.dispose()
-      for (const overlay of [piece.highlightMesh, piece.hoverFaceMesh]) {
+      for (const overlay of [
+        piece.highlightMesh,
+        piece.hoverFaceMesh,
+        piece.selectionFillMesh,
+        piece.hoverFillMesh
+      ]) {
         overlay.geometry.dispose()
         ;(overlay.material as THREE.Material).dispose()
         overlay.parent?.remove(overlay)
@@ -722,7 +760,9 @@ export default function Viewport(props: {
     }
     // Both overlays belong to a piece and were disposed with it above.
     highlightMesh = undefined
+    selectionFillMesh = undefined
     hoverFaceMesh = undefined
+    hoverFillMesh = undefined
     facePositions = undefined
     // A picked triangle index only means anything for the mesh it was picked
     // on — carrying it into a freshly loaded model could restrict painting
@@ -855,11 +895,14 @@ export default function Viewport(props: {
     const highlightGeometry = new THREE.BufferGeometry()
     highlightGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(0), 3))
     const highlightMaterial = new THREE.LineBasicMaterial({
-      color: 0xffaa00, // Blender-style warm amber outline
-      depthTest: true,
+      color: 0xffd166, // Bright amber: a 1px line has to carry on its own
+      // A hairline is the thinnest thing on screen and loses every contest with
+      // the texture under it; drawing it without the depth test keeps the whole
+      // outline at full strength instead of dropping in and out along curvature.
+      depthTest: false,
       depthWrite: false,
       transparent: true,
-      opacity: 0.95,
+      opacity: 1,
       polygonOffset: true,
       polygonOffsetFactor: -2,
       polygonOffsetUnits: -2
@@ -869,20 +912,67 @@ export default function Viewport(props: {
     pieceHighlight.frustumCulled = false
     mesh.add(pieceHighlight)
 
+    /**
+     * Translucent wash over the selected faces, under the outline.
+     *
+     * WebGL can't draw a line thicker than one pixel, so an outline alone is
+     * all the emphasis a selection can get — and against a painted texture that
+     * is very little. Tinting the faces themselves is what actually makes a
+     * selection readable at a glance, with the outline giving it a crisp edge.
+     */
+    const selectionFillMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffd166,
+      transparent: true,
+      opacity: 0.28,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2
+    })
+    const pieceSelectionFill = new THREE.Mesh(new THREE.BufferGeometry(), selectionFillMaterial)
+    pieceSelectionFill.geometry.setAttribute(
+      'position',
+      new THREE.BufferAttribute(new Float32Array(0), 3)
+    )
+    pieceSelectionFill.renderOrder = 997
+    pieceSelectionFill.frustumCulled = false
+    mesh.add(pieceSelectionFill)
+
     const hoverFaceGeometry = new THREE.BufferGeometry()
     hoverFaceGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(0), 3))
     const hoverFaceMaterial = new THREE.LineBasicMaterial({
-      color: 0x38bdf8, // Sky blue hover indicator for bucket & face select
-      depthTest: true,
+      color: 0x7df9ff, // Bright cyan hover indicator for bucket & face select
+      depthTest: false,
       depthWrite: false,
       transparent: true,
-      opacity: 0.95,
+      opacity: 1,
       polygonOffset: true,
       polygonOffsetFactor: -3,
       polygonOffsetUnits: -3
     })
+    const hoverFillMaterial = new THREE.MeshBasicMaterial({
+      color: 0x7df9ff,
+      transparent: true,
+      opacity: 0.35,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+      polygonOffsetUnits: -3
+    })
+    const pieceHoverFill = new THREE.Mesh(new THREE.BufferGeometry(), hoverFillMaterial)
+    pieceHoverFill.geometry.setAttribute(
+      'position',
+      new THREE.BufferAttribute(new Float32Array(0), 3)
+    )
+    pieceHoverFill.renderOrder = 998
+    pieceHoverFill.frustumCulled = false
+    pieceHoverFill.visible = false
+    mesh.add(pieceHoverFill)
+
     const pieceHover = new THREE.LineSegments(hoverFaceGeometry, hoverFaceMaterial)
-    pieceHover.renderOrder = 998
+    pieceHover.renderOrder = 999
     pieceHover.frustumCulled = false
     pieceHover.visible = false
     mesh.add(pieceHover)
@@ -894,7 +984,9 @@ export default function Viewport(props: {
       embedded,
       facePositions: piecePositions,
       highlightMesh: pieceHighlight,
+      selectionFillMesh: pieceSelectionFill,
       hoverFaceMesh: pieceHover,
+      hoverFillMesh: pieceHoverFill,
       shadedMaterial: material
     }
     applyViewModeToPiece(piece)
@@ -1014,12 +1106,17 @@ export default function Viewport(props: {
     layerStack = piece.stack
     facePositions = piece.facePositions
     highlightMesh = piece.highlightMesh
+    selectionFillMesh = piece.selectionFillMesh
     hoverFaceMesh = piece.hoverFaceMesh
+    hoverFillMesh = piece.hoverFillMesh
     // Face indices are per-mesh, so a selection made on another piece would
     // restrict painting to unrelated (or out-of-range) triangles here.
     clearFaceSelection()
     for (const other of pieces) {
-      if (other !== piece) other.hoverFaceMesh.visible = false
+      if (other !== piece) {
+        other.hoverFaceMesh.visible = false
+        other.hoverFillMesh.visible = false
+      }
     }
     updateHighlight()
     if (symmetryGuide && currentModel) symmetryGuide.update(brush.symmetryAxis(), currentModel, activeMesh())
@@ -1094,6 +1191,23 @@ export default function Viewport(props: {
   function updateHighlight(): void {
     if (!highlightMesh || !facePositions) return
     const faces = brush.selectedFaces()
+
+    // Wash first: one triangle per selected face, rebuilt from the same set the
+    // boundary-edge pass below walks.
+    if (selectionFillMesh) {
+      const fill = new Float32Array(faces.size * 9)
+      let at = 0
+      for (const face of faces) {
+        const base = face * 9
+        if (base < 0 || base + 9 > facePositions.length) continue
+        fill.set(facePositions.subarray(base, base + 9), at)
+        at += 9
+      }
+      selectionFillMesh.geometry.setAttribute('position', new THREE.BufferAttribute(fill, 3))
+      selectionFillMesh.geometry.attributes.position.needsUpdate = true
+      selectionFillMesh.visible = faces.size > 0
+    }
+
     if (faces.size === 0) {
       highlightMesh.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(0), 3))
       highlightMesh.geometry.attributes.position.needsUpdate = true
@@ -1156,6 +1270,10 @@ export default function Viewport(props: {
     if (box.isEmpty()) return
     const sphere = box.getBoundingSphere(new THREE.Sphere())
     sceneHandle.controls.focus(sphere.center, sphere.radius || 1)
+    // Brush radius is in world units, so the slider's usable range has to track
+    // the model: 0.01 is a detail brush on a character and covers a gemstone
+    // whole. The current radius rescales with it.
+    brush.setSceneScale(sphere.radius || 1)
     // Same bounds drive the shadow camera and the ground plane the model's
     // shadow lands on — the plane sits at the model's lowest point, not at
     // y = 0, so a model authored off the origin still gets a contact shadow.
@@ -1357,6 +1475,48 @@ export default function Viewport(props: {
     return largest > 0 ? snapToCanvasSize(largest) : null
   }
 
+  /**
+   * Frames the active face selection, or the whole model when nothing is
+   * selected. Selecting a handful of triangles and pressing F almost always
+   * means "get me closer to those", not "show me the model again".
+   *
+   * The selection's bounds are built from the same local-space triangle buffer
+   * the highlight overlay uses, then taken to world space through the piece's
+   * matrix, so it works on a piece that carries its own transform.
+   */
+  function frameSelectionOrModel(): void {
+    const mesh = activeMesh()
+    const faces = brush.selectedFaces()
+    if (!sceneHandle || !mesh || !facePositions || faces.size === 0) {
+      if (currentModel) frameModel(currentModel)
+      return
+    }
+
+    const box = new THREE.Box3()
+    const point = new THREE.Vector3()
+    mesh.updateWorldMatrix(true, false)
+    for (const face of faces) {
+      const base = face * 9
+      if (base < 0 || base + 9 > facePositions.length) continue
+      for (let i = 0; i < 9; i += 3) {
+        point
+          .set(facePositions[base + i], facePositions[base + i + 1], facePositions[base + i + 2])
+          .applyMatrix4(mesh.matrixWorld)
+        box.expandByPoint(point)
+      }
+    }
+    if (box.isEmpty()) {
+      if (currentModel) frameModel(currentModel)
+      return
+    }
+
+    const sphere = box.getBoundingSphere(new THREE.Sphere())
+    // A single flat triangle has almost no radius, which would put the camera
+    // inside it; keep a floor relative to the model so the framing stays usable.
+    const floor = brush.sceneScale() * 0.05
+    sceneHandle.controls.focus(sphere.center, Math.max(sphere.radius, floor))
+  }
+
   async function loadFromUrl(
     url: string,
     extension: string,
@@ -1519,6 +1679,7 @@ export default function Viewport(props: {
     const base = faceIndex * 9
     if (base < 0 || base + 9 > facePositions.length) {
       hoverFaceMesh.visible = false
+      if (hoverFillMesh) hoverFillMesh.visible = false
       return
     }
     const v0x = facePositions[base], v0y = facePositions[base + 1], v0z = facePositions[base + 2]
@@ -1532,6 +1693,14 @@ export default function Viewport(props: {
     hoverFaceMesh.geometry.setAttribute('position', new THREE.BufferAttribute(out, 3))
     hoverFaceMesh.geometry.attributes.position.needsUpdate = true
     hoverFaceMesh.visible = true
+
+    // The triangle itself, tinted under the outline.
+    if (hoverFillMesh) {
+      const fill = new Float32Array([v0x, v0y, v0z, v1x, v1y, v1z, v2x, v2y, v2z])
+      hoverFillMesh.geometry.setAttribute('position', new THREE.BufferAttribute(fill, 3))
+      hoverFillMesh.geometry.attributes.position.needsUpdate = true
+      hoverFillMesh.visible = true
+    }
   }
 
   function updateGizmo(hit: SurfaceHit | null): void {
@@ -1542,6 +1711,8 @@ export default function Viewport(props: {
       gizmoHandle.group.visible = false
       gizmoHandle.mirrorGroup.visible = false
       if (hoverFaceMesh) hoverFaceMesh.visible = false
+    if (hoverFillMesh) hoverFillMesh.visible = false
+      if (hoverFillMesh) hoverFillMesh.visible = false
       return
     }
 
@@ -1562,7 +1733,44 @@ export default function Viewport(props: {
       const activeTipTex = brushTipTexture ?? (tool === 'stamp' && !showStampColorPreview ? brushTexture : null)
       gizmoHandle.brushTipMaterial.uniforms.uTexture.value = activeTipTex
       gizmoHandle.brushTipMaterial.uniforms.uHasTexture.value = activeTipTex ? 1 : 0
+
+      /**
+       * Preview the crop, not the sheet. A brush tip is its own image and is
+       * never cropped; the shelf texture is, so the region only applies when
+       * the preview is showing that.
+       */
+      const region = brush.textureRegion()
+      const previewsShelfTexture = activeTipTex === brushTexture && !brushTipTexture
+      const tipRegion = gizmoHandle.brushTipMaterial.uniforms.uRegion.value as THREE.Vector4
+      if (previewsShelfTexture) {
+        // Same top-left to bottom-up flip the paint shader gets (see
+        // PaintEngine.applyTextureRegion).
+        tipRegion.set(region.x, 1 - region.y - region.h, region.w, region.h)
+        gizmoHandle.brushTipMaterial.uniforms.uRegionRotation.value =
+          (region.rotation * Math.PI) / 180
+      } else {
+        tipRegion.set(0, 0, 1, 1)
+        gizmoHandle.brushTipMaterial.uniforms.uRegionRotation.value = 0
+      }
+
       gizmoHandle.stampPreviewMaterial.map = showStampColorPreview ? brushTexture : null
+      if (showStampColorPreview && brushTexture) {
+        // three's built-in materials honour a texture's offset/repeat/rotation;
+        // the paint shader samples raw coordinates and ignores them entirely,
+        // so driving the preview through them crops the ghost without touching
+        // what any stroke actually paints.
+        brushTexture.center.set(0.5, 0.5)
+        brushTexture.offset.set(region.x, 1 - region.y - region.h)
+        brushTexture.repeat.set(region.w, region.h)
+        brushTexture.rotation = (region.rotation * Math.PI) / 180
+      } else if (brushTexture && brushTexture.repeat.x !== 1) {
+        // Leave the texture as found once the ghost is gone: these fields are
+        // shared state on the texture object, and a stale crop would show up
+        // the next time any built-in material samples it.
+        brushTexture.offset.set(0, 0)
+        brushTexture.repeat.set(1, 1)
+        brushTexture.rotation = 0
+      }
       gizmoHandle.stampPreviewMaterial.needsUpdate = true
 
       const rotRad = (brush.brushRotation() * Math.PI) / 180
@@ -1571,6 +1779,20 @@ export default function Viewport(props: {
       gizmoHandle.stampPreviewMesh.rotation.z = rotRad
       gizmoHandle.mirrorStampPreviewMesh.rotation.z = -rotRad
     }
+
+    /**
+     * Everything off first, then each tool switches on only what it needs.
+     * Each branch below used to re-list every mesh, so a tool that forgot one
+     * inherited it from whatever was selected before — which is how the fill
+     * bucket ended up wearing the brush's tip preview, scaled to a brush radius
+     * that means nothing to it.
+     */
+    gizmoHandle.brushRing.visible = false
+    gizmoHandle.brushTipMesh.visible = false
+    gizmoHandle.stampPreviewMesh.visible = false
+    gizmoHandle.stampReticle.visible = false
+    gizmoHandle.bucketReticle.visible = false
+    gizmoHandle.eyedropperReticle.visible = false
 
     if (tool === 'brush' || tool === 'eraser' || tool === 'line' || tool === 'effect') {
       gizmoHandle.group.visible = true
@@ -1590,6 +1812,8 @@ export default function Viewport(props: {
       }
       gizmoHandle.stampPreviewMesh.visible = false
       if (hoverFaceMesh) hoverFaceMesh.visible = false
+    if (hoverFillMesh) hoverFillMesh.visible = false
+      if (hoverFillMesh) hoverFillMesh.visible = false
     } else if (tool === 'stamp') {
       gizmoHandle.group.visible = true
       gizmoHandle.brushRing.visible = false
@@ -1605,6 +1829,8 @@ export default function Viewport(props: {
         gizmoHandle.brushTipMesh.scale.setScalar(brush.radius())
       }
       if (hoverFaceMesh) hoverFaceMesh.visible = false
+    if (hoverFillMesh) hoverFillMesh.visible = false
+      if (hoverFillMesh) hoverFillMesh.visible = false
     } else if (tool === 'eyedropper') {
       gizmoHandle.group.visible = true
       gizmoHandle.brushRing.visible = false
@@ -1614,14 +1840,14 @@ export default function Viewport(props: {
       gizmoHandle.stampReticle.visible = false
       gizmoHandle.stampPreviewMesh.visible = false
       if (hoverFaceMesh) hoverFaceMesh.visible = false
+    if (hoverFillMesh) hoverFillMesh.visible = false
+      if (hoverFillMesh) hoverFillMesh.visible = false
     } else if (tool === 'fill') {
-      gizmoHandle.group.visible = true
-      gizmoHandle.brushRing.visible = false
-      gizmoHandle.eyedropperReticle.visible = false
-      gizmoHandle.bucketReticle.visible = true
-      gizmoHandle.bucketReticle.scale.setScalar(reticleScale)
-      gizmoHandle.stampReticle.visible = false
-      gizmoHandle.stampPreviewMesh.visible = false
+      // No 3D reticle: the bucket already has a mouse cursor of its own (see
+      // .tool-fill in index.css) and the face outline shows what a click would
+      // affect. A ring floating at the hit point on top of both was a third
+      // cursor for a tool that has no footprint to indicate.
+      gizmoHandle.group.visible = false
       if (hoverFaceMesh) updateHoverFace(hit.mesh === activeMesh() ? hit.faceIndex : -1)
     } else if (tool === 'faceSelect') {
       gizmoHandle.stampPreviewMesh.visible = false
@@ -1974,6 +2200,8 @@ export default function Viewport(props: {
         brushTexture: strokeTexture,
         brushTipTexture: strokeTip,
         textureScale: brush.textureScale(),
+        textureRegion: brush.textureRegion(),
+        textureRepeat: brush.textureRepeat(),
         stampMode: tool === 'stamp',
         textureMapping: brush.textureMapping(),
         restrictFaces,
@@ -1999,6 +2227,8 @@ export default function Viewport(props: {
             brushTexture: strokeTexture,
             brushTipTexture: strokeTip,
             textureScale: brush.textureScale(),
+        textureRegion: brush.textureRegion(),
+        textureRepeat: brush.textureRepeat(),
             stampMode: tool === 'stamp',
             textureMapping: brush.textureMapping(),
             restrictFaces,
@@ -2084,6 +2314,8 @@ export default function Viewport(props: {
         alpha: isMask ? 1 : brush.opacity(),
         texture: isMask ? null : brushTexture,
         scale: brush.textureScale(),
+        textureRegion: brush.textureRegion(),
+        textureRepeat: brush.textureRepeat(),
         channels: brush.buildChannelPayload({
           baseColor: { color: new THREE.Color(brush.color()), alpha: isMask ? 1 : brush.opacity() },
           baseColorOnly: isMask
@@ -2092,7 +2324,12 @@ export default function Viewport(props: {
       }
       if (!isMask && brushTexture && brush.texturePath()) recordRecentTexture(brush.texturePath()!)
       if (brush.fillMode() === 'face') {
-        if (hit.faceIndex >= 0) layerStack.fillActiveFaces(new Set([hit.faceIndex]), fillOpts)
+        // One history entry for a whole drag: the first face records, the rest
+        // of the faces the cursor crosses join that same undo step.
+        const isDragContinuation = !!fillDragFaces && fillDragFaces.size > 1
+        if (hit.faceIndex >= 0) {
+          layerStack.fillActiveFaces(new Set([hit.faceIndex]), fillOpts, 1, !isDragContinuation)
+        }
       } else if (restrictFaces && restrictFaces.size > 0) {
         layerStack.fillActiveFaces(restrictFaces, fillOpts)
       } else {
@@ -2118,6 +2355,8 @@ export default function Viewport(props: {
       alpha: isMask ? 1 : brush.opacity(),
       texture: isMask ? null : brushTexture,
       scale: brush.textureScale(),
+      textureRegion: brush.textureRegion(),
+      textureRepeat: brush.textureRepeat(),
       channels: brush.buildChannelPayload({
         baseColor: { color: new THREE.Color(brush.color()), alpha: isMask ? 1 : brush.opacity() },
         baseColorOnly: isMask
@@ -2225,6 +2464,16 @@ export default function Viewport(props: {
     if (!painting || !hit) return
 
     const tool = props.tool()
+
+    // Fill Face paints faces the way a brush paints texels: drag across the
+    // model and every triangle the cursor crosses is filled.
+    if (tool === 'fill' && brush.fillMode() === 'face' && fillDragFaces) {
+      if (hit.faceIndex >= 0 && !fillDragFaces.has(hit.faceIndex)) {
+        fillDragFaces.add(hit.faceIndex)
+        applyToolAt(hit, false, e)
+      }
+      return
+    }
     if (tool === 'fill' || tool === 'eyedropper' || tool === 'line') return
     if (tool === 'brush' || tool === 'stamp' || tool === 'eraser' || tool === 'effect') {
       // Discrete applications at spacing intervals (spec: brush Spacing)
@@ -2281,7 +2530,9 @@ export default function Viewport(props: {
     // Face Select uses shift+click for multi-select, so it can't also use
     // shift+drag for the brush-size gesture below — right-click resize still
     // applies to every other tool unless holding Ctrl.
-    if (e.button === 2 && !isFaceSelectTool && !isCtrl) {
+    // The bucket has no radius to drag, so right-drag stays a plain context
+    // gesture there rather than silently changing a number nothing reads.
+    if (e.button === 2 && !isFaceSelectTool && !isCtrl && props.tool() !== 'fill') {
       e.preventDefault()
       resizeDrag = { shift: e.shiftKey, lastX: e.clientX, lastY: e.clientY }
       window.addEventListener('pointermove', onPointerMove)
@@ -2329,6 +2580,11 @@ export default function Viewport(props: {
       }
 
       const tool = props.tool()
+      if (tool === 'fill' && brush.fillMode() === 'face') {
+        // The first face goes down via applyToolAt below; the set tracks it so
+        // the same triangle isn't refilled on every pointer sample after it.
+        fillDragFaces = new Set(hit.faceIndex >= 0 ? [hit.faceIndex] : [])
+      }
       if (tool === 'effect') {
         layerStack?.history.record()
         // Smudge direction is meaningless across a pen lift — a fresh stroke
@@ -2440,6 +2696,8 @@ export default function Viewport(props: {
                 brushTexture: strokeTexture,
                 brushTipTexture: strokeTip,
                 textureScale: brush.textureScale(),
+        textureRegion: brush.textureRegion(),
+        textureRepeat: brush.textureRepeat(),
                 stampMode: false,
                 textureMapping: brush.textureMapping(),
                 restrictFaces: selection.size > 0 ? selection : null
@@ -2460,6 +2718,8 @@ export default function Viewport(props: {
                   brushTexture: strokeTexture,
                   brushTipTexture: strokeTip,
                   textureScale: brush.textureScale(),
+        textureRegion: brush.textureRegion(),
+        textureRepeat: brush.textureRepeat(),
                   stampMode: false,
                   textureMapping: brush.textureMapping(),
                   restrictFaces: selection.size > 0 ? selection : null
@@ -2478,6 +2738,7 @@ export default function Viewport(props: {
       return
     }
 
+    fillDragFaces = null
     if (painting) props.onLayersChanged?.()
     painting = false
     window.removeEventListener('pointermove', onPointerMove)
@@ -2553,7 +2814,7 @@ export default function Viewport(props: {
     }
 
     if ((e.key.toLowerCase() === 'f' || e.key === 'Home') && currentModel) {
-      frameModel(currentModel)
+      frameSelectionOrModel()
     } else if (e.key === '[') {
       stepRadius(-1)
     } else if (e.key === ']') {
@@ -2774,7 +3035,7 @@ export default function Viewport(props: {
       loadFromUrl,
       loadDefaultModel,
       loadProject,
-      focusModel: () => currentModel && frameModel(currentModel),
+      focusModel: () => frameSelectionOrModel(),
       pieces: () =>
         pieces.map((piece, index) => ({
           index,
@@ -2903,6 +3164,7 @@ export default function Viewport(props: {
       gizmoHandle.mirrorGroup.visible = false
     }
     if (hoverFaceMesh) hoverFaceMesh.visible = false
+    if (hoverFillMesh) hoverFillMesh.visible = false
     setEyedropperPreview((prev) => ({ ...prev, visible: false }))
   })
 
@@ -2969,19 +3231,32 @@ export default function Viewport(props: {
     channelMaps = {}
     if (!set) return
 
-    // Tiling is in world units per repeat, and the default (8) is tuned for
-    // stamping a small pattern, not for dressing a model in a material — on a
-    // sphere a metre across it packs the texture into unreadable moiré, which
-    // looks like the material isn't working at all rather than like a scale
-    // problem. Pick a scale from the model's own size so a freshly chosen set
-    // reads immediately; the artist can still take the slider anywhere.
-    if (currentModel) {
-      const box = new THREE.Box3().setFromObject(currentModel.root)
-      if (!box.isEmpty()) {
-        const radius = box.getBoundingSphere(new THREE.Sphere()).radius || 1
-        const REPEATS_ACROSS_MODEL = 3
-        brush.setTextureScale(REPEATS_ACROSS_MODEL / (radius * 2))
+    /**
+     * "Scale" means different things per placement, so a freshly chosen set has
+     * to be given the right kind of number:
+     *
+     *   World   — repeats per WORLD UNIT. Derived from the model's own size,
+     *             because the default (8) packs a material into unreadable
+     *             moiré on anything a metre across.
+     *   Surface — repeats across the model's UV square. A world-derived value
+     *             here is typically well under 1, which stretches a single copy
+     *             over the whole unwrap and reads as "it isn't tiling at all".
+     */
+    // untrack the placement read too: this effect exists to react to a new
+    // material set, not to re-run (and reset the scale) on every placement or
+    // scale change the artist makes afterwards.
+    if (untrack(brush.textureMapping) === 'triplanar') {
+      if (currentModel) {
+        const box = new THREE.Box3().setFromObject(currentModel.root)
+        if (!box.isEmpty()) {
+          const radius = box.getBoundingSphere(new THREE.Sphere()).radius || 1
+          const REPEATS_ACROSS_MODEL = 3
+          brush.setTextureScale(REPEATS_ACROSS_MODEL / (radius * 2))
+        }
       }
+    } else {
+      const REPEATS_ACROSS_UV = 4
+      brush.setTextureScale(REPEATS_ACROSS_UV)
     }
     for (const channel of PBR_CHANNELS) {
       const path = set.maps[channel]

@@ -51,6 +51,16 @@ ${BRUSH_MASK_UNIFORMS_GLSL}
   uniform float uFillScale;
   // 0 = Surface UV (straightforward), 1 = World Triplanar
   uniform float uTextureMapping;
+  /**
+   * Sub-rectangle of the source texture the brush draws from: xy = offset,
+   * zw = size, both 0-1 in texture space. Default (0,0,1,1) is the whole image.
+   * uTextureRegionRotation spins the crop about its own centre, so a diagonal
+   * detail can be pulled square without re-authoring the file.
+   */
+  uniform vec4 uTextureRegion;
+  uniform float uTextureRegionRotation;
+  /** 0 = tile, 1 = mirror, 2 = once (no repetition). */
+  uniform int uRepeatMode;
   // Camera-space occlusion (see occlusionDepth.ts): rejects fragments that
   // aren't actually visible from the paint camera — e.g. a face directly
   // behind the one under the brush — instead of only masking by facing.
@@ -206,7 +216,55 @@ ${BRUSH_MASK_GLSL}
     vec2 fillUv = vUv * max(uFillScale, 0.0001);
 
     vec2 texUv = mix(strokeTexUv, fillUv, uFillMode);
+
+    /**
+     * Repeat handling. Everything below works in "region space": 0-1 is ONE
+     * copy of the selected crop, so whatever the artist framed in the region
+     * picker is the unit that repeats — not an arbitrary window onto a pattern
+     * whose phase came from somewhere else.
+     */
+    /**
+     * Tiling is measured in copies of the REGION, not copies of the sheet. A
+     * crop half as tall as it is wide has to cover half as much v per repeat or
+     * every tile comes out stretched — which is what "the scale doesn't tile
+     * right" looks like. Full-image regions are 1:1 and unaffected.
+     */
+    if (uStampMode < 0.5) {
+      texUv.y *= uTextureRegion.z / max(uTextureRegion.w, 0.0001);
+    }
+
+    vec2 regionUv;
+    float insideOnce = 1.0;
+    if (uStampMode > 0.5) {
+      // A stamp/tip decal's 0-1 range IS its extent; wrapping would reprint the
+      // crop around its own edges.
+      regionUv = clamp(texUv, 0.0, 1.0);
+    } else if (uRepeatMode == 2) {
+      // Once: a single copy, and nothing outside it. Clamping alone would smear
+      // the border texels across the rest of the stroke, so the dab is masked
+      // out there instead.
+      insideOnce = step(0.0, texUv.x) * step(texUv.x, 1.0) *
+                   step(0.0, texUv.y) * step(texUv.y, 1.0);
+      regionUv = clamp(texUv, 0.0, 1.0);
+    } else if (uRepeatMode == 1) {
+      // Mirror: every other copy flips, so the crop's edges always meet their
+      // own reflection and a non-tiling image has no visible seam.
+      vec2 t = mod(texUv, 2.0);
+      regionUv = 1.0 - abs(t - 1.0);
+    } else {
+      regionUv = fract(texUv);
+    }
+
+    if (uTextureRegionRotation != 0.0) {
+      float cr = cos(uTextureRegionRotation);
+      float sr = sin(uTextureRegionRotation);
+      vec2 centred = regionUv - 0.5;
+      regionUv = vec2(centred.x * cr - centred.y * sr, centred.x * sr + centred.y * cr) + 0.5;
+    }
+    texUv = uTextureRegion.xy + clamp(regionUv, 0.0, 1.0) * uTextureRegion.zw;
+
     vec4 texSample = texture2D(uBrushTexture, texUv);
+    texSample.a *= insideOnce;
 
     // Paint color: shelf texture (tinted by uBrushColor) or just uBrushColor
     vec3 paintColor = mix(uBrushColor.rgb, texSample.rgb * uBrushColor.rgb, uUseTexture);
@@ -330,6 +388,9 @@ export interface PaintUniforms extends BrushMaskUniforms {
   uFillMode: THREE.IUniform<number>
   uFillScale: THREE.IUniform<number>
   uTextureMapping: THREE.IUniform<number>
+  uTextureRegion: THREE.IUniform<THREE.Vector4>
+  uTextureRegionRotation: THREE.IUniform<number>
+  uRepeatMode: THREE.IUniform<number>
   uStencilTex: THREE.IUniform<THREE.Texture | null>
   uUseStencil: THREE.IUniform<number>
   uStencilRect: THREE.IUniform<THREE.Vector4>
@@ -360,6 +421,9 @@ export function createPaintMaterial(): THREE.ShaderMaterial & { uniforms: PaintU
     uFillMode: { value: 0 },
     uFillScale: { value: 1 },
     uTextureMapping: { value: 0 },
+    uTextureRegion: { value: new THREE.Vector4(0, 0, 1, 1) },
+    uTextureRegionRotation: { value: 0 },
+    uRepeatMode: { value: 0 },
     uStencilTex: { value: null },
     uUseStencil: { value: 0 },
     uStencilRect: { value: new THREE.Vector4(0, 0, 1, 1) },
