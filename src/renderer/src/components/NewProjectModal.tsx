@@ -3,7 +3,7 @@ import { Modal, Button } from './ui'
 import { CubeIcon, FolderOpenIcon, CheckIcon, AppIcon } from './icons'
 import { TEXTURE_SIZE_OPTIONS, DEFAULT_TEXTURE_SIZE, type TextureSize } from '../paint/paintEngine'
 
-const MODEL_EXTENSIONS = ['glb', 'gltf', 'obj']
+const MODEL_EXTENSIONS = ['glb', 'gltf', 'obj', 'blend']
 
 const SIZE_DESCRIPTIONS: Record<TextureSize, { label: string; desc: string }> = {
   512: { label: 'Low-Res (512×512)', desc: 'Fastest performance, ideal for testing' },
@@ -107,7 +107,7 @@ export default function NewProjectModal(props: {
                 Choose a 3D model file
               </span>
               <span class="text-[11px] text-zinc-500 mb-3">
-                Supports .glb, .gltf, and .obj formats with UVs
+                Supports .glb, .gltf, .obj, and .blend formats with UVs
               </span>
               <Button variant="primary" size="xs">
                 Browse Files

@@ -6,6 +6,8 @@ interface Prefs {
   lastImportFolder?: string
   lastExportFolder?: string
   lastTextureFolder?: string
+  blenderPath?: string
+  blenderPromptDismissed?: boolean
 }
 
 function storePath(): string {
@@ -53,5 +55,25 @@ export function getLastTextureFolder(): string | undefined {
 export function setLastTextureFolder(folder: string): void {
   const prefs = load()
   prefs.lastTextureFolder = folder
+  save(prefs)
+}
+
+export function getBlenderPath(): string | undefined {
+  return load().blenderPath
+}
+
+export function setBlenderPath(path: string | undefined): void {
+  const prefs = load()
+  prefs.blenderPath = path
+  save(prefs)
+}
+
+export function isBlenderPromptDismissed(): boolean {
+  return !!load().blenderPromptDismissed
+}
+
+export function setBlenderPromptDismissed(dismissed: boolean): void {
+  const prefs = load()
+  prefs.blenderPromptDismissed = dismissed
   save(prefs)
 }

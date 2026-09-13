@@ -11,6 +11,11 @@ function collectMeshes(root: THREE.Object3D): THREE.Mesh[] {
   root.traverse((obj) => {
     if ((obj as THREE.Mesh).isMesh) meshes.push(obj as THREE.Mesh)
   })
+  // Every piece becomes its own texture set, and the UI addresses them by name —
+  // an unnamed mesh (common in OBJ exports) still needs something to point at.
+  meshes.forEach((mesh, i) => {
+    if (!mesh.name) mesh.name = `Piece ${i + 1}`
+  })
   return meshes
 }
 
@@ -63,19 +68,43 @@ export async function loadModel(fileUrl: string, extension: string): Promise<Loa
 }
 
 /**
- * BoxGeometry is deliberately unsuitable here: three.js gives every face the
- * same 0-1 UV square (fine for a repeating crate texture, but overlapping
- * islands make per-texel world-position painting undefined — whichever face
- * rasterizes last into a shared texel wins). SphereGeometry's equirectangular
- * unwrap has no overlaps, so it's a valid stand-in for a real UV-unwrapped
- * import until one is provided.
+ * Standard Three.js BoxGeometry gives every face the identical 0..1 UV coordinates,
+ * which makes painting any single face paint all 6 faces simultaneously.
+ * Here we construct a custom non-overlapping 3x2 UV layout for the 6 faces.
  */
-export function createDefaultTestModel(): LoadedModel {
-  const geometry = new THREE.SphereGeometry(0.6, 48, 32)
+export function createUnwrappedBoxGeometry(size = 1): THREE.BoxGeometry {
+  const geometry = new THREE.BoxGeometry(size, size, size)
+  const uvs = new Float32Array(24 * 2)
+  for (let face = 0; face < 6; face++) {
+    const col = face % 3
+    const row = Math.floor(face / 3)
+    const uMin = col / 3
+    const uMax = (col + 1) / 3
+    const vMin = row / 2
+    const vMax = (row + 1) / 2
+    const base = face * 8
+    uvs[base + 0] = uMin
+    uvs[base + 1] = vMax
+    uvs[base + 2] = uMax
+    uvs[base + 3] = vMax
+    uvs[base + 4] = uMin
+    uvs[base + 5] = vMin
+    uvs[base + 6] = uMax
+    uvs[base + 7] = vMin
+  }
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+  geometry.computeTangents()
+  return geometry
+}
+
+export function createDefaultTestModel(primitive: 'sphere' | 'cube' = 'sphere'): LoadedModel {
+  const geometry =
+    primitive === 'cube' ? createUnwrappedBoxGeometry(1) : new THREE.SphereGeometry(0.6, 48, 32)
   geometry.computeTangents()
   const material = new THREE.MeshStandardMaterial({ color: 0x8888aa, roughness: 0.6, metalness: 0.1 })
   const mesh = new THREE.Mesh(geometry, material)
-  mesh.position.y = 0.6
-  mesh.name = 'TestSphere'
+  mesh.position.y = primitive === 'cube' ? 0.5 : 0.6
+  mesh.name = primitive === 'cube' ? 'TestCube' : 'TestSphere'
   return { root: mesh, meshes: [mesh], missingUv: [] }
 }
+

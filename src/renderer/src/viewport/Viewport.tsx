@@ -32,32 +32,82 @@ import {
 } from '../paint/stencil'
 import { LayerStack, type StackSnapshot } from '../paint/layers'
 import {
+  DEFAULT_TEXTURE_SIZE,
   type FillOptions,
   type EdgeWearParams,
   type OcclusionParams,
   type StencilParams
 } from '../paint/paintEngine'
 import { OcclusionDepthPass } from '../paint/occlusionDepth'
-import { renderTargetToPngDataUrl } from '../paint/exportTexture'
+import { renderTargetToPngDataUrl, packOrmDataUrl, unpackOrmDataUrl } from '../paint/exportTexture'
+import { createChannelViewMaterial } from '../paint/channelViewShader'
+import { CHANNEL_SPECS, PBR_CHANNELS, type PaintChannel } from '../paint/channels'
+import type { ChannelMaps } from '../paint/paintEngine'
+import { loadPaintTexture, asyncLoadTexture } from '../utils/textureLoad'
 import { toAssetUrl } from '../utils/assetUrl'
 import { findUvIslandFaces } from '../paint/uvMesh'
 import type { MeshCoatProject } from '../utils/projectSerializer'
 import RadialPieMenu from '../components/RadialPieMenu'
+
+export interface InitialPbrTextures {
+  baseColor?: string | null
+  roughness?: string | null
+  metalness?: string | null
+  normal?: string | null
+  orm?: string | null
+}
+
+export type InitialTexturePayload =
+  | string
+  | InitialPbrTextures
+  | {
+      mode: 'shared'
+      textures: InitialPbrTextures
+    }
+  | {
+      mode: 'per-piece'
+      pieces: Record<string, InitialPbrTextures>
+    }
 
 export interface ViewportHandle {
   loadFromUrl: (
     url: string,
     extension: string,
     textureSize?: number,
-    initialTextureUrl?: string | null
+    initialTextures?: InitialTexturePayload | null
   ) => Promise<void>
-  loadDefaultModel: (textureSize?: number) => Promise<void>
-  loadProject: (project: MeshCoatProject, snapshot: StackSnapshot) => Promise<void>
+  loadDefaultModel: (textureSize?: number, primitive?: 'sphere' | 'cube') => Promise<void>
+  /** `snapshots` is one entry per saved piece, in the project's piece order. */
+  loadProject: (project: MeshCoatProject, snapshots: StackSnapshot[]) => Promise<void>
   focusModel: () => void
-  getLayerStack: () => LayerStack | undefined
-  exportBaseColorPng: () => string | undefined
+  /** Every paintable piece of the loaded model, in mesh order. */
+  pieces: () => PieceInfo[]
+  activePieceIndex: () => number
+  /** Switches which piece receives strokes, layer edits and undo. */
+  setActivePiece: (index: number) => void
+  /** Frames the camera on one piece (defaults to the active one). */
+  focusPiece: (index?: number) => void
+  /** The active piece's stack, or a specific piece's when given an index. */
+  getLayerStack: (pieceIndex?: number) => LayerStack | undefined
+  exportBaseColorPng: (pieceIndex?: number) => string | undefined
+  /** Flattened, export-ready PNG for one channel, or undefined if unpainted. */
+  exportChannelPng: (channel: PaintChannel, pieceIndex?: number) => string | undefined
+  /** Which channels the current project actually carries. */
+  paintedChannels: (pieceIndex?: number) => PaintChannel[]
+  /** Packed AO/Roughness/Metalness map (see packOrmDataUrl). */
+  exportOrmPng: (pieceIndex?: number) => string | undefined
+  /**
+   * White where this piece's UVs cover the texture, black elsewhere. Needed to
+   * merge several pieces into one atlas image — every piece's maps are opaque
+   * across the full square, so they have to be masked to their own region.
+   */
+  exportCoverageMaskPng: (pieceIndex?: number) => string | undefined
+  setViewMode: (mode: ChannelViewMode) => void
+  getViewMode: () => ChannelViewMode
   setLightingMode: (mode: LightingMode) => void
   setWireframeVisible: (visible: boolean) => void
+  setIsolateActivePiece: (isolate: boolean) => void
+  getIsolateActivePiece: () => boolean
   fillActive: () => void
   selectAllFaces: () => void
   invertFaceSelection: () => void
@@ -71,6 +121,55 @@ export interface ViewportHandle {
   redo: () => void
   canUndo: () => boolean
   canRedo: () => boolean
+}
+
+/**
+ * Viewport display mode. 'material' is the real shaded PBR result; the rest
+ * isolate one stored map so the artist can read it directly.
+ */
+export type ChannelViewMode = 'material' | PaintChannel
+
+/**
+ * One paintable piece of the model — a "texture set" in Substance terms. Each
+ * mesh of a multi-object import gets its own layer stack, undo history and
+ * maps, because separate pieces normally reuse the same 0-1 UV square: a stroke
+ * shared between them would land on both.
+ */
+interface PaintPiece {
+  mesh: THREE.Mesh
+  name: string
+  stack: LayerStack
+  /** Local-space triangle positions for the selection/hover overlays. */
+  facePositions: Float32Array
+  highlightMesh: THREE.LineSegments
+  hoverFaceMesh: THREE.LineSegments
+  shadedMaterial: THREE.MeshStandardMaterial
+  /**
+   * What the imported file already had on this mesh, per material slot, baked
+   * into the background layer at load. One entry per slot because a Blender
+   * object commonly carries several materials over one mesh, each covering its
+   * own range of faces.
+   */
+  embedded: EmbeddedSlot[]
+  /** Built lazily, per piece, since each carries its own channel map uniform. */
+  channelViewMaterial?: THREE.ShaderMaterial
+}
+
+/** One material slot of an imported mesh, and the faces it covers. */
+interface EmbeddedSlot {
+  maps: Partial<Record<PaintChannel, THREE.Texture>>
+  /** Flat colour to lay down where the slot has no base-color map. */
+  color: THREE.Color | null
+  /** Faces this slot owns, or null when the slot covers the whole mesh. */
+  faces: Set<number> | null
+}
+
+/** Piece summary handed to the UI for the texture-set selector. */
+export interface PieceInfo {
+  index: number
+  name: string
+  textureSize: number
+  faceCount: number
 }
 
 interface GizmoHandle {
@@ -310,7 +409,7 @@ function createGizmo(): GizmoHandle {
 
 interface SymmetryGuideHandle {
   group: THREE.Group
-  update: (axis: SymmetryAxis, model: LoadedModel | undefined) => void
+  update: (axis: SymmetryAxis, model: LoadedModel | undefined, mesh?: THREE.Mesh) => void
   dispose: () => void
 }
 
@@ -380,13 +479,14 @@ function createSymmetryGuide(): SymmetryGuideHandle {
   const innerGridLine = new THREE.LineSegments(innerGridGeom, innerGridMat)
   group.add(innerGridLine)
 
-  function update(axis: SymmetryAxis, model: LoadedModel | undefined): void {
+  function update(axis: SymmetryAxis, model: LoadedModel | undefined, meshOverride?: THREE.Mesh): void {
     if (axis === 'off' || !model || model.meshes.length === 0) {
       group.visible = false
       return
     }
 
-    const mesh = model.meshes[0]
+    // Sized around the piece being painted, since that's what the mirror acts on.
+    const mesh = meshOverride ?? model.meshes[0]
     if (!mesh.geometry.boundingBox) {
       mesh.geometry.computeBoundingBox()
     }
@@ -457,14 +557,31 @@ export default function Viewport(props: {
   onMissingUv?: (names: string[]) => void
   onLayersChanged?: () => void
   onWireframeChanged?: (visible: boolean) => void
+  onIsolatePieceChanged?: (isolate: boolean) => void
+  /** Fires when the piece list or the active piece changes. */
+  onPiecesChanged?: () => void
 }) {
   let canvasRef: HTMLCanvasElement | undefined
   let sceneHandle: SceneHandle | undefined
   let currentModel: LoadedModel | undefined
+  /**
+   * One texture set per mesh in the model. `layerStack` (and the highlight /
+   * facePositions / shadedMaterial variables below) always mirror the ACTIVE
+   * piece, so every existing painting path keeps working on one stack while the
+   * others stay painted and visible in the viewport.
+   */
+  let pieces: PaintPiece[] = []
+  let activePieceIndex = 0
+  let isolateActivePiece = false
   let layerStack: LayerStack | undefined
+  let viewMode: ChannelViewMode = 'material'
   let gizmoHandle: GizmoHandle | undefined
   let hoverFaceMesh: THREE.LineSegments | undefined
   let symmetryGuide: SymmetryGuideHandle | undefined
+  /** Box around the piece receiving strokes; only drawn for multi-piece models. */
+  let activePieceBox: THREE.Box3Helper | undefined
+  /** Box around the piece under the cursor when it isn't the active one. */
+  let hoverPieceBox: THREE.Box3Helper | undefined
   let rafId = 0
   let painting = false
   let lastStampPos: THREE.Vector3 | null = null
@@ -483,6 +600,9 @@ export default function Viewport(props: {
   let stencilDrag: { lastX: number; lastY: number } | null = null
   let occlusionPass: OcclusionDepthPass | undefined
   let brushTexture: THREE.Texture | null = null
+  /** Per-channel maps of the active material set (see materialSets.ts), loaded
+   * alongside brushTexture so a stroke can feed each channel its own source. */
+  let channelMaps: ChannelMaps = {}
   let brushTipTexture: THREE.Texture | null = null
   const textureLoader = new THREE.TextureLoader()
   let wireframeMeshes: THREE.LineSegments[] = []
@@ -497,6 +617,14 @@ export default function Viewport(props: {
   let lineStartHit: SurfaceHit | null = null
   let currentHit: SurfaceHit | null = null
   let lineGuideMesh: THREE.Line | null = null
+
+  /**
+   * Which piece is being painted, and which one the cursor is over. Shown as a
+   * viewport badge because the layers panel alone doesn't answer the question
+   * an artist asks mid-stroke: "is this click going to land on the head or the
+   * body?" Null while the model has a single piece — nothing to disambiguate.
+   */
+  const [pieceHud, setPieceHud] = createSignal<{ active: string; hover: string | null } | null>(null)
 
   const [eyedropperPreview, setEyedropperPreview] = createSignal<{
     visible: boolean
@@ -533,10 +661,14 @@ export default function Viewport(props: {
     const rayOrigin = mirroredWorldPt.clone().addScaledVector(mirroredWorldNorm, 0.25)
     const rayDir = mirroredWorldNorm.clone().negate()
     const raycaster = new THREE.Raycaster(rayOrigin, rayDir, 0.001, 0.5)
-    const hits = raycaster.intersectObjects(currentModel.meshes, false)
+    // Only the piece being painted: the mirrored point can easily land on a
+    // neighbouring piece, whose UVs address a completely different texture set.
+    const mirrorTarget = activeMesh()
+    const hits = mirrorTarget ? raycaster.intersectObject(mirrorTarget, false) : []
     if (hits.length > 0) {
       const h0 = hits[0]
       return {
+        mesh: h0.object as THREE.Mesh,
         point: h0.point,
         normal: h0.face
           ? h0.face.normal.clone().applyMatrix3(new THREE.Matrix3().getNormalMatrix(h0.object.matrixWorld)).normalize()
@@ -546,6 +678,7 @@ export default function Viewport(props: {
       }
     }
     return {
+      mesh: mirrorTarget,
       point: mirroredWorldPt,
       normal: mirroredWorldNorm,
       uv: hit.uv.clone(),
@@ -565,25 +698,31 @@ export default function Viewport(props: {
     lastBrushDabPos = null
     lastEffectUv = null
     occlusionPass?.invalidate()
-    layerStack?.dispose()
+    for (const piece of pieces) {
+      piece.stack.dispose()
+      piece.channelViewMaterial?.dispose()
+      for (const overlay of [piece.highlightMesh, piece.hoverFaceMesh]) {
+        overlay.geometry.dispose()
+        ;(overlay.material as THREE.Material).dispose()
+        overlay.parent?.remove(overlay)
+      }
+    }
+    pieces = []
+    activePieceIndex = 0
     layerStack = undefined
     currentModel = undefined
+    isolateActivePiece = false
+    props.onIsolatePieceChanged?.(false)
+    if (activePieceBox) activePieceBox.visible = false
+    if (hoverPieceBox) hoverPieceBox.visible = false
+    setPieceHud(null)
     if (symmetryGuide && symmetryGuide.group.parent) {
       symmetryGuide.group.parent.remove(symmetryGuide.group)
       symmetryGuide.group.visible = false
     }
-    if (highlightMesh) {
-      highlightMesh.geometry.dispose()
-      ;(highlightMesh.material as THREE.Material).dispose()
-      highlightMesh.parent?.remove(highlightMesh)
-      highlightMesh = undefined
-    }
-    if (hoverFaceMesh) {
-      hoverFaceMesh.geometry.dispose()
-      ;(hoverFaceMesh.material as THREE.Material).dispose()
-      hoverFaceMesh.parent?.remove(hoverFaceMesh)
-      hoverFaceMesh = undefined
-    }
+    // Both overlays belong to a piece and were disposed with it above.
+    highlightMesh = undefined
+    hoverFaceMesh = undefined
     facePositions = undefined
     // A picked triangle index only means anything for the mesh it was picked
     // on — carrying it into a freshly loaded model could restrict painting
@@ -607,21 +746,111 @@ export default function Viewport(props: {
     for (const wf of wireframeMeshes) wf.visible = visible
   }
 
-  function setupLayers(model: LoadedModel, textureSize?: number): void {
-    if (!sceneHandle) return
-    const mesh = model.meshes[0]
-    if (!mesh) return
-    layerStack = new LayerStack(sceneHandle.renderer, mesh, textureSize)
-    const material = mesh.material as THREE.MeshStandardMaterial
-    material.map = layerStack.texture
-    material.needsUpdate = true
-    props.onLayersChanged?.()
+  /**
+   * Swaps the mesh between the shaded PBR material and the isolated
+   * channel-inspection material. The shaded material is parked, not rebuilt, so
+   * switching back restores every map binding exactly as the layer stack left
+   * it. Re-applied after every setupLayers so a reload keeps the chosen view.
+   */
+  function applyViewModeToPiece(piece: PaintPiece): void {
+    if (viewMode === 'material') {
+      piece.mesh.material = piece.shadedMaterial
+      return
+    }
+
+    const map = piece.stack.channelTexture(viewMode)
+    if (!map) {
+      // Nothing painted in that channel yet — fall back to the shaded view
+      // rather than showing a black model and looking broken.
+      piece.mesh.material = piece.shadedMaterial
+      return
+    }
+    if (!piece.channelViewMaterial) piece.channelViewMaterial = createChannelViewMaterial()
+    const mat = piece.channelViewMaterial
+    mat.uniforms.tMap.value = map
+    mat.uniforms.uIsNormal.value = CHANNEL_SPECS[viewMode].vector ? 1 : 0
+    // Only the base-color composite is stored premultiplied; the data channels
+    // are already resolved to straight values by the flatten pass.
+    mat.uniforms.uPremultiplied.value = viewMode === 'baseColor' ? 1 : 0
+    piece.mesh.material = mat
+  }
+
+  /** Every piece stays in its own channel view, so the whole model reads the same. */
+  function applyViewMode(): void {
+    for (const piece of pieces) applyViewModeToPiece(piece)
+  }
+
+  function createPiece(mesh: THREE.Mesh, textureSize?: number): PaintPiece {
+    const stack = new LayerStack(sceneHandle!.renderer, mesh, textureSize)
+
+    // Pieces of an imported model routinely SHARE one material instance (both
+    // OBJ and glTF do this whenever the parts were exported with the same
+    // material). Each piece binds its own composite and channel maps, so
+    // binding onto a shared instance means the last piece built wins and every
+    // other piece renders someone else's texture — which reads as "painting
+    // does nothing". A private clone per piece is what makes each texture set
+    // actually independent.
+    const source = mesh.material
+    const slots = (Array.isArray(source) ? source : [source]) as THREE.MeshStandardMaterial[]
+    const base = slots[0]
+    const material = base.clone()
+    material.name = `${mesh.name || 'Piece'}_Material`
+    // Collapsed to one material on purpose: a piece is one texture set, and
+    // every slot's artwork is baked into it below. three renders a grouped
+    // geometry with a single (non-array) material perfectly well.
+    mesh.material = material
+
+    /**
+     * A GLB from Blender carries its textures inside the file, already bound to
+     * the material. Binding the layer stack replaces those maps with this
+     * stack's own composites, so without capturing them first the model's
+     * artwork disappears the moment it loads and comes back as flat grey.
+     *
+     * Each material SLOT is captured separately with the faces it covers. A
+     * Blender object with a body material and a trim material is one mesh with
+     * two slots; keeping only the first (what this used to do) drops the trim's
+     * texture entirely and paints its faces with the body's.
+     *
+     * flipY is deliberately left as each loader set it: GLTFLoader clears it
+     * because glTF UVs run top-down and three compensates on the texture rather
+     * than on the UV attribute, while TextureLoader sets it for an ordinary
+     * PNG. Both sample correctly against the same vUv, and forcing either one
+     * would flip that half of the imports.
+     */
+    const groups = mesh.geometry.groups
+    const embedded: EmbeddedSlot[] = slots.map((slot, slotIndex) => {
+      const maps: Partial<Record<PaintChannel, THREE.Texture>> = {}
+      if (slot?.map) maps.baseColor = slot.map
+      if (slot?.roughnessMap) maps.roughness = slot.roughnessMap
+      if (slot?.metalnessMap) maps.metalness = slot.metalnessMap
+      if (slot?.normalMap) maps.normal = slot.normalMap
+
+      let faces: Set<number> | null = null
+      if (slots.length > 1 && groups.length > 0) {
+        faces = new Set<number>()
+        for (const group of groups) {
+          if ((group.materialIndex ?? 0) !== slotIndex) continue
+          // Groups are expressed in index-buffer elements; three vertices per
+          // triangle, and triangle numbering is what faceIndex counts in.
+          const first = Math.floor(group.start / 3)
+          const count = Math.floor(group.count / 3)
+          for (let i = 0; i < count; i++) faces.add(first + i)
+        }
+      }
+
+      return { maps, color: slot?.color ? slot.color.clone() : null, faces }
+    })
+
+    // The stack binds every channel it has (and re-binds when a new one first
+    // appears mid-session), rather than the viewport wiring up base color once.
+    stack.bindMaterial(material)
 
     // Same non-indexed expansion PaintEngine's uvMesh uses (see uvMesh.ts) —
     // keeps triangle numbering identical to SurfaceHit.faceIndex so the
     // highlight overlay lines up with what's actually selected for painting.
     const nonIndexed = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry
-    facePositions = (nonIndexed.attributes.position as THREE.BufferAttribute).array.slice() as Float32Array
+    const piecePositions = (nonIndexed.attributes.position as THREE.BufferAttribute)
+      .array.slice() as Float32Array
 
     const highlightGeometry = new THREE.BufferGeometry()
     highlightGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(0), 3))
@@ -635,11 +864,10 @@ export default function Viewport(props: {
       polygonOffsetFactor: -2,
       polygonOffsetUnits: -2
     })
-    highlightMesh = new THREE.LineSegments(highlightGeometry, highlightMaterial)
-    highlightMesh.renderOrder = 999
-    highlightMesh.frustumCulled = false
-    mesh.add(highlightMesh)
-    updateHighlight()
+    const pieceHighlight = new THREE.LineSegments(highlightGeometry, highlightMaterial)
+    pieceHighlight.renderOrder = 999
+    pieceHighlight.frustumCulled = false
+    mesh.add(pieceHighlight)
 
     const hoverFaceGeometry = new THREE.BufferGeometry()
     hoverFaceGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(0), 3))
@@ -653,11 +881,213 @@ export default function Viewport(props: {
       polygonOffsetFactor: -3,
       polygonOffsetUnits: -3
     })
-    hoverFaceMesh = new THREE.LineSegments(hoverFaceGeometry, hoverFaceMaterial)
-    hoverFaceMesh.renderOrder = 998
-    hoverFaceMesh.frustumCulled = false
-    hoverFaceMesh.visible = false
-    mesh.add(hoverFaceMesh)
+    const pieceHover = new THREE.LineSegments(hoverFaceGeometry, hoverFaceMaterial)
+    pieceHover.renderOrder = 998
+    pieceHover.frustumCulled = false
+    pieceHover.visible = false
+    mesh.add(pieceHover)
+
+    const piece: PaintPiece = {
+      mesh,
+      name: mesh.name || 'Piece',
+      stack,
+      embedded,
+      facePositions: piecePositions,
+      highlightMesh: pieceHighlight,
+      hoverFaceMesh: pieceHover,
+      shadedMaterial: material
+    }
+    applyViewModeToPiece(piece)
+    return piece
+  }
+
+  /** The mesh currently receiving strokes, or undefined before a model loads. */
+  function activeMesh(): THREE.Mesh | undefined {
+    return pieces[activePieceIndex]?.mesh
+  }
+
+  /**
+   * The meshes the depth pass treats as occluders.
+   *
+   * ONLY the piece being painted. The pass exists to stop a dab wrapping onto
+   * the far side of the surface being aimed at; including the other pieces
+   * turns every overlapping part into a stencil that blocks paint, and pieces
+   * routinely interpenetrate or sit as coincident shells — a strap over a
+   * torso, an eye inside a socket — which rejects the whole stroke and looks
+   * exactly like painting is broken.
+   */
+  function occluderMeshes(): THREE.Mesh[] {
+    const mesh = activeMesh()
+    return mesh ? [mesh] : []
+  }
+
+  /** The named piece's stack, or the active one when no index is given. */
+  function stackFor(pieceIndex?: number): LayerStack | undefined {
+    return pieceIndex == null ? layerStack : pieces[pieceIndex]?.stack
+  }
+
+  function pieceIndexForMesh(mesh: THREE.Mesh | undefined): number {
+    if (!mesh) return -1
+    return pieces.findIndex((p) => p.mesh === mesh)
+  }
+
+  /**
+   * Enforces mesh visibility based on `isolateActivePiece`.
+   * When isolated, all pieces except the active piece (and any non-piece meshes)
+   * are hidden.
+   */
+  function applyPieceVisibility(): void {
+    if (!currentModel) return
+    for (let i = 0; i < pieces.length; i++) {
+      pieces[i].mesh.visible = !isolateActivePiece || i === activePieceIndex
+    }
+    for (const mesh of currentModel.meshes) {
+      if (!pieces.some((p) => p.mesh === mesh)) {
+        mesh.visible = !isolateActivePiece
+      }
+    }
+  }
+
+  /**
+   * Draws the amber box around the active piece and the dimmer one around a
+   * hovered inactive piece, and refreshes the badge. Both boxes are world-space
+   * Box3Helpers rather than a material tint, so nothing about how the piece is
+   * shaded (or which channel view is up) has to change to show selection.
+   */
+  function updatePieceOutlines(hoverMesh?: THREE.Mesh | null): void {
+    if (!sceneHandle) return
+    const multi = pieces.length > 1
+    const active = pieces[activePieceIndex]
+
+    if (!multi || !active) {
+      if (activePieceBox) activePieceBox.visible = false
+      if (hoverPieceBox) hoverPieceBox.visible = false
+      setPieceHud(null)
+      return
+    }
+
+    if (isolateActivePiece) {
+      if (activePieceBox) activePieceBox.visible = false
+      if (hoverPieceBox) hoverPieceBox.visible = false
+      setPieceHud({ active: active.name, hover: null })
+      return
+    }
+
+    if (!activePieceBox) {
+      activePieceBox = new THREE.Box3Helper(new THREE.Box3(), new THREE.Color(0xffaa00))
+      ;(activePieceBox.material as THREE.LineBasicMaterial).transparent = true
+      ;(activePieceBox.material as THREE.LineBasicMaterial).opacity = 0.75
+      activePieceBox.renderOrder = 997
+      sceneHandle.scene.add(activePieceBox)
+    }
+    activePieceBox.box.setFromObject(active.mesh)
+    activePieceBox.visible = true
+
+    const hoverPiece =
+      hoverMesh && hoverMesh !== active.mesh ? pieces[pieceIndexForMesh(hoverMesh)] : undefined
+    if (!hoverPieceBox) {
+      hoverPieceBox = new THREE.Box3Helper(new THREE.Box3(), new THREE.Color(0x38bdf8))
+      ;(hoverPieceBox.material as THREE.LineBasicMaterial).transparent = true
+      ;(hoverPieceBox.material as THREE.LineBasicMaterial).opacity = 0.4
+      hoverPieceBox.renderOrder = 996
+      sceneHandle.scene.add(hoverPieceBox)
+    }
+    if (hoverPiece) {
+      hoverPieceBox.box.setFromObject(hoverPiece.mesh)
+      hoverPieceBox.visible = true
+    } else {
+      hoverPieceBox.visible = false
+    }
+
+    setPieceHud({ active: active.name, hover: hoverPiece?.name ?? null })
+  }
+
+  /**
+   * Points every "current piece" variable at `index`. The paint paths, the
+   * layers panel and undo all read those, so this one swap is what switching
+   * texture sets means.
+   */
+  function setActivePiece(index: number): void {
+    if (index < 0 || index >= pieces.length) return
+    activePieceIndex = index
+    const piece = pieces[index]
+    layerStack = piece.stack
+    facePositions = piece.facePositions
+    highlightMesh = piece.highlightMesh
+    hoverFaceMesh = piece.hoverFaceMesh
+    // Face indices are per-mesh, so a selection made on another piece would
+    // restrict painting to unrelated (or out-of-range) triangles here.
+    clearFaceSelection()
+    for (const other of pieces) {
+      if (other !== piece) other.hoverFaceMesh.visible = false
+    }
+    updateHighlight()
+    if (symmetryGuide && currentModel) symmetryGuide.update(brush.symmetryAxis(), currentModel, activeMesh())
+    // The depth map is keyed on its occluder set, which just changed.
+    occlusionPass?.invalidate()
+    applyPieceVisibility()
+    updatePieceOutlines()
+    // Only onPiecesChanged: switching piece redraws the layers panel but is not
+    // an edit, so it must not mark the project dirty.
+    props.onPiecesChanged?.()
+  }
+
+  /**
+   * Builds one texture set per mesh. Meshes without UV0 can't be painted at all
+   * (modelLoader reports them) — they still render, they just get no stack.
+   */
+  function setupLayers(
+    model: LoadedModel,
+    textureSize?: number,
+    /** Per-piece override by piece name, used when reopening a saved project. */
+    sizeByName?: Record<string, number>
+  ): void {
+    if (!sceneHandle) return
+    // Shadows are only rendered by the showcase preset, but the flags are a
+    // property of the model rather than the lighting — set once here so
+    // switching preset needs no traversal.
+    for (const mesh of model.meshes) {
+      mesh.castShadow = true
+      mesh.receiveShadow = true
+    }
+
+    const paintable = model.meshes.filter((mesh) => !!mesh.geometry.attributes.uv)
+
+    /**
+     * Every piece is a full texture set, and a texture set at 4096 costs
+     * roughly 320 MB of GPU memory (composite + two scratch buffers + the
+     * layer's own ping-pong pair, 64 MB each). Eight pieces at that size ask
+     * for ~2.5 GB, which most GPUs refuse — and a render target that failed to
+     * allocate doesn't throw, it just reads back as zeroes, so the model turns
+     * black and every export comes out empty.
+     *
+     * Scale the per-piece resolution down until the whole model fits a sane
+     * budget. One piece keeps whatever the artist picked.
+     */
+    const BUDGET_TEXELS = 4096 * 4096 * 4
+    const fitSize = (requested: number): number => {
+      let size = requested
+      while (size > 512 && paintable.length * size * size > BUDGET_TEXELS) size /= 2
+      return size
+    }
+
+    pieces = paintable.map((mesh) => {
+      const requested = sizeByName?.[mesh.name] ?? textureSize ?? DEFAULT_TEXTURE_SIZE
+      const fitted = fitSize(requested)
+      if (fitted !== requested) {
+        console.warn(
+          `[slip] ${paintable.length} paintable pieces at ${requested}px would exceed the GPU ` +
+            `texture budget; "${mesh.name}" allocated at ${fitted}px instead.`
+        )
+      }
+      return createPiece(mesh, fitted)
+    })
+    activePieceIndex = 0
+    applyPieceVisibility()
+    if (pieces.length > 0) setActivePiece(0)
+    updatePieceOutlines()
+    props.onPiecesChanged?.()
+    props.onLayersChanged?.()
   }
 
   /** Rebuilds the selection outline — draws ONLY perimeter boundary edges with depth test. */
@@ -726,57 +1156,312 @@ export default function Viewport(props: {
     if (box.isEmpty()) return
     const sphere = box.getBoundingSphere(new THREE.Sphere())
     sceneHandle.controls.focus(sphere.center, sphere.radius || 1)
+    // Same bounds drive the shadow camera and the ground plane the model's
+    // shadow lands on — the plane sits at the model's lowest point, not at
+    // y = 0, so a model authored off the origin still gets a contact shadow.
+    sceneHandle.fitShadows(sphere.center, sphere.radius || 1, box.min.y)
+  }
+
+
+  /**
+   * Bakes a set of loaded maps into a piece's background layer. Shared by the
+   * import wizard and by whatever textures an imported file already carried.
+   */
+  function fillPieceFromTextures(
+    piece: PaintPiece,
+    channelTextures: Partial<Record<PaintChannel, THREE.Texture>>,
+    /** Restrict the fill to these faces (one material slot's range). */
+    faces?: Set<number> | null,
+    /** Flat colour for a slot that has no base-color map of its own. */
+    flatColor?: THREE.Color | null
+  ): void {
+    const baseLayer = piece.stack.layers[0]
+    if (!baseLayer) return
+    const { baseColor, ...dataMaps } = channelTextures
+    const restrict = faces && faces.size > 0 ? faces : null
+    let filled = false
+
+    const apply = (options: FillOptions): void => {
+      if (restrict) baseLayer.engine.fillFaces(restrict, options)
+      else baseLayer.engine.fill(options)
+      filled = true
+    }
+
+    // Base color has to travel as the fill's `texture`, NOT as a channel map:
+    // the paint shader samples base color only from uBrushTexture (see
+    // applyChannelPayload — a baseColor entry in channelMaps is deliberately
+    // dropped there), so passing an imported color map as a channel map fills
+    // flat white and the import looks like it did nothing.
+    if (baseColor) {
+      apply({
+        texture: baseColor,
+        // Scale 1 = raw UV: an imported map is authored in this model's own UV
+        // layout, so it must land texel-for-texel rather than tiled.
+        scale: 1,
+        color: new THREE.Color(0xffffff),
+        alpha: 1,
+        channels: { baseColor: { color: new THREE.Color(0xffffff), alpha: 1 } }
+      })
+    } else if (flatColor) {
+      // A material slot with no texture still has a colour, and it is the
+      // model's own look — laying it down beats leaving that slot's faces on
+      // the default grey background.
+      apply({
+        color: flatColor,
+        alpha: 1,
+        channels: { baseColor: { color: flatColor, alpha: 1 } }
+      })
+    }
+
+    // The data channels do sample their own maps, and go in one pass of their
+    // own so the base color image can't mask them through texSample.a.
+    const dataChannels = Object.keys(dataMaps) as PaintChannel[]
+    if (dataChannels.length > 0) {
+      apply({
+        channelMaps: dataMaps,
+        scale: 1,
+        alpha: 1,
+        channels: {
+          ...(dataMaps.roughness ? { roughness: 1 } : {}),
+          ...(dataMaps.metalness ? { metalness: 1 } : {}),
+          ...(dataMaps.normal ? { normal: 1 } : {})
+        }
+      })
+    }
+
+    if (!filled) return
+
+    // A multi-piece model is very often UV-mapped into one shared atlas, and
+    // every piece was just handed that whole sheet. Clipping each piece to its
+    // own UV coverage is what separates them back out into independent texture
+    // sets: without it a piece carries its neighbours' islands, painting one
+    // leaves the others' artwork sitting underneath, and a per-piece export
+    // writes the entire atlas. Harmless for a model whose pieces each own the
+    // full 0-1 square, since everything outside a piece's islands is unused.
+    if (pieces.length > 1) baseLayer.engine.clipToCoverage()
+
+    piece.stack.recomposite()
+  }
+
+  async function applyPbrTexturesToPiece(
+    piece: PaintPiece,
+    texMap: InitialPbrTextures,
+    /**
+     * True for glTF-derived models (.glb/.gltf, and .blend once Blender has
+     * converted it). glTF puts the UV origin at the TOP-left and Blender's
+     * exporter flips V to match, while THREE.TextureLoader flips an ordinary
+     * image on upload so V = 0 reads the bottom row. Applied together, an
+     * external atlas lands vertically mirrored: a piece unwrapped into the top
+     * of the sheet samples the bottom of it. Not flipping the upload cancels
+     * that out. (Textures that come embedded in the file are already correct —
+     * GLTFLoader clears flipY on those itself.)
+     */
+    uvOriginTopLeft: boolean
+  ): Promise<void> {
+    if (!piece.stack || piece.stack.layers.length === 0) return
+    const channelTextures: Partial<Record<PaintChannel, THREE.Texture>> = {}
+
+    /**
+     * An imported map is authored in this model's UV layout, so it is sampled
+     * 1:1 rather than tiled — clamping keeps the outermost texel from wrapping
+     * around to the opposite edge of the sheet along every UV seam.
+     */
+    const prepare = (tex: THREE.Texture, srgb: boolean): THREE.Texture => {
+      tex.flipY = !uvOriginTopLeft
+      // Data maps carry numbers, not something to look at: decoding them as
+      // sRGB would bend every roughness/metalness/normal value.
+      tex.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace
+      tex.wrapS = THREE.ClampToEdgeWrapping
+      tex.wrapT = THREE.ClampToEdgeWrapping
+      tex.needsUpdate = true
+      return tex
+    }
+
+    if (texMap.baseColor) {
+      channelTextures.baseColor = prepare(await asyncLoadTexture(texMap.baseColor), true)
+    }
+    if (texMap.roughness) {
+      channelTextures.roughness = prepare(await asyncLoadTexture(texMap.roughness), false)
+    }
+    if (texMap.metalness) {
+      channelTextures.metalness = prepare(await asyncLoadTexture(texMap.metalness), false)
+    }
+    if (texMap.normal) {
+      channelTextures.normal = prepare(await asyncLoadTexture(texMap.normal), false)
+    }
+
+    if (texMap.orm && (!channelTextures.roughness || !channelTextures.metalness)) {
+      try {
+        const isDirectUrl =
+          texMap.orm.startsWith('asset-file://') ||
+          texMap.orm.startsWith('data:') ||
+          texMap.orm.startsWith('blob:')
+        const ormUrl = isDirectUrl ? texMap.orm : toAssetUrl(texMap.orm)
+        const unpacked = await unpackOrmDataUrl(ormUrl)
+        if (!channelTextures.roughness && unpacked.roughness) {
+          channelTextures.roughness = prepare(await asyncLoadTexture(unpacked.roughness), false)
+        }
+        if (!channelTextures.metalness && unpacked.metalness) {
+          channelTextures.metalness = prepare(await asyncLoadTexture(unpacked.metalness), false)
+        }
+      } catch (e) {
+        console.error('Failed to unpack initial ORM map:', e)
+      }
+    }
+
+    fillPieceFromTextures(piece, channelTextures)
+  }
+
+  /**
+   * Snaps a pixel dimension to a canvas size the app actually supports. Painting
+   * at the source map's own resolution is what keeps an imported texture
+   * pixel-exact: a 2048 atlas rebuilt on a 4096 canvas is resampled up on the
+   * way in and back down on export, softening every edge in the artwork, and it
+   * costs four times the GPU memory to do it.
+   */
+  function snapToCanvasSize(pixels: number): number {
+    const sizes = [512, 1024, 2048, 4096, 8192]
+    let best = sizes[0]
+    for (const size of sizes) {
+      if (size <= pixels) best = size
+    }
+    return best
+  }
+
+  /** Reads an image's pixel dimensions without decoding it into a GPU texture. */
+  function probeImageSize(path: string): Promise<number | null> {
+    return new Promise((resolve) => {
+      // TGA can't be measured by an <img>; those fall back to the chosen size.
+      if (/\.tga$/i.test(path)) {
+        resolve(null)
+        return
+      }
+      const isDirect = /^(asset-file:|data:|blob:)/.test(path)
+      const img = new Image()
+      img.onload = () => resolve(Math.max(img.naturalWidth, img.naturalHeight) || null)
+      img.onerror = () => resolve(null)
+      img.src = isDirect ? path : toAssetUrl(path)
+    })
+  }
+
+  /** Native size of whatever maps a mesh's material slots already carry. */
+  function embeddedMapSize(mesh: THREE.Mesh): number | null {
+    const slots = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]) as THREE.MeshStandardMaterial[]
+    let largest = 0
+    for (const slot of slots) {
+      for (const map of [slot?.map, slot?.roughnessMap, slot?.metalnessMap, slot?.normalMap]) {
+        const img = map?.image as { width?: number; height?: number } | undefined
+        if (img?.width) largest = Math.max(largest, img.width, img.height ?? 0)
+      }
+    }
+    return largest > 0 ? snapToCanvasSize(largest) : null
   }
 
   async function loadFromUrl(
     url: string,
     extension: string,
     textureSize?: number,
-    initialTextureUrl?: string | null
+    initialTextures?: InitialTexturePayload | null
   ): Promise<void> {
     if (!sceneHandle) return
     const model = await loadModel(url, extension)
-    if (model.meshes.length > 1) {
-      const names = model.meshes.map((m) => m.name || '(unnamed)').join(', ')
-      throw new Error(
-        `This model has ${model.meshes.length} separate objects (${names}) — only the first gets a paintable ` +
-          'texture right now, and separate parts almost always share overlapping UVs, which corrupts painting ' +
-          'across the whole model. Join all parts into a single mesh before exporting: in Blender, select every ' +
-          'part, press Ctrl+J to join, then in Edit Mode select all (A) and run Mesh > Merge > By Distance to weld ' +
-          'the seams (skipping this leaves hairline gaps that show up as thin black cracks along old part edges), ' +
-          'give it one clean UV unwrap, then save a new copy and export as .obj/.glb.'
-      )
+    // A .blend arrives here already converted to .glb by the Blender bridge,
+    // so it carries glTF's top-left UV origin like any other glTF model.
+    const uvOriginTopLeft = /^(glb|gltf)$/i.test(extension)
+    /**
+     * Canvas size follows the artwork being imported, not the number in the
+     * wizard: a piece whose maps are 2048 is painted at 2048. Measured BEFORE
+     * the stacks exist, because a LayerStack's resolution is fixed at
+     * construction.
+     */
+    const sizeByName: Record<string, number> = {}
+    for (const mesh of model.meshes) {
+      const native = embeddedMapSize(mesh)
+      if (native) sizeByName[mesh.name] = native
     }
+    if (initialTextures) {
+      const probe = async (maps: InitialPbrTextures): Promise<number | null> => {
+        for (const path of [maps.baseColor, maps.normal, maps.orm, maps.roughness, maps.metalness]) {
+          if (!path) continue
+          const px = await probeImageSize(path)
+          if (px) return snapToCanvasSize(px)
+        }
+        return null
+      }
+      if (typeof initialTextures === 'object' && 'mode' in initialTextures && initialTextures.mode === 'per-piece') {
+        for (const [name, maps] of Object.entries(initialTextures.pieces || {})) {
+          const native = await probe(maps)
+          if (native) sizeByName[name] = native
+        }
+      } else {
+        const shared: InitialPbrTextures =
+          typeof initialTextures === 'string'
+            ? { baseColor: initialTextures }
+            : 'mode' in initialTextures && initialTextures.mode === 'shared'
+              ? initialTextures.textures
+              : (initialTextures as InitialPbrTextures)
+        const native = await probe(shared)
+        // A shared atlas is one image across every piece, so they all match it.
+        if (native) for (const mesh of model.meshes) sizeByName[mesh.name] = native
+      }
+    }
+
     clearCurrentModel()
     currentModel = model
     sceneHandle.scene.add(model.root)
     frameModel(model)
-    setupLayers(model, textureSize)
+    setupLayers(model, textureSize, sizeByName)
     setupWireframe(model)
     if (!symmetryGuide) symmetryGuide = createSymmetryGuide()
     model.root.add(symmetryGuide.group)
-    symmetryGuide.update(brush.symmetryAxis(), model)
+    symmetryGuide.update(brush.symmetryAxis(), model, activeMesh())
 
-    if (initialTextureUrl && layerStack && layerStack.layers.length > 0) {
+    if (initialTextures && pieces.length > 0) {
       try {
-        const texLoader = new THREE.TextureLoader()
-        const tex = await texLoader.loadAsync(initialTextureUrl)
-        tex.colorSpace = THREE.SRGBColorSpace
-        const baseLayer = layerStack.layers[0]
-        baseLayer.engine.fill({ texture: tex })
-        layerStack.recomposite()
+        if (
+          typeof initialTextures === 'object' &&
+          'mode' in initialTextures &&
+          initialTextures.mode === 'per-piece'
+        ) {
+          const pieceMap = initialTextures.pieces || {}
+          for (let i = 0; i < pieces.length; i++) {
+            const piece = pieces[i]
+            const name = piece.name
+            const assigned =
+              pieceMap[name] ||
+              pieceMap[name.toLowerCase()] ||
+              pieceMap[String(i)]
+            if (assigned) {
+              await applyPbrTexturesToPiece(piece, assigned, uvOriginTopLeft)
+            }
+          }
+        } else {
+          const sharedMap: InitialPbrTextures =
+            typeof initialTextures === 'string'
+              ? { baseColor: initialTextures }
+              : 'mode' in initialTextures && initialTextures.mode === 'shared'
+                ? initialTextures.textures
+                : (initialTextures as InitialPbrTextures)
+
+          for (const piece of pieces) {
+            await applyPbrTexturesToPiece(piece, sharedMap, uvOriginTopLeft)
+          }
+        }
         props.onLayersChanged?.()
       } catch (err) {
-        console.error('Failed to load initial image texture:', err)
+        console.error('Failed to load initial PBR texture maps:', err)
       }
     }
 
     if (model.missingUv.length > 0) props.onMissingUv?.(model.missingUv)
   }
 
-  async function loadDefaultModel(textureSize?: number): Promise<void> {
+  async function loadDefaultModel(
+    textureSize?: number,
+    primitive: 'sphere' | 'cube' = 'sphere'
+  ): Promise<void> {
     if (!sceneHandle) return
-    const model = createDefaultTestModel()
+    const model = createDefaultTestModel(primitive)
     clearCurrentModel()
     currentModel = model
     sceneHandle.scene.add(model.root)
@@ -785,11 +1470,11 @@ export default function Viewport(props: {
     setupWireframe(model)
     if (!symmetryGuide) symmetryGuide = createSymmetryGuide()
     model.root.add(symmetryGuide.group)
-    symmetryGuide.update(brush.symmetryAxis(), model)
+    symmetryGuide.update(brush.symmetryAxis(), model, activeMesh())
     props.onLayersChanged?.()
   }
 
-  async function loadProject(project: MeshCoatProject, snapshot: StackSnapshot): Promise<void> {
+  async function loadProject(project: MeshCoatProject, snapshots: StackSnapshot[]): Promise<void> {
     if (!sceneHandle) return
     let model: LoadedModel
     if (project.modelPath) {
@@ -803,15 +1488,29 @@ export default function Viewport(props: {
     currentModel = model
     sceneHandle.scene.add(model.root)
     frameModel(model)
-    setupLayers(model, project.textureSize)
+    const sizeByName: Record<string, number> = {}
+    for (const saved of project.pieces ?? []) {
+      if (saved.textureSize) sizeByName[saved.name] = saved.textureSize
+    }
+    setupLayers(model, project.textureSize, sizeByName)
     setupWireframe(model)
     if (!symmetryGuide) symmetryGuide = createSymmetryGuide()
     model.root.add(symmetryGuide.group)
-    symmetryGuide.update(brush.symmetryAxis(), model)
+    symmetryGuide.update(brush.symmetryAxis(), model, activeMesh())
 
-    if (layerStack) {
-      layerStack.restoreState(snapshot)
-    }
+    // Saved pieces are matched by name first — a re-exported model can reorder
+    // its objects, and restoring a head's layers onto a weapon is unrecoverable.
+    // Position is the fallback for older files and for renamed pieces.
+    const savedNames = project.pieces?.map((p) => p.name) ?? []
+    const taken = new Set<number>()
+    pieces.forEach((piece, i) => {
+      let saved = savedNames.findIndex((name, si) => name === piece.name && !taken.has(si))
+      if (saved < 0 && !taken.has(i) && i < snapshots.length) saved = i
+      if (saved < 0 || !snapshots[saved]) return
+      taken.add(saved)
+      piece.stack.restoreState(snapshots[saved])
+    })
+    setActivePiece(Math.min(project.activePieceIndex ?? 0, Math.max(0, pieces.length - 1)))
     props.onLayersChanged?.()
   }
 
@@ -923,11 +1622,11 @@ export default function Viewport(props: {
       gizmoHandle.bucketReticle.scale.setScalar(reticleScale)
       gizmoHandle.stampReticle.visible = false
       gizmoHandle.stampPreviewMesh.visible = false
-      if (hoverFaceMesh) updateHoverFace(hit.faceIndex)
+      if (hoverFaceMesh) updateHoverFace(hit.mesh === activeMesh() ? hit.faceIndex : -1)
     } else if (tool === 'faceSelect') {
       gizmoHandle.stampPreviewMesh.visible = false
       gizmoHandle.group.visible = false
-      if (hoverFaceMesh) updateHoverFace(hit.faceIndex)
+      if (hoverFaceMesh) updateHoverFace(hit.mesh === activeMesh() ? hit.faceIndex : -1)
     }
 
     // Mirror reticle for Symmetry Mode
@@ -963,10 +1662,41 @@ export default function Viewport(props: {
     }
   }
 
+  /**
+   * The paint hit: the pointer aimed at the ACTIVE piece only.
+   *
+   * Pieces of a real model interpenetrate — a strap crossing a torso, a tooth
+   * inside a jaw — so a ray against the whole model constantly comes back with
+   * the neighbour that happens to be nearer the camera. Restricting the ray to
+   * the piece being painted means the cursor keeps following that piece even
+   * where another one is in front of it; the occlusion depth pass (which still
+   * sees every mesh) is what stops paint landing on the parts genuinely hidden
+   * behind the neighbour. Switching piece is a separate, explicit gesture.
+   */
   function hitFromEvent(e: PointerEvent): SurfaceHit | null {
+    if (!canvasRef || !sceneHandle) return null
+    const mesh = activeMesh()
+    if (!mesh) return null
+    const { x, y } = screenToNdc(e.clientX, e.clientY, canvasRef)
+    return raycastMeshes(x, y, sceneHandle.camera, [mesh])
+  }
+
+  /** Frontmost piece under the pointer, whichever it is — selection gestures only. */
+  function pieceHitFromEvent(e: { clientX: number; clientY: number }): SurfaceHit | null {
     if (!canvasRef || !sceneHandle || !currentModel) return null
     const { x, y } = screenToNdc(e.clientX, e.clientY, canvasRef)
-    return raycastMeshes(x, y, sceneHandle.camera, currentModel.meshes)
+    const visibleMeshes = pieces.map((p) => p.mesh).filter((m) => m.visible)
+    return raycastMeshes(x, y, sceneHandle.camera, visibleMeshes)
+  }
+
+  /** Selects the piece under the pointer. Returns false if that's already the active one. */
+  function selectPieceAt(e: { clientX: number; clientY: number }): boolean {
+    if (pieces.length < 2) return false
+    const picked = pieceHitFromEvent(e)
+    const index = pieceIndexForMesh(picked?.mesh)
+    if (index < 0 || index === activePieceIndex) return false
+    setActivePiece(index)
+    return true
   }
 
   /**
@@ -982,6 +1712,7 @@ export default function Viewport(props: {
    */
   function strokeLineFrom(fromPoint: THREE.Vector3, toClientX: number, toClientY: number): void {
     if (!canvasRef || !sceneHandle || !currentModel) return
+    const mesh = activeMesh()
     const camera = sceneHandle.camera
     const rect = canvasRef.getBoundingClientRect()
 
@@ -1011,7 +1742,8 @@ export default function Viewport(props: {
       const px = fromX + dx * t
       const py = fromY + dy * t
       const { x, y } = screenToNdc(px, py, canvasRef)
-      const hit = raycastMeshes(x, y, camera, currentModel.meshes)
+      // Active piece only, for the same reason hitFromEvent is.
+      const hit = mesh ? raycastMeshes(x, y, camera, [mesh]) : null
       // No event: an interpolated dab isn't a real pointer sample, so it paints
       // at full (non-pressure-scaled) strength, which is what a deliberate
       // straight line wants.
@@ -1038,13 +1770,16 @@ export default function Viewport(props: {
     const r = stencil.stencilRect(rect.width, rect.height)
 
     if (!occlusionPass) occlusionPass = new OcclusionDepthPass()
-    occlusionPass.capture(sceneHandle.renderer, sceneHandle.scene, camera, currentModel.meshes)
+    occlusionPass.capture(sceneHandle.renderer, sceneHandle.scene, camera, occluderMeshes())
 
     // Derive the normal sign from whatever the stencil's own center is pointing
     // at, the same way a brush dab derives it from the face under the cursor —
     // an inverted-normal import would otherwise reject the entire projection.
     const centerNdc = screenToNdc(rect.left + r.centerX, rect.top + r.centerY, canvasRef)
-    const centerHit = raycastMeshes(centerNdc.x, centerNdc.y, camera, currentModel.meshes)
+    const stampMesh = activeMesh()
+    const centerHit = stampMesh
+      ? raycastMeshes(centerNdc.x, centerNdc.y, camera, [stampMesh])
+      : null
     const camPos = camera.getWorldPosition(new THREE.Vector3())
     const normalSign =
       centerHit && centerHit.normal.dot(camPos.clone().sub(centerHit.point)) < 0 ? -1 : 1
@@ -1078,7 +1813,11 @@ export default function Viewport(props: {
       color: new THREE.Color(brush.color()),
       opacity: brush.opacity(),
       useLuminance: stencil.stampUseLuminance(),
-      restrictFaces: brush.selectedFaces().size > 0 ? brush.selectedFaces() : null
+      restrictFaces: brush.selectedFaces().size > 0 ? brush.selectedFaces() : null,
+      channels: brush.buildChannelPayload({
+        baseColor: { color: new THREE.Color(brush.color()), alpha: 1 },
+        baseColorOnly: !!layer.isMask
+      })
     })
     layerStack.recomposite()
     props.onLayersChanged?.()
@@ -1089,13 +1828,31 @@ export default function Viewport(props: {
     const layer = layerStack?.active
     if (!layerStack || !layer) return
     const tool = props.tool()
+
+    // Pieces are separate texture sets that usually reuse the same 0-1 UV
+    // square, so a dab meant for one would overwrite unrelated islands on
+    // another. Everything that writes pixels is confined to the active piece;
+    // the eyedropper is the exception, since reading a color off any piece is
+    // exactly what the artist means by clicking it.
+    if (hit.mesh && hit.mesh !== activeMesh()) {
+      if (tool === 'eyedropper') {
+        const other = pieces[pieceIndexForMesh(hit.mesh)]
+        if (!other) return
+        const sampled = other.stack.sampleAt(hit.uv)
+        const hex = `#${sampled.getHexString().toUpperCase()}`
+        brush.setColor(hex.toLowerCase())
+        setEyedropperPreview((prev) => ({ ...prev, color: hex }))
+      }
+      return
+    }
     // Any selected faces automatically confine painting/filling to them —
     // no separate toggle to remember to flip.
     const selection = brush.selectedFaces()
     const restrictFaces = selection.size > 0 ? selection : null
     if (tool === 'faceSelect') {
-      if (event?.altKey && currentModel && currentModel.meshes.length > 0 && hit.faceIndex >= 0) {
-        const mesh = currentModel.meshes[0]
+      const islandMesh = activeMesh()
+      if (event?.altKey && islandMesh && hit.faceIndex >= 0) {
+        const mesh = islandMesh
         const island = findUvIslandFaces(mesh.geometry, hit.faceIndex)
         if (additive) {
           for (const f of island) toggleFaceSelection(f)
@@ -1119,7 +1876,7 @@ export default function Viewport(props: {
       if (sceneHandle && currentModel && currentModel.meshes.length > 0) {
         if (!occlusionPass) occlusionPass = new OcclusionDepthPass()
         const camera = sceneHandle.camera
-        occlusionPass.capture(sceneHandle.renderer, sceneHandle.scene, camera, currentModel.meshes)
+        occlusionPass.capture(sceneHandle.renderer, sceneHandle.scene, camera, occluderMeshes())
         const camPos = camera.getWorldPosition(new THREE.Vector3())
         // The face under the cursor is one the user can see, so its normal must
         // point back towards the camera. If it doesn't, this mesh's normals are
@@ -1196,6 +1953,13 @@ export default function Viewport(props: {
       strokeRadius = applyPressure(strokeRadius, event, brush.pressureRadius())
       const strokeOpacity = applyPressure(brush.opacity(), event, brush.pressureOpacity())
 
+      // A mask layer is grayscale coverage, and the eraser takes material back
+      // out rather than laying it down — neither wants the brush's PBR values.
+      const channels = brush.buildChannelPayload({
+        baseColor: { color, alpha },
+        baseColorOnly: isMask || tool === 'eraser'
+      })
+
       engine.paintStroke(hit, {
         radius: strokeRadius,
         hardness: brush.hardness(),
@@ -1204,6 +1968,9 @@ export default function Viewport(props: {
         maxAngle: brush.maxAngle(),
         color,
         alpha,
+        channels,
+        channelMaps: tool === 'eraser' || isMask ? undefined : channelMaps,
+        erase: tool === 'eraser',
         brushTexture: strokeTexture,
         brushTipTexture: strokeTip,
         textureScale: brush.textureScale(),
@@ -1226,6 +1993,9 @@ export default function Viewport(props: {
             maxAngle: brush.maxAngle(),
             color,
             alpha,
+            channels,
+            channelMaps: tool === 'eraser' || isMask ? undefined : channelMaps,
+            erase: tool === 'eraser',
             brushTexture: strokeTexture,
             brushTipTexture: strokeTip,
             textureScale: brush.textureScale(),
@@ -1253,7 +2023,7 @@ export default function Viewport(props: {
       if (sceneHandle && currentModel && currentModel.meshes.length > 0) {
         if (!occlusionPass) occlusionPass = new OcclusionDepthPass()
         const camera = sceneHandle.camera
-        occlusionPass.capture(sceneHandle.renderer, sceneHandle.scene, camera, currentModel.meshes)
+        occlusionPass.capture(sceneHandle.renderer, sceneHandle.scene, camera, occluderMeshes())
         const camPos = camera.getWorldPosition(new THREE.Vector3())
         const normalSign = hit.normal.dot(camPos.clone().sub(hit.point)) < 0 ? -1 : 1
         occlusion = {
@@ -1313,7 +2083,12 @@ export default function Viewport(props: {
         color: new THREE.Color(brush.color()),
         alpha: isMask ? 1 : brush.opacity(),
         texture: isMask ? null : brushTexture,
-        scale: brush.textureScale()
+        scale: brush.textureScale(),
+        channels: brush.buildChannelPayload({
+          baseColor: { color: new THREE.Color(brush.color()), alpha: isMask ? 1 : brush.opacity() },
+          baseColorOnly: isMask
+        }),
+        channelMaps: isMask ? undefined : channelMaps
       }
       if (!isMask && brushTexture && brush.texturePath()) recordRecentTexture(brush.texturePath()!)
       if (brush.fillMode() === 'face') {
@@ -1342,7 +2117,12 @@ export default function Viewport(props: {
       color: new THREE.Color(brush.color()),
       alpha: isMask ? 1 : brush.opacity(),
       texture: isMask ? null : brushTexture,
-      scale: brush.textureScale()
+      scale: brush.textureScale(),
+      channels: brush.buildChannelPayload({
+        baseColor: { color: new THREE.Color(brush.color()), alpha: isMask ? 1 : brush.opacity() },
+        baseColorOnly: isMask
+      }),
+      channelMaps: isMask ? undefined : channelMaps
     }
     if (!isMask && brushTexture && brush.texturePath()) recordRecentTexture(brush.texturePath()!)
     if (selection.size > 0) {
@@ -1387,6 +2167,9 @@ export default function Viewport(props: {
     }
     const hit = hitFromEvent(e)
     updateGizmo(hit)
+    // The badge/outline answer "what would a double-click select?", so they
+    // follow the frontmost piece, not the one being painted.
+    if (pieces.length > 1) updatePieceOutlines(pieceHitFromEvent(e)?.mesh ?? null)
     if (hit) currentHit = hit
 
     if (painting && props.tool() === 'line') {
@@ -1429,7 +2212,7 @@ export default function Viewport(props: {
     }
 
     if (ctrlFaceSelecting) {
-      if (hit) {
+      if (hit && hit.mesh === activeMesh()) {
         if (ctrlFaceDeselecting) {
           removeFaceFromSelection(hit.faceIndex)
         } else {
@@ -1476,10 +2259,12 @@ export default function Viewport(props: {
     // Connected UV Island Selection: In Face Select mode (or holding Ctrl), Alt + Click
     if ((isFaceSelectTool || isCtrl) && e.altKey && e.button === 0) {
       const hit = hitFromEvent(e)
-      if (hit && currentModel && currentModel.meshes.length > 0 && hit.faceIndex >= 0) {
+      // Face indices address one piece's geometry, so an island pick on any
+      // other piece would select unrelated triangles here.
+      if (hit?.mesh && hit.mesh === activeMesh() && hit.faceIndex >= 0) {
         e.preventDefault()
         e.stopImmediatePropagation()
-        const mesh = currentModel.meshes[0]
+        const mesh = hit.mesh
         const island = findUvIslandFaces(mesh.geometry, hit.faceIndex)
         if (e.shiftKey) {
           for (const f of island) toggleFaceSelection(f)
@@ -1505,6 +2290,7 @@ export default function Viewport(props: {
     }
     if (e.button === 0) {
       const hit = hitFromEvent(e)
+
       if (isCtrl || isFaceSelectTool) {
         e.preventDefault()
         ctrlFaceSelecting = true
@@ -1582,8 +2368,8 @@ export default function Viewport(props: {
     const isCtrl = e.ctrlKey || e.metaKey
     if ((isFaceSelectTool || isCtrl) && currentModel && currentModel.meshes.length > 0) {
       const hit = hitFromEvent(e as unknown as PointerEvent)
-      if (hit && hit.faceIndex >= 0) {
-        const mesh = currentModel.meshes[0]
+      if (hit?.mesh && hit.mesh === activeMesh() && hit.faceIndex >= 0) {
+        const mesh = hit.mesh
         const island = findUvIslandFaces(mesh.geometry, hit.faceIndex)
         if (e.shiftKey) {
           for (const f of island) toggleFaceSelection(f)
@@ -1592,7 +2378,13 @@ export default function Viewport(props: {
           for (const f of island) addFaceToSelection(f)
         }
       }
+      return
     }
+
+    // Plain double-click picks the piece under the cursor. Deliberately a
+    // double-click: a single click has to stay a paint stroke, or painting near
+    // any overlapping part would keep jumping to the neighbour instead.
+    selectPieceAt(e)
   }
 
   function onPointerUp(e?: PointerEvent): void {
@@ -1616,8 +2408,12 @@ export default function Viewport(props: {
           const stepDist = Math.max(0.002, radius * spacing)
           const steps = Math.max(1, Math.ceil(dist / stepDist))
 
-          const strokeColor = isMask ? new THREE.Color(brush.color()) : new THREE.Color(brush.color())
+          const strokeColor = new THREE.Color(brush.color())
           const strokeAlpha = 1
+          const lineChannels = brush.buildChannelPayload({
+            baseColor: { color: strokeColor, alpha: strokeAlpha },
+            baseColorOnly: isMask
+          })
           const strokeTexture = isMask ? null : brushTexture
           const strokeTip = brushTipTexture
           if (strokeTexture && brush.texturePath()) recordRecentTexture(brush.texturePath()!)
@@ -1639,6 +2435,8 @@ export default function Viewport(props: {
                 opacity: brush.opacity(),
                 color: strokeColor,
                 alpha: strokeAlpha,
+                channels: lineChannels,
+                channelMaps: isMask ? undefined : channelMaps,
                 brushTexture: strokeTexture,
                 brushTipTexture: strokeTip,
                 textureScale: brush.textureScale(),
@@ -1657,6 +2455,8 @@ export default function Viewport(props: {
                   opacity: brush.opacity(),
                   color: strokeColor,
                   alpha: strokeAlpha,
+                  channels: lineChannels,
+                  channelMaps: isMask ? undefined : channelMaps,
                   brushTexture: strokeTexture,
                   brushTipTexture: strokeTip,
                   textureScale: brush.textureScale(),
@@ -1736,6 +2536,15 @@ export default function Viewport(props: {
       }
     }
 
+    // Tab / Shift+Tab step through the model's pieces — the keyboard route to
+    // a piece that's buried inside another and awkward to click.
+    if (e.key === 'Tab' && pieces.length > 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault()
+      const step = e.shiftKey ? -1 : 1
+      setActivePiece((activePieceIndex + step + pieces.length) % pieces.length)
+      return
+    }
+
     if (e.key.toLowerCase() === 'r' && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault()
       const delta = e.shiftKey ? -15 : 15
@@ -1789,7 +2598,7 @@ export default function Viewport(props: {
     setupWireframe(testModel)
     symmetryGuide = createSymmetryGuide()
     testModel.root.add(symmetryGuide.group)
-    symmetryGuide.update(brush.symmetryAxis(), testModel)
+    symmetryGuide.update(brush.symmetryAxis(), testModel, activeMesh())
 
     // Paint-bleed diagnostics, run from the DevTools console. Occlusion is one
     // of two independent ways paint reaches a face it shouldn't; the other is
@@ -1818,6 +2627,98 @@ export default function Viewport(props: {
           hasBackdrop: layerStack!.layers.slice(0, i).some((u) => u.visible && !u.isMask)
         }))
         console.table(rows)
+        return rows
+      },
+      /**
+       * Import diagnostics: what each piece's material arrived with, and what
+       * actually ended up in its background layer. A texture that loaded but
+       * never landed shows as a map present with an empty composite; a texture
+       * that never loaded shows as no map at all.
+       */
+      pieces: () => {
+        if (!sceneHandle || pieces.length === 0) return 'no model'
+        const rows = pieces.map((piece, index) => {
+          const embeddedNames = piece.embedded.map((slot, slotIndex) => {
+            const maps = (Object.keys(slot.maps) as PaintChannel[]).map((c) => {
+              const img = slot.maps[c]!.image as { width?: number; height?: number } | undefined
+              return `${c}(${img?.width ?? '?'}x${img?.height ?? '?'})`
+            })
+            const where = slot.faces ? `${slot.faces.size}f` : 'all'
+            return `#${slotIndex}[${where}] ${maps.join(' ') || 'no maps'}`
+          })
+
+          // Mean coverage and color of the composite, read back at low cost by
+          // sampling a coarse grid rather than the whole sheet.
+          const size = piece.stack.textureSize
+          const step = Math.max(1, Math.floor(size / 64))
+          const px = new Uint8Array(size * size * 4)
+          sceneHandle!.renderer.readRenderTargetPixels(piece.stack.compositeTarget, 0, 0, size, size, px)
+          let n = 0
+          let alpha = 0
+          let r = 0
+          let g = 0
+          let b = 0
+          let distinct = new Set<number>()
+          for (let y = 0; y < size; y += step) {
+            for (let x = 0; x < size; x += step) {
+              const i = (y * size + x) * 4
+              alpha += px[i + 3]
+              r += px[i]
+              g += px[i + 1]
+              b += px[i + 2]
+              distinct.add((px[i] >> 3 << 10) | (px[i + 1] >> 3 << 5) | (px[i + 2] >> 3))
+              n++
+            }
+          }
+          // Same measurement taken straight off the base LAYER's own buffer.
+          // Layer full but composite empty means recomposite is the problem;
+          // both empty means the fill never landed (or the targets are dead).
+          const layerSnap = piece.stack.layers[0]?.engine.createCpuSnapshot()
+          let layerAlpha = 0
+          if (layerSnap) {
+            let ln = 0
+            for (let y = 0; y < layerSnap.size; y += step) {
+              for (let x = 0; x < layerSnap.size; x += step) {
+                layerAlpha += layerSnap.data[(y * layerSnap.size + x) * 4 + 3]
+                ln++
+              }
+            }
+            layerAlpha = +(layerAlpha / ln / 255).toFixed(3)
+          }
+
+          return {
+            index,
+            name: piece.name,
+            size,
+            layerAlpha,
+            uvAttr: !!piece.mesh.geometry.attributes.uv,
+            slots: piece.embedded.length,
+            embedded: embeddedNames.join(' | ') || 'none',
+            layers: piece.stack.layers.length,
+            meanAlpha: +(alpha / n / 255).toFixed(3),
+            meanRGB: `${Math.round(r / n)},${Math.round(g / n)},${Math.round(b / n)}`,
+            // One colour across the whole sheet means nothing textured landed.
+            distinctColors: distinct.size
+          }
+        })
+        console.table(rows)
+
+        // Context health. A 4096 canvas costs ~64MB per render target and a
+        // piece holds several, so a multi-piece model at high resolution can
+        // simply run out of GPU memory — at which point every target reads back
+        // as zeroes, exactly like a stack that was never painted.
+        const gl = sceneHandle!.renderer.getContext()
+        const info = sceneHandle!.renderer.info
+        console.log('[slip] renderer', {
+          glError: gl.getError(),
+          contextLost: gl.isContextLost(),
+          textures: info.memory.textures,
+          geometries: info.memory.geometries,
+          pieces: pieces.length,
+          textureSize: pieces[0]?.stack.textureSize,
+          approxTargetVram:
+            `${Math.round((pieces.reduce((acc, p) => acc + p.stack.textureSize ** 2 * 4 * 5, 0)) / 1e6)} MB`
+        })
         return rows
       },
       uvOverlap: () => {
@@ -1865,6 +2766,7 @@ export default function Viewport(props: {
     canvasRef.addEventListener('wheel', onWheel, { passive: false })
     canvasRef.addEventListener('pointerleave', () => {
       updateGizmo(null)
+      updatePieceOutlines(null)
       setEyedropperPreview((prev) => ({ ...prev, visible: false }))
     })
 
@@ -1873,13 +2775,67 @@ export default function Viewport(props: {
       loadDefaultModel,
       loadProject,
       focusModel: () => currentModel && frameModel(currentModel),
-      getLayerStack: () => layerStack,
-      exportBaseColorPng: () => {
-        if (!sceneHandle || !layerStack) return undefined
-        return renderTargetToPngDataUrl(sceneHandle.renderer, layerStack.compositeTarget)
+      pieces: () =>
+        pieces.map((piece, index) => ({
+          index,
+          name: piece.name,
+          textureSize: piece.stack.textureSize,
+          faceCount: piece.facePositions.length / 9
+        })),
+      activePieceIndex: () => activePieceIndex,
+      setActivePiece,
+      focusPiece: (index?: number) => {
+        const mesh = pieces[index ?? activePieceIndex]?.mesh
+        if (!mesh || !sceneHandle) return
+        const box = new THREE.Box3().setFromObject(mesh)
+        if (box.isEmpty()) return
+        const sphere = box.getBoundingSphere(new THREE.Sphere())
+        sceneHandle.controls.focus(sphere.center, sphere.radius || 1)
       },
+      getLayerStack: (pieceIndex?: number) => stackFor(pieceIndex),
+      exportBaseColorPng: (pieceIndex?: number) => {
+        const stack = stackFor(pieceIndex)
+        if (!sceneHandle || !stack) return undefined
+        return renderTargetToPngDataUrl(sceneHandle.renderer, stack.compositeTarget)
+      },
+      exportChannelPng: (channel: PaintChannel, pieceIndex?: number) => {
+        const stack = stackFor(pieceIndex)
+        if (!sceneHandle || !stack) return undefined
+        const target = stack.channelTarget(channel)
+        if (!target) return undefined
+        return renderTargetToPngDataUrl(sceneHandle.renderer, target)
+      },
+      paintedChannels: (pieceIndex?: number) => stackFor(pieceIndex)?.activeChannels() ?? [],
+      exportCoverageMaskPng: (pieceIndex?: number) => {
+        const stack = stackFor(pieceIndex)
+        const target = stack?.coverageTarget()
+        if (!sceneHandle || !target) return undefined
+        return renderTargetToPngDataUrl(sceneHandle.renderer, target)
+      },
+      exportOrmPng: (pieceIndex?: number) => {
+        const stack = stackFor(pieceIndex)
+        if (!sceneHandle || !stack) return undefined
+        return packOrmDataUrl(
+          sceneHandle.renderer,
+          stack.channelTarget('roughness'),
+          stack.channelTarget('metalness'),
+          stack.textureSize
+        )
+      },
+      setViewMode: (mode) => {
+        viewMode = mode
+        applyViewMode()
+      },
+      getViewMode: () => viewMode,
       setLightingMode: (mode) => sceneHandle?.setLightingMode(mode),
       setWireframeVisible,
+      setIsolateActivePiece: (isolate: boolean) => {
+        isolateActivePiece = isolate
+        applyPieceVisibility()
+        updatePieceOutlines()
+        props.onIsolatePieceChanged?.(isolate)
+      },
+      getIsolateActivePiece: () => isolateActivePiece,
       fillActive,
       selectAllFaces: () => {
         const total = facePositions ? facePositions.length / 9 : 0
@@ -1992,13 +2948,53 @@ export default function Viewport(props: {
       if (currentHit) updateGizmo(currentHit)
       return
     }
-    textureLoader.load(toAssetUrl(path), (texture) => {
+    loadPaintTexture(textureLoader, path, (texture) => {
       texture.colorSpace = THREE.SRGBColorSpace
       texture.wrapS = THREE.RepeatWrapping
       texture.wrapT = THREE.RepeatWrapping
+      // TGALoader hands back a texture with no mipmaps configured the way the
+      // image loader's does; regenerate so a tiled material doesn't shimmer.
+      texture.needsUpdate = true
       brushTexture = texture
       if (currentHit) updateGizmo(currentHit)
     })
+  })
+
+  // A material set's data maps. Base color keeps travelling through
+  // brushTexture (above), which already handles tint, tiling and masking; these
+  // are the roughness / metalness / normal sources, loaded linear because they
+  // carry numbers rather than something to look at.
+  createEffect(() => {
+    const set = brush.materialSet()
+    channelMaps = {}
+    if (!set) return
+
+    // Tiling is in world units per repeat, and the default (8) is tuned for
+    // stamping a small pattern, not for dressing a model in a material — on a
+    // sphere a metre across it packs the texture into unreadable moiré, which
+    // looks like the material isn't working at all rather than like a scale
+    // problem. Pick a scale from the model's own size so a freshly chosen set
+    // reads immediately; the artist can still take the slider anywhere.
+    if (currentModel) {
+      const box = new THREE.Box3().setFromObject(currentModel.root)
+      if (!box.isEmpty()) {
+        const radius = box.getBoundingSphere(new THREE.Sphere()).radius || 1
+        const REPEATS_ACROSS_MODEL = 3
+        brush.setTextureScale(REPEATS_ACROSS_MODEL / (radius * 2))
+      }
+    }
+    for (const channel of PBR_CHANNELS) {
+      const path = set.maps[channel]
+      if (!path) continue
+      loadPaintTexture(textureLoader, path, (texture) => {
+        texture.colorSpace = THREE.NoColorSpace
+        texture.wrapS = THREE.RepeatWrapping
+        texture.wrapT = THREE.RepeatWrapping
+        texture.needsUpdate = true
+        // The effect may have re-run for a different set while this decoded.
+        if (brush.materialSet()?.id === set.id) channelMaps[channel] = texture
+      })
+    }
   })
 
   createEffect(() => {
@@ -2059,14 +3055,27 @@ export default function Viewport(props: {
       sceneHandle?.scene.remove(gizmoHandle.mirrorGroup)
     }
     symmetryGuide?.dispose()
-    layerStack?.dispose()
+    for (const box of [activePieceBox, hoverPieceBox]) {
+      if (!box) continue
+      sceneHandle?.scene.remove(box)
+      box.geometry.dispose()
+      ;(box.material as THREE.Material).dispose()
+    }
+    activePieceBox = undefined
+    hoverPieceBox = undefined
+    for (const piece of pieces) {
+      piece.stack.dispose()
+      piece.channelViewMaterial?.dispose()
+    }
+    pieces = []
+    layerStack = undefined
     sceneHandle?.dispose()
   })
 
   createEffect(() => {
     const axis = brush.symmetryAxis()
     if (symmetryGuide && currentModel) {
-      symmetryGuide.update(axis, currentModel)
+      symmetryGuide.update(axis, currentModel, activeMesh())
     }
   })
 
@@ -2153,6 +3162,24 @@ export default function Viewport(props: {
           >
             Done (Esc)
           </button>
+        </div>
+      </Show>
+      {/* Active-piece badge. Only appears for multi-piece models, where "which
+          texture set am I painting?" has a real answer. */}
+      <Show when={pieceHud()}>
+        <div class="absolute top-3 left-3 z-20 flex flex-col gap-1 select-none pointer-events-none">
+          <div class="flex items-center gap-2 px-2.5 py-1 rounded-full bg-zinc-900/90 border border-amber-500/50 text-[11px] text-zinc-100 shadow-lg shadow-black/50 backdrop-blur-sm">
+            <span class="w-2 h-2 rounded-sm bg-amber-400" />
+            <span class="text-zinc-400">Painting</span>
+            <span class="font-medium">{pieceHud()!.active}</span>
+          </div>
+          <Show when={pieceHud()!.hover}>
+            <div class="flex items-center gap-2 px-2.5 py-1 rounded-full bg-zinc-900/90 border border-sky-500/50 text-[11px] text-zinc-100 shadow-lg shadow-black/50 backdrop-blur-sm">
+              <span class="w-2 h-2 rounded-sm bg-sky-400" />
+              <span class="text-zinc-400">Double-click to select</span>
+              <span class="font-medium">{pieceHud()!.hover}</span>
+            </div>
+          </Show>
         </div>
       </Show>
       <Show when={props.tool() === 'eyedropper' && eyedropperPreview().visible}>

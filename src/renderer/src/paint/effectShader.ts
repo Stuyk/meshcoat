@@ -176,6 +176,13 @@ export function createEffectMaterial(
     vertexShader,
     fragmentShader,
     uniforms: uniforms as unknown as { [key: string]: THREE.IUniform },
+    // DoubleSide is mandatory for every pass that rasterizes the UV mesh.
+    // Flattening a model into UV space keeps each triangle's winding, and glTF
+    // exporters (Blender's included) flip V on export — which reverses that
+    // winding. Under the default FrontSide every triangle of a glTF model is
+    // then back-facing and the entire mesh is culled: no paint, no coverage
+    // mask, no dilation, on a model whose UVs are perfectly fine.
+    side: THREE.DoubleSide,
     depthTest: false,
     depthWrite: false
   }) as THREE.ShaderMaterial & { uniforms: EffectUniforms }

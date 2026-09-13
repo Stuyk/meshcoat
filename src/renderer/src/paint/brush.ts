@@ -1,5 +1,8 @@
 import { createSignal } from 'solid-js'
+import * as THREE from 'three'
 import type { EffectMode } from './effectShader'
+import type { ChannelPayload, PaintChannel } from './channels'
+import { paintableChannels, type MaterialSet } from './materialSets'
 
 export type ToolMode =
   | 'brush'
@@ -36,6 +39,141 @@ const [tipTexturePath, setTipTexturePathRaw] = createSignal<string | null>(null)
 const [textureMapping, setTextureMappingRaw] = createSignal<BrushTextureMapping>('triplanar')
 /** Fill tool mode: whole model/selection, or just the clicked face. */
 const [fillMode, setFillModeRaw] = createSignal<FillMode>('face')
+
+// --- Material channels (PBR) ---
+//
+// A stroke writes every *enabled* channel at once, Substance-style: gold is one
+// brush that lays down a yellow base color, 0.1 roughness and 1.0 metalness in
+// the same pass, not three separate passes the artist has to keep in register.
+//
+// Base color alone is enabled by default, so a flat-texture project behaves —
+// and costs — exactly as it did before any of this existed.
+const [channelEnabled, setChannelEnabledRaw] = createSignal<Record<PaintChannel, boolean>>({
+  baseColor: true,
+  roughness: false,
+  metalness: false,
+  normal: false
+})
+/** 0 = mirror-gloss, 1 = fully matte. */
+const [roughnessValue, setRoughnessValueRaw] = createSignal(0.5)
+/** 0 = dielectric (plastic, wood, paint), 1 = raw metal. Values between are physically meaningless. */
+const [metalnessValue, setMetalnessValueRaw] = createSignal(0)
+/** Normal-map relief strength; negative engraves the dab instead of embossing it. */
+const [normalStrength, setNormalStrengthRaw] = createSignal(1)
+
+/**
+ * The material set (a grouped PBR texture set — see materialSets.ts) the brush
+ * is painting with, or null when painting flat dialled-in values.
+ *
+ * A set supplies a *map* per channel; the sliders stay live and scale what the
+ * map says (map x slider), so "this rock, a bit glossier" is one slider away
+ * rather than a different set of files.
+ */
+const [materialSet, setMaterialSetRaw] = createSignal<MaterialSet | null>(null)
+
+/**
+ * Selects (or clears) the active material set. Selecting one switches on
+ * exactly the channels it can actually supply — picking a set whose author
+ * shipped no metalness map should not leave the brush writing a metalness
+ * number that came from nowhere — and points the existing shelf-texture path at
+ * its base-color map so tinting, tiling and masking keep working unchanged.
+ */
+export function setMaterialSet(set: MaterialSet | null): void {
+  setMaterialSetRaw(set)
+  if (!set) {
+    setTexturePathRaw(null)
+    return
+  }
+  const supplied = paintableChannels(set)
+  setChannelEnabledRaw((prev) => {
+    const next = { ...prev }
+    for (const channel of PAINT_CHANNELS_ALL) next[channel] = supplied.includes(channel)
+    // Base color always stays on. Some packs ship a format the app can't decode
+    // (a .tga albedo alongside .png data maps) or no albedo at all; with the
+    // channel switched off, a stroke would write only roughness and normal and
+    // look — reasonably — like nothing happened. With it on, the set's own
+    // colour map is used when there is one and the current paint colour when
+    // there isn't, so a stroke always marks.
+    next.baseColor = true
+    return next
+  })
+  // With a set, the sliders are multipliers over what the map says, so they
+  // reset to neutral — a leftover 0.5 would silently halve the material's
+  // roughness the moment it is picked.
+  if (set.maps.roughness) setRoughnessValueRaw(1)
+  if (set.maps.metalness) setMetalnessValueRaw(1)
+  if (set.maps.normal) setNormalStrengthRaw(1)
+  setTexturePathRaw(set.maps.baseColor ?? null)
+  // A set carries its own color; a stale tint would recolour every map.
+  setColor('#ffffff')
+}
+
+/** Local copy of the channel list — brush.ts must not import from channels.ts at runtime. */
+const PAINT_CHANNELS_ALL: PaintChannel[] = ['baseColor', 'roughness', 'metalness', 'normal']
+
+/** True when the active set supplies a map for this channel. */
+export function setSuppliesChannel(channel: PaintChannel): boolean {
+  const set = materialSet()
+  return !!set && !!set.maps[channel]
+}
+
+export function setChannelEnabled(channel: PaintChannel, enabled: boolean): void {
+  setChannelEnabledRaw((prev) => {
+    const next = { ...prev, [channel]: enabled }
+    // Something has to be painted. Turning off the last enabled channel would
+    // leave a brush that silently does nothing on every stroke.
+    if (!next.baseColor && !next.roughness && !next.metalness && !next.normal) return prev
+    return next
+  })
+}
+
+export function toggleChannel(channel: PaintChannel): void {
+  setChannelEnabled(channel, !channelEnabled()[channel])
+}
+
+export function setRoughnessValue(v: number): void {
+  setRoughnessValueRaw(clamp(v, 0, 1))
+}
+
+export function setMetalnessValue(v: number): void {
+  setMetalnessValueRaw(clamp(v, 0, 1))
+}
+
+export function setNormalStrength(v: number): void {
+  setNormalStrengthRaw(clamp(v, -4, 4))
+}
+
+/** True when the brush writes anything beyond base color. */
+export function pbrChannelsActive(): boolean {
+  const c = channelEnabled()
+  return c.roughness || c.metalness || c.normal
+}
+
+/**
+ * The payload for one stroke, built from the enabled channels and their current
+ * values. `baseColorOverride` is how the eraser and mask painting supply their
+ * own color/alpha without disturbing the brush's own color.
+ */
+export function buildChannelPayload(options?: {
+  baseColor?: { color: THREE.Color; alpha: number }
+  /** Skip the PBR channels entirely (mask layers are grayscale coverage only). */
+  baseColorOnly?: boolean
+}): ChannelPayload {
+  const enabled = channelEnabled()
+  const payload: ChannelPayload = {}
+  if (options?.baseColorOnly) {
+    payload.baseColor = options.baseColor ?? { color: new THREE.Color(color()), alpha: 1 }
+    return payload
+  }
+  if (enabled.baseColor || options?.baseColor) {
+    payload.baseColor = options?.baseColor ?? { color: new THREE.Color(color()), alpha: 1 }
+  }
+  if (enabled.roughness) payload.roughness = roughnessValue()
+  if (enabled.metalness) payload.metalness = metalnessValue()
+  if (enabled.normal) payload.normal = normalStrength()
+  return payload
+}
+
 
 export type SymmetryAxis = 'off' | 'x' | 'y' | 'z'
 
@@ -206,6 +344,10 @@ const [selectedFaces, setSelectedFacesRaw] = createSignal<ReadonlySet<number>>(n
  * grayscale hide/reveal value and textures are never applied anyway.
  */
 export function setTexturePath(path: string | null, resetColor = true): void {
+  // Picking a loose image is a different intent from painting with a set —
+  // leaving the set selected would keep feeding its roughness and normal maps
+  // under a stamp the artist chose for its color alone.
+  setMaterialSetRaw(null)
   setTexturePathRaw(path)
   // Note: recordRecentTexture() is deliberately NOT called here — the "Used"
   // shelf tab tracks textures actually applied by a stroke/fill, not merely
@@ -327,6 +469,7 @@ export const brush = {
   maxAngle,
   setMaxAngle,
   textureScale,
+  setTextureScale,
   color,
   setColor,
   texturePath,
@@ -367,5 +510,19 @@ export const brush = {
   pixelSize,
   setPixelSize,
   smudgeLength,
-  setSmudgeLength
+  setSmudgeLength,
+  channelEnabled,
+  setChannelEnabled,
+  toggleChannel,
+  roughnessValue,
+  setRoughnessValue,
+  metalnessValue,
+  setMetalnessValue,
+  normalStrength,
+  setNormalStrength,
+  pbrChannelsActive,
+  buildChannelPayload,
+  materialSet,
+  setMaterialSet,
+  setSuppliesChannel
 }

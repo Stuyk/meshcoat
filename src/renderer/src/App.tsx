@@ -1,10 +1,16 @@
 import { createSignal, createEffect, onMount, onCleanup, Show, Suspense, lazy } from 'solid-js'
 import * as THREE from 'three'
-import Viewport, { type ViewportHandle } from './viewport/Viewport'
+import Viewport, {
+  type ViewportHandle,
+  type ChannelViewMode,
+  type InitialTexturePayload
+} from './viewport/Viewport'
+import { CHANNEL_SPECS, type PaintChannel } from './paint/channels'
 import TextureShelf from './components/TextureShelf'
 import StatusBar from './components/BottomDock'
 import { brushPresets, initBrushPresets } from './paint/brushPresets'
 import LayersTab from './components/LayersTab'
+import type { LayerStack } from './paint/layers'
 import BrushSettingsTab from './components/BrushSettingsTab'
 import type { LightingMode } from './viewport/scene'
 import { DropdownMenu, IconButton, SegmentedControl, Toast, type MenuItem, type ToastData } from './components/ui'
@@ -15,6 +21,7 @@ const SettingsModal = lazy(() => import('./components/SettingsModal'))
 const StartWizardModal = lazy(() => import('./components/StartWizardModal'))
 const BrushManagerModal = lazy(() => import('./components/BrushManagerModal'))
 const EdgeWearWizard = lazy(() => import('./components/EdgeWearWizard'))
+const ExportWizardModal = lazy(() => import('./components/ExportWizardModal'))
 import { serializeProject, deserializeProject } from './utils/projectSerializer'
 
 import {
@@ -32,6 +39,7 @@ import {
   StudioLightIcon,
   FlatLightIcon,
   OutdoorLightIcon,
+  ShowcaseLightIcon,
   WireframeIcon,
   FocusIcon,
   FolderOpenIcon,
@@ -42,7 +50,11 @@ import {
   SparklesIcon,
   LineIcon,
   SymmetryIcon,
-  PlusIcon
+  PlusIcon,
+  CubeIcon,
+  ChevronDownIcon,
+  CheckIcon,
+  EyeOffIcon
 } from './components/icons'
 import MaterialTextureHUD from './components/MaterialTextureHUD'
 import StencilHUD from './components/StencilHUD'
@@ -62,19 +74,38 @@ import { DEFAULT_TEXTURE_SIZE, type TextureSize } from './paint/paintEngine'
 const LIGHTING_MODES: { value: LightingMode; label: string; icon: (props: { size?: number }) => any }[] = [
   { value: 'studio', label: 'Studio', icon: (p) => <StudioLightIcon size={p.size ?? 14} /> },
   { value: 'flat', label: 'Flat', icon: (p) => <FlatLightIcon size={p.size ?? 14} /> },
-  { value: 'outdoor', label: 'Outdoor', icon: (p) => <OutdoorLightIcon size={p.size ?? 14} /> }
+  { value: 'outdoor', label: 'Outdoor', icon: (p) => <OutdoorLightIcon size={p.size ?? 14} /> },
+  { value: 'showcase', label: 'Showcase', icon: (p) => <ShowcaseLightIcon size={p.size ?? 14} /> }
+]
+
+/**
+ * Viewport display modes. 'Material' is the shaded PBR result and the default —
+ * it already shows the base color, lit, which is what painting is judged
+ * against, so there is no separate Color view competing with it. The rest
+ * isolate one stored map so the artist can read its values straight off the
+ * surface.
+ */
+const VIEW_MODES: { value: ChannelViewMode; label: string; title: string }[] = [
+  { value: 'material', label: 'Material', title: 'Full shaded PBR result (base color included)' },
+  { value: 'roughness', label: 'Rough', title: 'Roughness map only (grayscale)' },
+  { value: 'metalness', label: 'Metal', title: 'Metalness map only (grayscale)' },
+  { value: 'normal', label: 'Normal', title: 'Tangent-space normal map only' }
 ]
 
 export default function App() {
   const [activeTool, setActiveTool] = createSignal<ToolMode>('brush')
   const [showHelp, setShowHelp] = createSignal(false)
   const [showSettings, setShowSettings] = createSignal(false)
-  const [lightingMode, setLightingModeSignal] = createSignal<LightingMode>('studio')
+  const [lightingMode, setLightingModeSignal] = createSignal<LightingMode>('showcase')
+  const [viewMode, setViewModeSignal] = createSignal<ChannelViewMode>('material')
   const [wireframeVisible, setWireframeVisibleSignal] = createSignal(false)
+  const [isolatePiece, setIsolatePieceSignal] = createSignal(false)
   const [textures, setTextures] = createSignal<string[]>([])
   const [layersVersion, setLayersVersion] = createSignal(0)
+  const [piecesVersion, setPiecesVersion] = createSignal(0)
   const [showStencilPanel, setShowStencilPanel] = createSignal(false)
   const [showEffectHUD, setShowEffectHUD] = createSignal(true)
+  const [showExportWizard, setShowExportWizard] = createSignal(false)
 
   createEffect(() => {
     const show = showStencilPanel()
@@ -97,9 +128,20 @@ export default function App() {
     return viewportHandle?.canRedo() ?? false
   }
 
+  /** Texture sets of the loaded model — one per mesh piece. */
+  const modelPieces = () => {
+    void piecesVersion()
+    return viewportHandle?.pieces() ?? []
+  }
+  const activePiece = () => {
+    void piecesVersion()
+    return viewportHandle?.activePieceIndex() ?? 0
+  }
+
   const [toast, setToast] = createSignal<ToastData | null>(null)
   const [showFileMenu, setShowFileMenu] = createSignal(false)
   const [showEditMenu, setShowEditMenu] = createSignal(false)
+  const [showPieceMenu, setShowPieceMenu] = createSignal(false)
   const [showEdgeWearWizard, setShowEdgeWearWizard] = createSignal(false)
   const [modelName, setModelName] = createSignal('Default Model')
   const [textureSize, setTextureSize] = createSignal<TextureSize>(DEFAULT_TEXTURE_SIZE)
@@ -154,10 +196,25 @@ export default function App() {
     }
   }
 
+  /**
+   * Every paintable piece paired with its stack, in the order the viewport
+   * holds them — the shape both saving and exporting work in.
+   */
+  function projectPieces(): { name: string; layerStack: LayerStack }[] {
+    const handle = viewportHandle
+    if (!handle) return []
+    const out: { name: string; layerStack: LayerStack }[] = []
+    for (const info of handle.pieces()) {
+      const stack = handle.getLayerStack(info.index)
+      if (stack) out.push({ name: info.name, layerStack: stack })
+    }
+    return out
+  }
+
   async function handleSaveProject(): Promise<boolean> {
     setShowFileMenu(false)
-    const layerStack = viewportHandle?.getLayerStack()
-    if (!layerStack) return false
+    const savePieces = projectPieces()
+    if (savePieces.length === 0) return false
 
     let targetPath = currentProjectPath()
     if (!targetPath) {
@@ -172,7 +229,8 @@ export default function App() {
     const content = serializeProject({
       modelPath: currentModelPath(),
       modelName: modelName(),
-      layerStack
+      pieces: savePieces,
+      activePieceIndex: viewportHandle?.activePieceIndex() ?? 0
     })
 
     const ok = await window.api.saveProjectFile(targetPath, content)
@@ -190,8 +248,8 @@ export default function App() {
 
   async function handleSaveAsProject(): Promise<boolean> {
     setShowFileMenu(false)
-    const layerStack = viewportHandle?.getLayerStack()
-    if (!layerStack) return false
+    const savePieces = projectPieces()
+    if (savePieces.length === 0) return false
 
     const targetPath = await window.api.saveFileDialog({
       defaultPath: `${modelName().replace(/\.[^/.]+$/, '')}.meshcoat`,
@@ -203,7 +261,8 @@ export default function App() {
     const content = serializeProject({
       modelPath: currentModelPath(),
       modelName: modelName(),
-      layerStack
+      pieces: savePieces,
+      activePieceIndex: viewportHandle?.activePieceIndex() ?? 0
     })
 
     const ok = await window.api.saveProjectFile(targetPath, content)
@@ -231,43 +290,119 @@ export default function App() {
     return viewportHandle
   }
 
-  async function handleStartScratch(size: TextureSize): Promise<void> {
+  async function handleStartScratch(
+    size: TextureSize,
+    primitive: 'sphere' | 'cube' = 'sphere'
+  ): Promise<void> {
     const handle = await getReadyViewport()
-    await handle.loadDefaultModel(size)
+    await handle.loadDefaultModel(size, primitive)
     setTextureSize(size)
-    setModelName('Default Sphere')
+    setModelName(primitive === 'cube' ? 'Default Cube' : 'Default Sphere')
     setCurrentModelPath(null)
     setCurrentProjectPath(null)
     setIsDirty(false)
-    showToast('Started new project from scratch', 'info')
+    showToast(`Started new project from ${primitive === 'cube' ? 'Cube' : 'Sphere'} scratch`, 'info')
+  }
+
+  async function handleBrowseAndOpenModel(): Promise<void> {
+    setShowFileMenu(false)
+    const paths = await window.api.openFileDialog({
+      filters: [{ name: '3D Models', extensions: ['glb', 'gltf', 'obj', 'blend'] }]
+    })
+    const path = paths?.[0]
+    if (!path) return
+    try {
+      await handleOpenModel(path, textureSize())
+    } catch (err) {
+      showToast(`Failed to open model: ${err instanceof Error ? err.message : String(err)}`, 'error')
+    }
+  }
+
+  async function handleBrowseAndOpenProject(): Promise<void> {
+    setShowFileMenu(false)
+    const paths = await window.api.openFileDialog({
+      filters: [{ name: 'MeshCoat Project', extensions: ['meshcoat', 'json'] }]
+    })
+    const path = paths?.[0]
+    if (!path) return
+    try {
+      await handleOpenProjectFile(path)
+    } catch (err) {
+      showToast(`Failed to open project: ${err instanceof Error ? err.message : String(err)}`, 'error')
+    }
   }
 
   async function handleOpenModel(
     path: string,
     size: TextureSize,
-    initialTexturePath?: string | null
+    initialTextures?: InitialTexturePayload | null,
+    textureFolderPath?: string | null
   ): Promise<void> {
     const handle = await getReadyViewport()
-    const extension = path.split('.').pop() ?? ''
+    let extension = path.split('.').pop() ?? ''
     const filename = path.split(/[/\\]/).pop() ?? 'Loaded Model'
-    const url = window.api.assetUrl(path)
-    const initialTexUrl = initialTexturePath ? window.api.assetUrl(initialTexturePath) : null
-    await handle.loadFromUrl(url, extension, size, initialTexUrl)
-    setTextureSize(size)
+    let actualPath = path
+
+    if (extension.toLowerCase() === 'blend') {
+      showToast(`Converting ${filename} via Blender...`, 'info')
+      const res = await window.api.convertBlendFile(path)
+      if (!res.success || !res.glbPath) {
+        throw new Error(res.error || 'Failed to convert .blend file with Blender.')
+      }
+      actualPath = res.glbPath
+      extension = 'glb'
+    }
+
+    const url = window.api.assetUrl(actualPath)
+    await handle.loadFromUrl(url, extension, size, initialTextures)
+    // The viewport may have overridden the requested size: imported maps are
+    // painted at their own resolution, and a many-piece model is scaled down to
+    // fit the GPU. Report what was actually allocated.
+    const allocated = handle.pieces()[0]?.textureSize
+    setTextureSize((allocated ?? size) as TextureSize)
+    if (allocated && allocated !== size) {
+      showToast(`Painting at ${allocated}px to match the imported textures`, 'info')
+    }
     setModelName(filename)
     setCurrentModelPath(path)
     setCurrentProjectPath(null)
     setIsDirty(false)
     await window.api.addRecentProject(path, filename, 'model')
-    showToast(`Loaded model ${filename}${initialTexturePath ? ' with texture' : ''}`, 'success')
+
+    if (textureFolderPath) {
+      try {
+        const files = await window.api.listTexturesInFolder(textureFolderPath)
+        if (files && files.length > 0) setTextures(files)
+      } catch {}
+    }
+
+    let pbrCount = 0
+    if (typeof initialTextures === 'string') {
+      pbrCount = 1
+    } else if (typeof initialTextures === 'object' && initialTextures) {
+      if ('mode' in initialTextures && initialTextures.mode === 'per-piece') {
+        for (const maps of Object.values(initialTextures.pieces)) {
+          pbrCount += Object.values(maps).filter(Boolean).length
+        }
+      } else if ('mode' in initialTextures && initialTextures.mode === 'shared') {
+        pbrCount = Object.values(initialTextures.textures).filter(Boolean).length
+      } else {
+        pbrCount = Object.values(initialTextures).filter(Boolean).length
+      }
+    }
+
+    showToast(
+      `Loaded model ${filename}${pbrCount > 0 ? ` with ${pbrCount} PBR map${pbrCount > 1 ? 's' : ''}` : ''}`,
+      'success'
+    )
   }
 
   async function handleOpenProjectFile(path: string): Promise<void> {
     const handle = await getReadyViewport()
     const content = await window.api.readProjectFile(path)
     if (!content) throw new Error('Could not read project file from disk')
-    const { project, stackSnapshot } = await deserializeProject(content)
-    await handle.loadProject(project, stackSnapshot)
+    const { project, stackSnapshots } = await deserializeProject(content)
+    await handle.loadProject(project, stackSnapshots)
     setTextureSize(project.textureSize as TextureSize)
     setModelName(project.name || project.modelName)
     setCurrentModelPath(project.modelPath)
@@ -279,8 +414,8 @@ export default function App() {
 
   async function handleRestoreRecovery(recoveryData: string): Promise<void> {
     const handle = await getReadyViewport()
-    const { project, stackSnapshot } = await deserializeProject(recoveryData)
-    await handle.loadProject(project, stackSnapshot)
+    const { project, stackSnapshots } = await deserializeProject(recoveryData)
+    await handle.loadProject(project, stackSnapshots)
     setTextureSize(project.textureSize as TextureSize)
     setModelName(project.name || project.modelName)
     setCurrentModelPath(project.modelPath)
@@ -298,27 +433,37 @@ export default function App() {
     viewportHandle?.setLightingMode(mode)
   }
 
+  function selectViewMode(mode: ChannelViewMode): void {
+    setViewModeSignal(mode)
+    viewportHandle?.setViewMode(mode)
+    if (mode !== 'material' && !viewportHandle?.paintedChannels().includes(mode as PaintChannel)) {
+      // Nothing has been painted into that channel, so there is no map to
+      // inspect — say so rather than leaving the artist staring at the shaded
+      // view wondering why the button did nothing.
+      showToast(`No ${CHANNEL_SPECS[mode as PaintChannel].label} painted yet`, 'info')
+    }
+  }
+
   function toggleWireframe(): void {
     const next = !wireframeVisible()
     setWireframeVisibleSignal(next)
     viewportHandle?.setWireframeVisible(next)
   }
 
+  function toggleIsolatePiece(): void {
+    const next = !isolatePiece()
+    setIsolatePieceSignal(next)
+    viewportHandle?.setIsolateActivePiece(next)
+    showToast(next ? 'Isolate piece: ON (others hidden)' : 'Isolate piece: OFF (all visible)', 'info')
+  }
+
   function frameCamera(): void {
     viewportHandle?.focusModel()
   }
 
-  async function exportTexturePng(): Promise<void> {
+  function handleOpenExportWizard(): void {
     setShowFileMenu(false)
-    const dataUrl = viewportHandle?.exportBaseColorPng()
-    if (!dataUrl) return
-    const filePath = await window.api.saveFileDialog({
-      defaultPath: `${modelName().replace(/\.[^/.]+$/, '')}_BaseColor.png`,
-      filters: [{ name: 'PNG Image', extensions: ['png'] }]
-    })
-    if (!filePath) return
-    await window.api.savePng(filePath, dataUrl)
-    showToast(`Exported: ${filePath.split('/').pop()}`, 'success')
+    setShowExportWizard(true)
   }
 
   async function pickTextureFolder(): Promise<void> {
@@ -413,9 +558,19 @@ export default function App() {
         }
         return
       }
+      if (e.key.toLowerCase() === 'e') {
+        e.preventDefault()
+        setShowExportWizard(true)
+        return
+      }
       if (e.key.toLowerCase() === 'n') {
         e.preventDefault()
         setShowStartWizard(true)
+        return
+      }
+      if (e.key.toLowerCase() === 'o') {
+        e.preventDefault()
+        void handleBrowseAndOpenModel()
         return
       }
       if (e.key.toLowerCase() === 'z') {
@@ -577,6 +732,21 @@ export default function App() {
       }
     }
 
+    // Check if Blender is available for .blend imports on startup
+    void (async () => {
+      try {
+        const dismissed = await window.api.isBlenderPromptDismissed()
+        if (dismissed) return
+        const detected = await window.api.detectBlender()
+        if (!detected.path) {
+          showToast(
+            'Blender not detected. Configure Blender in Settings to import .blend files directly.',
+            'info'
+          )
+        }
+      } catch {}
+    })()
+
     // Periodic Autosave every 60s if there are unsaved changes
     const autosaveTimer = setInterval(async () => {
       if (isDirty() && viewportHandle) {
@@ -586,7 +756,8 @@ export default function App() {
             const data = serializeProject({
               modelPath: currentModelPath(),
               modelName: modelName(),
-              layerStack: stack
+              pieces: projectPieces(),
+              activePieceIndex: viewportHandle.activePieceIndex()
             })
             await window.api.saveRecovery(data)
           } catch (err) {
@@ -609,10 +780,21 @@ export default function App() {
 
   const fileMenuItems = (): MenuItem[] => [
     {
-      label: 'New / Welcome Wizard...',
+      label: 'New Project / Wizard...',
       shortcut: 'Ctrl+N',
       icon: (p) => <SparklesIcon size={p.size} class="text-blue-400" />,
       onClick: () => setShowStartWizard(true)
+    },
+    {
+      label: 'Open 3D Model...',
+      shortcut: 'Ctrl+O',
+      icon: (p) => <FolderOpenIcon size={p.size} />,
+      onClick: () => void handleBrowseAndOpenModel()
+    },
+    {
+      label: 'Open Project File...',
+      icon: (p) => <FolderOpenIcon size={p.size} />,
+      onClick: () => void handleBrowseAndOpenProject()
     },
     { type: 'divider' },
     {
@@ -628,26 +810,32 @@ export default function App() {
     },
     { type: 'divider' },
     {
-      label: 'Load Texture Folder...',
-      icon: (p) => <FolderOpenIcon size={p.size} />,
-      onClick: handleImportTextures
+      label: 'Export Textures...',
+      shortcut: 'Ctrl+Shift+E',
+      icon: (p) => <DownloadIcon size={p.size} class="text-blue-400" />,
+      onClick: handleOpenExportWizard
     },
-    { type: 'divider' },
     {
-      label: 'Export Texture (PNG)...',
-      icon: (p) => <DownloadIcon size={p.size} />,
-      onClick: exportTexturePng
-    },
-    ...(textures().length > 0
-      ? ([
-          { type: 'divider' } as MenuItem,
-          {
-            label: 'Clear Texture Drawer',
-            icon: (p) => <RefreshCwIcon size={p.size} />,
-            onClick: clearTextureFolder
-          } as MenuItem
-        ])
-      : [])
+      label: 'Texture Library',
+      icon: (p) => <FolderOpenIcon size={p.size} />,
+      submenu: [
+        {
+          label: 'Load Texture Folder...',
+          icon: (p) => <FolderOpenIcon size={p.size} />,
+          onClick: handleImportTextures
+        },
+        ...(textures().length > 0
+          ? [
+              { type: 'divider' } as MenuItem,
+              {
+                label: 'Clear Texture Drawer',
+                icon: (p) => <RefreshCwIcon size={p.size} />,
+                onClick: clearTextureFolder
+              } as MenuItem
+            ]
+          : [])
+      ]
+    }
   ]
 
   const editMenuItems = (): MenuItem[] => [
@@ -677,7 +865,7 @@ export default function App() {
     },
     { type: 'divider' },
     {
-      label: 'Generate Edge Wear & Highlights...',
+      label: 'Edge Wear & Highlights...',
       icon: (p) => <SparklesIcon size={p.size} class="text-amber-400" />,
       onClick: () => setShowEdgeWearWizard(true)
     },
@@ -777,6 +965,16 @@ export default function App() {
 
           <div class="w-px h-4 bg-zinc-800 mx-0.5" />
 
+          {/* Channel view: shaded material, or one isolated map */}
+          <SegmentedControl
+            size="xs"
+            options={VIEW_MODES}
+            value={viewMode()}
+            onChange={selectViewMode}
+          />
+
+          <div class="w-px h-4 bg-zinc-800 mx-0.5" />
+
           {/* Wireframe Button */}
           <IconButton
             size="sm"
@@ -785,6 +983,23 @@ export default function App() {
             title="Toggle wireframe overlay (W)"
           >
             <WireframeIcon size={16} />
+          </IconButton>
+
+          {/* Isolate Active Piece Button */}
+          <IconButton
+            size="sm"
+            active={isolatePiece()}
+            onClick={toggleIsolatePiece}
+            disabled={modelPieces().length <= 1}
+            title={
+              modelPieces().length <= 1
+                ? 'Isolate active piece (requires multi-piece model)'
+                : isolatePiece()
+                  ? 'Show all pieces (Isolate: ON)'
+                  : 'Hide unselected pieces (Isolate active piece)'
+            }
+          >
+            <EyeOffIcon size={16} />
           </IconButton>
 
           {/* Symmetry Mirror Toggle */}
@@ -1022,7 +1237,18 @@ export default function App() {
             }}
             onMissingUv={onMissingUv}
             onLayersChanged={bumpLayers}
+            onPiecesChanged={() => {
+              setPiecesVersion((v) => v + 1)
+              // The layers panel now shows a different stack — refresh it
+              // without going through bumpLayers, which flags unsaved changes.
+              setLayersVersion((v) => v + 1)
+              if (modelPieces().length <= 1 && isolatePiece()) {
+                setIsolatePieceSignal(false)
+                viewportHandle?.setIsolateActivePiece(false)
+              }
+            }}
             onWireframeChanged={setWireframeVisibleSignal}
+            onIsolatePieceChanged={setIsolatePieceSignal}
           />
 
           {/* Floating Material Texture HUD Card (bottom-right of viewport) */}
@@ -1126,6 +1352,66 @@ export default function App() {
                   <PlusIcon size={14} />
                 </IconButton>
               </div>
+              {/* Texture-set selector: only meaningful once a model has more
+                  than one piece, and each piece owns its own layers, undo
+                  history and maps. */}
+              <Show when={modelPieces().length > 1}>
+                <div class="px-3 py-2 border-b border-zinc-850 bg-zinc-900/30 flex items-center gap-1.5">
+                  <div class="relative flex-1 min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => setShowPieceMenu((v) => !v)}
+                      class={`w-full flex items-center justify-between gap-1.5 px-2 py-1 rounded bg-zinc-850 border text-[11px] transition-colors cursor-pointer text-left ${
+                        showPieceMenu()
+                          ? 'border-purple-500/80 text-zinc-100 ring-1 ring-purple-500/20'
+                          : 'border-zinc-700/60 text-zinc-200 hover:border-zinc-600 hover:text-zinc-100'
+                      }`}
+                      title="Piece being painted — double-click a piece in the viewport, or press Tab, to switch"
+                    >
+                      <div class="flex items-center gap-1.5 min-w-0 flex-1">
+                        <CubeIcon size={12} class="text-purple-400 shrink-0" />
+                        <span class="truncate font-medium">
+                          {modelPieces()[activePiece()]?.name ?? `Piece ${activePiece() + 1}`}
+                        </span>
+                        <span class="text-[10px] text-zinc-500 font-mono shrink-0">
+                          {modelPieces()[activePiece()]?.textureSize ?? 2048}px
+                        </span>
+                      </div>
+                      <ChevronDownIcon
+                        size={12}
+                        class={`text-zinc-400 shrink-0 transition-transform duration-150 ${
+                          showPieceMenu() ? 'rotate-180 text-zinc-200' : ''
+                        }`}
+                      />
+                    </button>
+                    <DropdownMenu
+                      isOpen={showPieceMenu()}
+                      onClose={() => setShowPieceMenu(false)}
+                      items={modelPieces().map((piece) => ({
+                        type: 'item' as const,
+                        label: `${piece.name} (${piece.textureSize}px)`,
+                        icon: () =>
+                          piece.index === activePiece() ? (
+                            <CheckIcon size={13} class="text-purple-400" />
+                          ) : (
+                            <CubeIcon size={13} class="text-zinc-500" />
+                          ),
+                        onClick: () => {
+                          viewportHandle?.setActivePiece(piece.index)
+                        }
+                      }))}
+                    />
+                  </div>
+                  <IconButton
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => viewportHandle?.focusPiece()}
+                    title="Frame this piece"
+                  >
+                    <FocusIcon size={13} />
+                  </IconButton>
+                </div>
+              </Show>
               <div class="flex-1 overflow-hidden">
                 <LayersTab
                   getStack={() => viewportHandle?.getLayerStack()}
@@ -1161,11 +1447,25 @@ export default function App() {
           onRestoreRecovery={handleRestoreRecovery}
         />
         <HelpModal isOpen={showHelp()} onClose={() => setShowHelp(false)} />
-        <SettingsModal isOpen={showSettings()} onClose={() => setShowSettings(false)} />
+        <SettingsModal
+          isOpen={showSettings()}
+          onClose={() => setShowSettings(false)}
+          onToast={showToast}
+        />
         <BrushManagerModal
           isOpen={brushPresets.isManagerOpen()}
           onClose={() => brushPresets.closeManager()}
         />
+        <Show when={showExportWizard()}>
+          <ExportWizardModal
+            isOpen={showExportWizard()}
+            onClose={() => setShowExportWizard(false)}
+            modelName={modelName()}
+            pieces={modelPieces()}
+            getViewportHandle={() => viewportHandle}
+            onToast={showToast}
+          />
+        </Show>
       </Suspense>
     </div>
   )

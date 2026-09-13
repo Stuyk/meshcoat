@@ -9,15 +9,21 @@ import {
 const vertexShader = /* glsl */ `
   attribute vec3 aWorldPosition;
   attribute vec3 aWorldNormal;
+  attribute vec3 aSurfaceTangent;
+  attribute vec3 aSurfaceBitangent;
   attribute float aSelected;
   varying vec3 vWorldPosition;
   varying vec3 vWorldNormal;
+  varying vec3 vSurfaceTangent;
+  varying vec3 vSurfaceBitangent;
   varying vec2 vUv;
   varying float vSelected;
 
   void main() {
     vWorldPosition = aWorldPosition;
     vWorldNormal = aWorldNormal;
+    vSurfaceTangent = aSurfaceTangent;
+    vSurfaceBitangent = aSurfaceBitangent;
     vUv = uv;
     vSelected = aSelected;
     gl_Position = vec4(position.xy, 0.0, 1.0);
@@ -65,13 +71,54 @@ ${BRUSH_MASK_UNIFORMS_GLSL}
   uniform float uStencilUseLuma;
   uniform vec2 uCanvasSize;
 
+  // Which PBR channel this pass is writing (see channels.ts). One pass runs per
+  // enabled channel, sharing every dab parameter — the projector footprint,
+  // facing/visibility masks, tip alpha, stencil and face restriction are all
+  // channel-agnostic, so only the payload written under the mask changes.
+  //   0 = base color  — uBrushColor.rgb, tinted by the shelf texture (legacy behaviour)
+  //   1 = scalar data — uBrushColor.rgb already holds the value in all three
+  //                     components (roughness / metalness); the shelf texture
+  //                     contributes its alpha as a mask only, never its color,
+  //                     since tinting a roughness number by a photo is meaningless
+  //   2 = normal      — the payload is computed from the dab's own height field
+  uniform int uChannelMode;
+  // Normal-channel bump strength; negative engraves instead of embossing.
+  uniform float uNormalStrength;
+  // The map supplying THIS channel's values, when painting with a material set
+  // (see materialSets.ts) rather than a dialled-in number. Sampled with exactly
+  // the same uv as the base-color texture, so every channel of a set lands in
+  // register. The slider then scales what the map says (map x slider) rather
+  // than replacing it, which is what keeps "this rock, a bit glossier" possible.
+  uniform sampler2D uChannelMap;
+  uniform float uUseChannelMap;
 
   varying vec3 vWorldPosition;
   varying vec3 vWorldNormal;
+  varying vec3 vSurfaceTangent;
+  varying vec3 vSurfaceBitangent;
   varying vec2 vUv;
   varying float vSelected;
 
 ${BRUSH_MASK_GLSL}
+
+  /**
+   * The dab's height field, sampled in the brush's own tangent plane (the same
+   * stampUv coordinates the tip/stamp use, 0-1 across 2 * radius). Whatever
+   * shapes the stroke also shapes the bump: a custom tip's alpha, a stamped
+   * image's alpha, or — with neither — the round dab's radial falloff.
+   */
+  float dabHeight(vec2 p) {
+    if (uUseTipTexture > 0.5) {
+      float inside = step(0.0, p.x) * step(p.x, 1.0) * step(0.0, p.y) * step(p.y, 1.0);
+      return texture2D(uBrushTipTexture, p).a * inside;
+    }
+    if (uUseTexture > 0.5 && uStampMode > 0.5) {
+      float inside = step(0.0, p.x) * step(p.x, 1.0) * step(0.0, p.y) * step(p.y, 1.0);
+      return texture2D(uBrushTexture, p).a * inside;
+    }
+    float radial = length(p - 0.5) * 2.0 * uBrushRadius;
+    return 1.0 - smoothstep(uBrushRadius * uBrushHardness, uBrushRadius, radial);
+  }
 
   void main() {
     // The render target stores premultiplied color (rgb already scaled by
@@ -163,6 +210,67 @@ ${BRUSH_MASK_GLSL}
 
     // Paint color: shelf texture (tinted by uBrushColor) or just uBrushColor
     vec3 paintColor = mix(uBrushColor.rgb, texSample.rgb * uBrushColor.rgb, uUseTexture);
+    if (uChannelMode == 1) {
+      // A scalar channel takes the dialled-in number verbatim; the shelf
+      // texture still masks the stroke (below) but must not tint the value.
+      paintColor = uBrushColor.rgb;
+      if (uUseChannelMap > 0.5) {
+        // Grayscale data map: any channel carries the value (exporters write
+        // all three equal), and red is the one that survives every packing.
+        float mapValue = texture2D(uChannelMap, texUv).r;
+        paintColor = vec3(clamp(mapValue * uBrushColor.r, 0.0, 1.0));
+      }
+    } else if (uChannelMode == 2 && uUseChannelMap > 0.5) {
+      // Normal *map* from a material set, rather than relief derived from the
+      // dab's shape. The map is tangent-space in whatever frame it is being
+      // projected through: straight onto the mesh UVs (where it is already in
+      // the right frame), or through the brush's own plane for a triplanar or
+      // stamped projection — in which case it has to be rotated into the mesh
+      // UV frame or the relief would light as though facing somewhere else.
+      vec3 mapNormal = texture2D(uChannelMap, texUv).rgb * 2.0 - 1.0;
+      mapNormal.xy *= uNormalStrength;
+      mapNormal = normalize(length(mapNormal) > 0.0001 ? mapNormal : vec3(0.0, 0.0, 1.0));
+
+      vec3 nWorld = normalize(vWorldNormal);
+      bool meshUvProjection = uTextureMapping < 0.5 && uStampMode < 0.5;
+      if (meshUvProjection) {
+        paintColor = mapNormal * 0.5 + 0.5;
+      } else {
+        vec3 world = normalize(
+          mapNormal.x * uBrushTangent + mapNormal.y * uBrushBitangent + mapNormal.z * nWorld
+        );
+        vec3 T = normalize(vSurfaceTangent);
+        vec3 B = normalize(vSurfaceBitangent);
+        vec3 tangentSpace = normalize(vec3(dot(world, T), dot(world, B), dot(world, nWorld)));
+        tangentSpace.z = max(tangentSpace.z, 0.05);
+        paintColor = normalize(tangentSpace) * 0.5 + 0.5;
+      }
+    } else if (uChannelMode == 2) {
+      // Tangent-space normal from the slope of the dab's own height field.
+      // The gradient is measured in the brush's plane — which follows the
+      // cursor and rotates with the stroke — then the perturbed world normal
+      // is re-expressed in the mesh's UV tangent frame (see uvMesh.ts), which
+      // is the frame a tangent-space normal map is actually read in.
+      float d = 1.0 / 64.0;
+      float hx = dabHeight(stampUv + vec2(d, 0.0)) - dabHeight(stampUv - vec2(d, 0.0));
+      float hy = dabHeight(stampUv + vec2(0.0, d)) - dabHeight(stampUv - vec2(0.0, d));
+      // Finite differences are in stampUv units; convert to world units so the
+      // slope means the same thing at any brush size.
+      float worldStep = 2.0 * d * 2.0 * uBrushRadius;
+      vec2 grad = vec2(hx, hy) / max(worldStep, 0.0001);
+
+      vec3 nWorld = normalize(vWorldNormal);
+      vec3 perturbed = normalize(
+        nWorld - uNormalStrength * (grad.x * uBrushTangent + grad.y * uBrushBitangent)
+      );
+      vec3 T = normalize(vSurfaceTangent);
+      vec3 B = normalize(vSurfaceBitangent);
+      vec3 tangentSpace = normalize(vec3(dot(perturbed, T), dot(perturbed, B), dot(perturbed, nWorld)));
+      // Z must stay positive: the perturbation is a surface detail, not a fold
+      // back through the surface, and a negative Z would light as a hole.
+      tangentSpace.z = max(tangentSpace.z, 0.05);
+      paintColor = normalize(tangentSpace) * 0.5 + 0.5;
+    }
 
     float faceMask = mix(1.0, vSelected, uRestrictFace);
 
@@ -191,7 +299,13 @@ ${BRUSH_MASK_GLSL}
       float lum = dot(stencilColor.rgb, vec3(0.299, 0.587, 0.114));
       float lumMask = mix(lum, 1.0 - lum, uStencilInvert);
       float shape = stencilColor.a * mix(1.0, lumMask, uStencilUseLuma);
-      paintColor = mix(stencilColor.rgb * uBrushColor.rgb, uBrushColor.rgb, uStencilUseLuma);
+      // The stencil image's own colors are the payload for base color only. A
+      // data channel takes the value already computed above and uses the
+      // stencil purely as the decal's shape — projecting a photo's RGB into a
+      // roughness or normal map would be meaningless.
+      if (uChannelMode == 0) {
+        paintColor = mix(stencilColor.rgb * uBrushColor.rgb, uBrushColor.rgb, uStencilUseLuma);
+      }
       strength = shape * uBrushOpacity * visibility * faceMask;
       targetAlpha = uBrushColor.a;
     }
@@ -224,6 +338,10 @@ export interface PaintUniforms extends BrushMaskUniforms {
   uStencilStamp: THREE.IUniform<number>
   uStencilUseLuma: THREE.IUniform<number>
   uCanvasSize: THREE.IUniform<THREE.Vector2>
+  uChannelMode: THREE.IUniform<number>
+  uNormalStrength: THREE.IUniform<number>
+  uChannelMap: THREE.IUniform<THREE.Texture | null>
+  uUseChannelMap: THREE.IUniform<number>
 }
 
 export function createPaintMaterial(): THREE.ShaderMaterial & { uniforms: PaintUniforms } {
@@ -249,13 +367,24 @@ export function createPaintMaterial(): THREE.ShaderMaterial & { uniforms: PaintU
     uStencilInvert: { value: 0 },
     uStencilStamp: { value: 0 },
     uStencilUseLuma: { value: 0 },
-    uCanvasSize: { value: new THREE.Vector2(1, 1) }
+    uCanvasSize: { value: new THREE.Vector2(1, 1) },
+    uChannelMode: { value: 0 },
+    uNormalStrength: { value: 1 },
+    uChannelMap: { value: null },
+    uUseChannelMap: { value: 0 }
   }
 
   return new THREE.ShaderMaterial({
     vertexShader,
     fragmentShader,
     uniforms: uniforms as unknown as { [key: string]: THREE.IUniform },
+    // DoubleSide is mandatory for every pass that rasterizes the UV mesh.
+    // Flattening a model into UV space keeps each triangle's winding, and glTF
+    // exporters (Blender's included) flip V on export — which reverses that
+    // winding. Under the default FrontSide every triangle of a glTF model is
+    // then back-facing and the entire mesh is culled: no paint, no coverage
+    // mask, no dilation, on a model whose UVs are perfectly fine.
+    side: THREE.DoubleSide,
     depthTest: false,
     depthWrite: false
   }) as THREE.ShaderMaterial & { uniforms: PaintUniforms }

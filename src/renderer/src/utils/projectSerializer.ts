@@ -1,6 +1,7 @@
 import type { LayerStack, StackSnapshot } from '../paint/layers'
 import type { CpuPixelSnapshot } from '../paint/paintEngine'
 import type { BlendMode } from '../paint/blendShader'
+import { PBR_CHANNELS, type PbrChannel } from '../paint/channels'
 
 export interface SerializedLayer {
   id: number
@@ -10,17 +11,49 @@ export interface SerializedLayer {
   isMask?: boolean
   clippedToMaskId?: number
   blendMode?: BlendMode
+  /** Base color. Named `dataUrl` since version 1, kept as-is so v1 files load. */
   dataUrl: string
+  /**
+   * PBR channels, present only for layers that carry them (version 2+). A
+   * flat-texture project saves exactly the file it always did.
+   */
+  channelDataUrls?: Partial<Record<PbrChannel, string>>
 }
 
-export interface MeshCoatProject {
-  version: 1
+/**
+ * Project file format.
+ *
+ *   1 — base color only
+ *   2 — adds per-layer PBR channels (roughness / metalness / normal)
+ *   3 — one texture set per model piece (`pieces`)
+ *
+ * Older files load unchanged. A version 1/2 project is a single-piece project:
+ * its top-level `layers` become piece 0, which is also why `layers`,
+ * `textureSize` and `activeLayerId` are still written at the top level —
+ * an older build opening a version 3 file still finds the first piece there.
+ */
+export const PROJECT_VERSION = 3
+
+export interface SerializedPiece {
+  /** Mesh name, used to match saved layers back onto the reloaded model. */
   name: string
-  modelPath: string | null
-  modelName: string
   textureSize: number
   activeLayerId: number
   layers: SerializedLayer[]
+}
+
+export interface MeshCoatProject {
+  version: number
+  name: string
+  modelPath: string | null
+  modelName: string
+  /** First piece's size; per-piece sizes live in `pieces`. */
+  textureSize: number
+  activeLayerId: number
+  layers: SerializedLayer[]
+  /** Present from version 3. Absent in older files, which have exactly one piece. */
+  pieces?: SerializedPiece[]
+  activePieceIndex?: number
   savedAt: number
 }
 
@@ -69,6 +102,21 @@ export function dataUrlToCpuSnapshot(dataUrl: string, size: number): Promise<Cpu
   })
 }
 
+/** PNG-encodes whichever PBR channels a layer snapshot carries; undefined if none. */
+function serializeChannels(
+  snapshot: CpuPixelSnapshot
+): Partial<Record<PbrChannel, string>> | undefined {
+  if (!snapshot.channels) return undefined
+  let out: Partial<Record<PbrChannel, string>> | undefined
+  for (const channel of PBR_CHANNELS) {
+    const data = snapshot.channels[channel]
+    if (!data) continue
+    out ??= {}
+    out[channel] = cpuSnapshotToDataUrl({ size: snapshot.size, data })
+  }
+  return out
+}
+
 /**
  * Serializes the current project state (model metadata, layer stack, and compressed layer pixels)
  * into a JSON string.
@@ -76,30 +124,43 @@ export function dataUrlToCpuSnapshot(dataUrl: string, size: number): Promise<Cpu
 export function serializeProject(options: {
   modelPath: string | null
   modelName: string
-  layerStack: LayerStack
+  /** Every paintable piece, in model order. */
+  pieces: { name: string; layerStack: LayerStack }[]
+  activePieceIndex?: number
 }): string {
-  const { modelPath, modelName, layerStack } = options
-  const state = layerStack.captureState()
+  const { modelPath, modelName, pieces, activePieceIndex = 0 } = options
 
-  const serializedLayers: SerializedLayer[] = state.layers.map((l) => ({
-    id: l.id,
-    name: l.name,
-    visible: l.visible,
-    opacity: l.opacity,
-    isMask: l.isMask,
-    clippedToMaskId: l.clippedToMaskId,
-    blendMode: l.blendMode,
-    dataUrl: cpuSnapshotToDataUrl(l.pixels)
-  }))
+  const serializedPieces: SerializedPiece[] = pieces.map(({ name, layerStack }) => {
+    const state = layerStack.captureState()
+    return {
+      name,
+      textureSize: layerStack.textureSize,
+      activeLayerId: state.activeId,
+      layers: state.layers.map((l) => ({
+        id: l.id,
+        name: l.name,
+        visible: l.visible,
+        opacity: l.opacity,
+        isMask: l.isMask,
+        clippedToMaskId: l.clippedToMaskId,
+        blendMode: l.blendMode,
+        dataUrl: cpuSnapshotToDataUrl(l.pixels),
+        channelDataUrls: serializeChannels(l.pixels)
+      }))
+    }
+  })
 
+  const first = serializedPieces[0]
   const project: MeshCoatProject = {
-    version: 1,
+    version: PROJECT_VERSION,
     name: modelName,
     modelPath,
     modelName,
-    textureSize: layerStack.textureSize,
-    activeLayerId: state.activeId,
-    layers: serializedLayers,
+    textureSize: first?.textureSize ?? 2048,
+    activeLayerId: first?.activeLayerId ?? 0,
+    layers: first?.layers ?? [],
+    pieces: serializedPieces,
+    activePieceIndex,
     savedAt: Date.now()
   }
 
@@ -112,34 +173,61 @@ export function serializeProject(options: {
  */
 export async function deserializeProject(
   jsonString: string
-): Promise<{ project: MeshCoatProject; stackSnapshot: StackSnapshot }> {
+): Promise<{ project: MeshCoatProject; stackSnapshots: StackSnapshot[] }> {
   const project = JSON.parse(jsonString) as MeshCoatProject
-  if (!project.layers || !Array.isArray(project.layers)) {
-    throw new Error('Invalid project file: missing layer data')
+
+  // A pre-version-3 file is a one-piece project stored at the top level.
+  const pieces: SerializedPiece[] =
+    project.pieces && project.pieces.length > 0
+      ? project.pieces
+      : [
+          {
+            name: project.modelName || project.name || 'Piece 1',
+            textureSize: project.textureSize || 2048,
+            activeLayerId: project.activeLayerId,
+            layers: project.layers
+          }
+        ]
+
+  for (const piece of pieces) {
+    if (!piece.layers || !Array.isArray(piece.layers)) {
+      throw new Error('Invalid project file: missing layer data')
+    }
   }
 
-  const textureSize = project.textureSize || 2048
-
-  const restoredLayers = await Promise.all(
-    project.layers.map(async (l) => {
-      const pixels = await dataUrlToCpuSnapshot(l.dataUrl, textureSize)
-      return {
-        id: l.id,
-        name: l.name,
-        visible: l.visible,
-        opacity: l.opacity,
-        isMask: l.isMask,
-        clippedToMaskId: l.clippedToMaskId,
-        blendMode: l.blendMode,
-        pixels
+  const stackSnapshots = await Promise.all(
+    pieces.map(async (piece) => {
+      const textureSize = piece.textureSize || project.textureSize || 2048
+      const restoredLayers = await Promise.all(
+        piece.layers.map(async (l) => {
+          const pixels = await dataUrlToCpuSnapshot(l.dataUrl, textureSize)
+          for (const channel of PBR_CHANNELS) {
+            const url = l.channelDataUrls?.[channel]
+            if (!url) continue
+            const channelPixels = await dataUrlToCpuSnapshot(url, textureSize)
+            pixels.channels ??= {}
+            pixels.channels[channel] = channelPixels.data
+          }
+          return {
+            id: l.id,
+            name: l.name,
+            visible: l.visible,
+            opacity: l.opacity,
+            isMask: l.isMask,
+            clippedToMaskId: l.clippedToMaskId,
+            blendMode: l.blendMode,
+            pixels
+          }
+        })
+      )
+      const snapshot: StackSnapshot = {
+        activeId: piece.activeLayerId,
+        layers: restoredLayers
       }
+      return snapshot
     })
   )
 
-  const stackSnapshot: StackSnapshot = {
-    activeId: project.activeLayerId,
-    layers: restoredLayers
-  }
-
-  return { project, stackSnapshot }
+  project.pieces = pieces
+  return { project, stackSnapshots }
 }

@@ -1,5 +1,74 @@
 # Changelog
 
+## v2.0.0
+
+### Added
+- **PBR material painting**, alongside — not instead of — the existing flat-texture workflow. The brush is a *material* brush in the Substance sense: one stroke writes every enabled channel at once and in perfect register, so gold is a single brush (yellow base color + 0.1 roughness + 1.0 metalness), not three passes to line up by hand.
+  - **Four channels** — Base Color, Roughness, Metalness, and a tangent-space Normal map — each toggled independently in a new Material Channels panel, with value sliders and eight ready-made material presets (Polished Gold, Brushed Steel, Rusted Iron, Copper, Glossy Plastic, Matte Rubber, Rough Wood, Wet Clay).
+  - **Relief from the dab itself.** The normal channel takes its slope from whatever shapes the stroke — a custom tip's alpha, a stamped image's alpha, or the round falloff when neither is set. The gradient is measured in the brush's own plane (which follows the cursor and rotates with the stroke) and then re-expressed in the mesh's UV tangent frame, which is the frame a tangent-space normal map is actually read in; without that conversion the relief would light as though pointing somewhere else entirely. Negative strength engraves instead of embossing.
+  - **Lazy per-channel allocation.** A layer allocates a channel's ping-pong pair only when a stroke actually writes to it, and its undo snapshots carry only the channels it has. A flat-color project therefore costs exactly what it always did in both VRAM and undo depth, instead of paying four times over for channels nobody painted.
+  - **Every existing tool is channel-aware**: brush, line, stamp, bucket fill (whole model and per-face), symmetry, face restriction, screen stencils, and the effects brush (which filters every channel a layer has, so a blurred stroke doesn't leave razor-sharp roughness underneath it). The eraser takes coverage back out of the PBR channels rather than stamping zeros over them. Mask layers stay grayscale coverage only, as before.
+- **Image-based lighting.** A prefiltered `RoomEnvironment` is now the scene's environment map. Roughness and metalness are only legible against a varied environment — a metal surface renders as whatever it reflects, and under directional lights alone a painted metalness map would read as dark grey paint. Each lighting preset weights the environment differently; Flat mode keeps it low so raw texture color stays judgeable.
+- **Showcase lighting mode**, a fourth preset for judging material response rather than form. Roughness and metalness are read off reflections — a metal shows whatever surrounds it, and gloss reads as how sharply those surroundings appear in the surface — so direct lights, which give a surface nothing to reflect but a few hot spots, are exactly the wrong rig for checking a PBR material. Showcase hands the lighting to the environment (2.4x) and drops the direct rig to a single raking key, kept only because a grazing angle is what makes normal-map relief legible; a darker ground keeps highlights from competing with the backdrop.
+- **Channel view modes** in the top bar: the full shaded material, or one isolated map (Color / Rough / Metal / Normal) shown unlit and untone-mapped, so values can be read straight off the surface.
+- **PBR texture set export** (File menu): one PNG per painted channel — `_BaseColor`, `_Roughness`, `_Metallic`, `_Normal` — plus the packed **ORM** map (R = ambient occlusion, G = roughness, B = metalness) that Unreal, Unity and glTF expect. Channels nobody painted are skipped rather than written out as flat defaults.
+- **Painting with PBR texture sets.** A folder of loose files — `rock_BaseColor.png`, `rock_Roughness.png`, `rock_Normal.png` — is grouped back into the material it came from by filename convention, and shows in the shelf as one card badged with the channels it covers. Pick it and paint: every channel the set ships is written in one stroke, through the same projection, in register. There is nothing to configure — selecting a set switches its channels on, resets the value sliders to neutral, and sizes tiling to the model (the 8x pattern-stamp default packs a material into unreadable moiré on anything small). The sliders remain live as multipliers over the maps, and the channel switches now sit behind an Advanced disclosure rather than in the way. Suffix spellings from Substance, Quixel, Poliigon, ambientCG and Blender are all recognised; a lone suffixed file with no siblings stays the plain stamp image it is.
+- **`.tga` texture support.** Chromium can't decode TGA in an `<img>`, so the shelf used to filter it out — which silently dropped the colour channel of any pack shipping a `.tga` albedo beside `.png` data maps. TGAs now load through three's `TGALoader` for painting, with the thumbnail borrowing a sibling map.
+
+- **Direct Blender (`.blend`) File Import**:
+  - Direct import of native `.blend` files through both the Welcome / Import Wizard and standard Open Model dialog (`Ctrl+O`).
+  - **Headless Blender CLI Bridge**: runs background conversion via detected Blender binary (`--background --python-expr`) exporting evaluated geometries (including modifiers and tangent frames) to glTF 2.0 with Draco/MeshOptimizer compression support, importing directly into MeshCoat's multi-component PBR pipeline in milliseconds.
+  - **Smart Blender Detection**: automatically detects Blender across standard installation paths, custom Linux programs folders (`~/programs/blender*`), PATH, macOS App bundles, and Windows Program Files.
+  - **Blender 3D Bridge Settings**: user-configurable Blender executable path with instant version testing, auto-detect button, file system browser, and persistent storage in user preferences. Startup prompt alerts the user if Blender is not yet found, with a dismissible option.
+- **Multi-piece model support**: models containing multiple distinct meshes/objects (characters with clothes/accessories, weapons, modular vehicles) are now partitioned into separate paintable pieces, each maintaining its own independent layer stack, resolution, and undo history:
+  - **Quick Piece Switching**: toggle active pieces via `Tab` / `Shift+Tab`, through the dropdown in the top header or layer panel, or by double-clicking meshes directly in the 3D viewport.
+  - **Isolate Active Piece (`EyeOff` button)**: hide unselected pieces to easily paint inside tight crevices or interior geometry without visual obstruction. Switching pieces while isolation is active automatically isolates the new selection.
+- **Unified Texture Export Wizard (`Ctrl+Shift+E` / `Ctrl+E`)**:
+  - Replaced fragmented File menu export options with a single, comprehensive export modal.
+  - **Piece Export Modes**: supports exporting **Individual Pieces** (`[Model]_[Piece]_[Channel].png`) or a **Single Image (Shared UV / Atlas)** composite (`[Model]_[Channel].png`) across all pieces.
+  - **Channel Selection & Presets**: individual toggles for Base Color, Packed ORM, Roughness, Metalness, and Normal maps, with one-click presets for *PBR + ORM*, *Color Only*, and *All Unpacked*.
+  - **Resolution Overrides**: export at native resolution or rescale to 1024px, 2048px, or 4096px.
+  - **Live Preview & Safety Tooltip**: live badge and filename list showing exact files to be written, paired with an engine workflow disclaimer.
+- **Modernized Welcome & Import Wizard**:
+  - Replaced legacy modal with a cohesive 3-tab layout: **Import 3D Model & PBR**, **Quick Start Primitives**, and **Recent Projects**.
+  - **Multi-Component 3D Model Support**:
+    - Automatically inspects model meshes upon file selection to detect single vs multi-piece models.
+    - **Mode Switcher**: easily toggle between **Shared Texture Map (Single Atlas)** (maps one texture set across all model pieces) and **Per-Component Maps** (dedicated channel slots per mesh piece).
+    - **Component Selector Pills**: fast navigation across model pieces (`[Body (3 maps)]`, `[Armor (2 maps)]`, `[Helmet]`) with quick "Copy to all components" action.
+    - **Smart Component Auto-Discovery**: matches sibling texture filenames containing component names (e.g. `Character_Body_BaseColor.png` matches `Body`) and auto-assigns channels per piece.
+  - **Full PBR Texture Ingestion**: dedicated channel slots for Base Color, Roughness, Metalness, Tangent Normal, and Packed ORM (Occlusion/Roughness/Metallic).
+  - **Automatic Sibling Map Detection**: automatically inspects model directories on pick and auto-populates matching channel textures based on standard naming conventions (`_BaseColor`, `_Roughness`, `_Normal`, `_ORM`, etc.).
+  - **Packed ORM Auto-Unpacking**: splits green (Roughness) and blue (Metalness) channels automatically from ORM maps upon model load.
+  - **Interactive Previews**: live thumbnail previews for assigned texture slots with quick swap and remove controls.
+  - **Quick Start Primitives**: one-click creation with resolution selectors for **UV Sphere** (equirectangular) and **UV Unwrapped Cube** (custom 6-face non-overlapping 3×2 island layout).
+  - **Preload Texture Library Folder**: optional directory picker to populate the Texture Shelf with brush stamps and materials on project startup.
+  - **Auto-Recovery Banner & Recents**: persistent autosave restoration with relative timestamps, layer count summaries, and clearable recent history.
+- **Direct 3D Model Open (`Ctrl+O`)**: open 3D model files (`.glb`, `.gltf`, `.obj`) directly via shortcut or the File menu without needing to go through the Welcome Wizard.
+- **Multi-tab Help & Documentation Modal (`?`)**:
+  - **Keyboard Shortcuts**: categorized table with real-time search, badge filters, and updated hotkey listings.
+  - **Documentation & Workflows**: comprehensive guides covering PBR Material Painting, Multi-Piece Meshes & Isolation, Procedural Edge Wear & Crevice Grime, Screen Stencil Projection, Effects Brush, and Texture Exporting.
+- **Cast shadows in Showcase lighting.** The key light casts a soft PCF shadow onto an invisible ground catcher placed at the model's lowest point (not at y = 0, so a model authored off the origin still gets a contact shadow). The shadow camera and the catcher are refitted to the model's bounds on every load and framing, so the same rig works for a 0.1-unit prop and a 50-unit building. Shadows stay off in the working presets: a shadow darkens the very texels being judged, and the depth pass costs a second scene render every frame.
+- **Recursive Flyout Submenus in Dropdown Menus**: `DropdownMenu` now supports nested `submenu` items with mouse hover bridges, `ChevronRightIcon` indicators, and section headers.
+
+### Changed
+- **Showcase is now the default lighting preset.** It is the rig that shows what was actually painted; the others are for working under.
+- **Material and Color merged into one viewport view mode.** The shaded Material view already shows base color, lit, which is what painting is judged against — a separate Color button competed with it for no gain. The remaining isolated views are Rough, Metal and Normal; base color is still exported and stored as its own channel, and Flat lighting still gives unlit color.
+- Project files are now **version 3**, carrying one texture set per model piece (`pieces`). Version 1 and 2 files load as a single-piece project, and piece 0 is still mirrored at the top level so an older build can open a version 3 file.
+- Project files are now **version 2**, carrying per-layer PBR channels. Version 1 files load unchanged — their layers simply have no PBR channels, which is indistinguishable from a version 2 project nobody painted PBR into.
+- **File Menu Layout**: redesigned to eliminate cramped and vertically wrapped text. Increased menu width (`min-w-[240px] w-max`), expanded item heights to `h-8` (32px), added `whitespace-nowrap` on all labels, and moved texture drawer management into a clean `Texture Library >` flyout submenu.
+- Export pipeline now performs direct WebGL render target exports for single-piece native resolution passes, bypassing redundant offscreen canvas and image decode overhead.
+- Removed outdated flat-color material presets in favor of clean channel controls and procedural textures.
+
+### Fixed
+- **Atlas export wrote only one piece.** A flat fill — every layer's background included — covers the whole UV square opaquely, so "Single Image (Shared UV)" stacked each piece's opaque sheet over the last and the file came out as whichever piece happened to be drawn last, usually a flat neutral square. Each piece is now clipped to its own UV coverage mask before compositing, with the untouched parts of the sheet resolving to the channel's neutral value (transparent base color, white roughness, black metalness, flat normal).
+- **Imported base color maps were discarded.** The import wizard passed the base color as a channel map, but the paint shader samples base color only through the brush texture path — a `baseColor` entry in `channelMaps` is dropped by design — so an imported color map filled flat white. Base color now goes in as the fill's texture, at 1:1 UV scale, in its own pass so an albedo's alpha can't eat into the roughness/metalness/normal fill. Data maps are also forced to a linear color space, since decoding them as sRGB bends every value they carry.
+- **Pieces sharing one material instance.** OBJ and glTF routinely export several objects against the same material, and each piece binds its own composite and channel maps to it — so the last piece built won and every other piece rendered someone else's texture, which read as "painting does nothing". Each piece now gets a private clone of its material.
+- **Overlapping pieces blocked all paint.** The occlusion depth pass treated every piece as an occluder, so a part overlapping (or shelled over) the piece being painted rejected the whole stroke. The pass now captures only the active piece; a dab still can't wrap around the back of that piece.
+- **Crash on launch after the showcase default landed** — the lighting preset was applied before the shadow catcher it configures had been declared.
+- **Exporting images did nothing**: resolved lifecycle issue where `ExportWizardModal` mounted before `viewportHandle` was ready, causing export attempts to silently exit.
+- **Chromium CORS error on data URL exports**: fixed `loadImage` in `exportTexture.ts` which erroneously set `crossOrigin = 'anonymous'` on `data:image/png` URLs, triggering CORS security failures during composite and ORM exports.
+
+
 ## v1.2.0
 
 ### Added

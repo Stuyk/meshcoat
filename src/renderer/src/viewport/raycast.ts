@@ -1,6 +1,14 @@
 import * as THREE from 'three'
 
 export interface SurfaceHit {
+  /**
+   * The mesh the ray actually landed on. A model with several pieces gives each
+   * one its own layer stack and its own 0-1 UV square, so `uv`/`faceIndex` only
+   * mean anything paired with the mesh they were picked from. Absent on hits
+   * that are synthesized rather than picked (line interpolation, symmetry),
+   * which always belong to the piece being painted.
+   */
+  mesh?: THREE.Mesh
   point: THREE.Vector3
   normal: THREE.Vector3
   uv: THREE.Vector2
@@ -23,7 +31,13 @@ export function raycastMeshes(
   if (!hit || !hit.face || !hit.uv || hit.faceIndex == null) return null
 
   const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize()
-  return { point: hit.point.clone(), normal, uv: hit.uv.clone(), faceIndex: hit.faceIndex }
+  return {
+    mesh: hit.object as THREE.Mesh,
+    point: hit.point.clone(),
+    normal,
+    uv: hit.uv.clone(),
+    faceIndex: hit.faceIndex
+  }
 }
 
 export function screenToNdc(clientX: number, clientY: number, element: HTMLElement): { x: number; y: number } {

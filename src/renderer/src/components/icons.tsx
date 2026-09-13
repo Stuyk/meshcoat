@@ -30,6 +30,7 @@ export {
   Sun as StudioLightIcon,
   SunDim as FlatLightIcon,
   CloudSun as OutdoorLightIcon,
+  Gem as ShowcaseLightIcon,
   Grid3x3 as WireframeIcon,
   Check as CheckIcon,
   Focus as FocusIcon,
@@ -57,7 +58,10 @@ export {
   Feather as FeatherIcon,
   RotateCw as RotateIcon,
   SquareSplitHorizontal as SymmetryIcon,
-  Clock as ClockIcon
+  Clock as ClockIcon,
+  BookOpen as BookOpenIcon,
+  Compass as CompassIcon,
+  FileText as FileTextIcon
 } from 'lucide-solid'
 
 export function AppIcon(props: { size?: number; class?: string }) {

@@ -40,6 +40,7 @@ import {
   exportPaletteAsJson
 } from '../paint/palettePresets'
 import { normalizeHex } from '../utils/colorUtils'
+import MaterialChannelsPanel from './MaterialChannelsPanel'
 
 const RADIUS_PRESETS = [
   { label: 'Fine', value: 0.05 },
@@ -509,6 +510,12 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
           </div>
         </Show>
       </PanelSection>
+
+      {/* Material (PBR) channels — what each stroke writes besides color. Not
+          shown for the tools that have no material payload of their own. */}
+      <Show when={props.activeTool !== 'eyedropper' && props.activeTool !== 'faceSelect' && props.activeTool !== 'effect'}>
+        <MaterialChannelsPanel isMaskTarget={props.isMaskTarget} onToast={props.onToast} />
+      </Show>
 
       {/* Effects Brush Section — only meaningful while that tool is active */}
       <Show when={props.activeTool === 'effect'}>

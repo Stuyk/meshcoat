@@ -1,5 +1,7 @@
 import { For, Show, createSignal, createMemo, createEffect, on, onMount, onCleanup } from 'solid-js'
-import { brush, setTexturePath } from '../paint/brush'
+import { brush, setTexturePath, setMaterialSet } from '../paint/brush'
+import { groupMaterialSets, paintableChannels, type MaterialSet } from '../paint/materialSets'
+import { CHANNEL_SPECS } from '../paint/channels'
 import { Button, IconButton, SearchInput } from './ui'
 import {
   FolderOpenIcon,
@@ -8,6 +10,7 @@ import {
   StampIcon
 } from './icons'
 import { toAssetUrl } from '../utils/assetUrl'
+import { isBrowserDisplayable } from '../utils/textureLoad'
 
 const COLS = 2
 const ROW_CONTENT_HEIGHT = 133 // thumb + gap + label
@@ -16,7 +19,8 @@ const ROW_STEP = ROW_CONTENT_HEIGHT + ROW_GAP
 const OVERSCAN_ROWS = 4
 
 const SOLID_CARD = Symbol('solid-card')
-type ShelfItem = string | typeof SOLID_CARD
+/** A shelf entry: the solid-color swatch, a grouped PBR material set, or a loose image. */
+type ShelfItem = string | typeof SOLID_CARD | MaterialSet
 
 export default function TextureShelf(props: {
   textures: string[]
@@ -29,19 +33,29 @@ export default function TextureShelf(props: {
 
   const sourceTextures = () => (activeShelf() === 'used' ? brush.recentTextures() : props.textures)
 
-  const filteredTextures = () => {
+  // A PBR texture set arrives as loose files that only a filename convention
+  // ties together (rock_BaseColor.png, rock_Roughness.png, ...). Group them back
+  // into one material the artist can paint with, and leave anything that isn't
+  // part of a set as the plain stamp image it is.
+  const grouped = createMemo(() => groupMaterialSets(sourceTextures()))
+
+  const matchesQuery = (text: string): boolean => {
     const q = searchQuery().trim().toLowerCase()
-    const source = sourceTextures()
-    if (!q) return source
-    return source.filter((p) => {
-      const filename = p.split('/').pop()?.toLowerCase() ?? ''
-      return filename.includes(q)
-    })
+    return !q || text.toLowerCase().includes(q)
   }
+
+  const filteredSets = (): MaterialSet[] => grouped().sets.filter((set) => matchesQuery(set.name))
+
+  const filteredTextures = (): string[] =>
+    grouped().loose.filter((p) => matchesQuery(p.split('/').pop() ?? ''))
+
+  const hasResults = (): boolean => filteredSets().length > 0 || filteredTextures().length > 0
 
   const displayItems = createMemo<ShelfItem[]>(() => {
     const showSolid = !searchQuery() && activeShelf() === 'all'
     const items: ShelfItem[] = showSolid ? [SOLID_CARD] : []
+    // Materials first: they are the thing to reach for when a folder has both.
+    items.push(...filteredSets())
     items.push(...filteredTextures())
     return items
   })
@@ -204,7 +218,7 @@ export default function TextureShelf(props: {
             }
           >
             <Show
-              when={filteredTextures().length > 0}
+              when={hasResults()}
               fallback={
                 <div class="flex items-center justify-center h-48 text-center text-[11px] text-zinc-500 p-4">
                   No textures match "{searchQuery()}"
@@ -254,8 +268,67 @@ export default function TextureShelf(props: {
                       )
                     }
 
+                    if (typeof item !== 'string') {
+                      const set = item
+                      const channels = paintableChannels(set)
+                      // A TGA albedo paints fine (TGALoader) but cannot be
+                      // shown in an <img>, so the card borrows a sibling map
+                      // rather than rendering a broken image.
+                      const thumb =
+                        [set.maps.baseColor, set.maps.normal, ...Object.values(set.maps)].find(
+                          (m): m is string => !!m && isBrowserDisplayable(m)
+                        ) ?? undefined
+                      const isSelected = (): boolean => brush.materialSet()?.id === set.id
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => setMaterialSet(isSelected() ? null : set)}
+                          title={`${set.name} — material set: ${channels
+                            .map((c) => CHANNEL_SPECS[c].label)
+                            .join(', ')}. Painting it writes every one of those channels at once.`}
+                          style={style}
+                          class={`flex flex-col p-1.5 rounded-lg border text-left transition-all cursor-pointer group ${
+                            isSelected()
+                              ? 'bg-amber-600/15 border-amber-500/80 shadow-xs'
+                              : 'bg-zinc-900/60 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-850/60'
+                          }`}
+                        >
+                          <div class="relative aspect-square w-full rounded-md overflow-hidden checkerboard-bg border border-zinc-800 flex items-center justify-center">
+                            <Show when={thumb}>
+                              <img
+                                src={toAssetUrl(thumb!)}
+                                alt={set.name}
+                                loading="lazy"
+                                decoding="async"
+                                class="max-w-full max-h-full object-cover group-hover:scale-105 transition-transform"
+                              />
+                            </Show>
+                            {/* Which channels this set can actually supply — the
+                                thing that is invisible in a folder of loose files. */}
+                            <div class="absolute bottom-1 left-1 flex gap-0.5">
+                              <For each={channels}>
+                                {(c) => (
+                                  <span class="px-1 rounded bg-black/70 text-[8px] font-mono uppercase text-amber-200 leading-4">
+                                    {CHANNEL_SPECS[c].short}
+                                  </span>
+                                )}
+                              </For>
+                            </div>
+                            <Show when={isSelected()}>
+                              <div class="absolute top-1 right-1 w-4 h-4 rounded bg-amber-500 text-black flex items-center justify-center shadow-xs">
+                                <CheckIcon size={10} />
+                              </div>
+                            </Show>
+                          </div>
+                          <span class="text-[10px] font-medium text-amber-200/90 truncate mt-1.5" title={set.name}>
+                            {set.name}
+                          </span>
+                        </button>
+                      )
+                    }
+
                     const path = item
-                    const isSelected = () => brush.texturePath() === path
+                    const isSelected = () => brush.texturePath() === path && !brush.materialSet()
                     const filename = path.split('/').pop() ?? ''
 
                     return (
@@ -273,13 +346,22 @@ export default function TextureShelf(props: {
                         }`}
                       >
                         <div class="relative aspect-square w-full rounded-md overflow-hidden checkerboard-bg border border-zinc-800 flex items-center justify-center">
-                          <img
-                            src={toAssetUrl(path)}
-                            alt={filename}
-                            loading="lazy"
-                            decoding="async"
-                            class="max-w-full max-h-full object-cover group-hover:scale-105 transition-transform"
-                          />
+                          <Show
+                            when={isBrowserDisplayable(path)}
+                            fallback={
+                              <span class="text-[10px] font-mono uppercase text-zinc-500">
+                                {(filename.split('.').pop() ?? '').toUpperCase()}
+                              </span>
+                            }
+                          >
+                            <img
+                              src={toAssetUrl(path)}
+                              alt={filename}
+                              loading="lazy"
+                              decoding="async"
+                              class="max-w-full max-h-full object-cover group-hover:scale-105 transition-transform"
+                            />
+                          </Show>
                           <Show when={isSelected()}>
                             <div class="absolute top-1 right-1 w-4 h-4 rounded bg-blue-600 text-white flex items-center justify-center shadow-xs">
                               <CheckIcon size={10} />

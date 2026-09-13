@@ -10,6 +10,55 @@ import {
 import { renderThumbnail } from './thumbnail'
 import { HistoryManager } from './history'
 import { createBlendCompositeMaterial, blendModeIndex, type BlendMode } from './blendShader'
+import {
+  CHANNEL_SPECS,
+  PAINT_CHANNELS,
+  PBR_CHANNELS,
+  createChannelRenderTarget,
+  type PaintChannel
+} from './channels'
+
+/**
+ * Resolves a finished channel composite into something MeshStandardMaterial can
+ * sample. The stack works in premultiplied alpha with coverage; a material map
+ * has no notion of coverage, so unpainted texels have to land on the channel's
+ * neutral default (rough 1, metal 0, flat normal) rather than on black.
+ */
+function createChannelFlattenMaterial(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      tSrc: { value: null },
+      uDefault: { value: new THREE.Vector4(0, 0, 0, 1) },
+      uIsVector: { value: 0 }
+    },
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform sampler2D tSrc;
+      uniform vec4 uDefault;
+      uniform int uIsVector;
+      varying vec2 vUv;
+      void main() {
+        vec4 s = texture2D(tSrc, vUv);
+        vec3 straight = s.a > 0.0001 ? s.rgb / s.a : s.rgb;
+        vec3 resolved = mix(uDefault.rgb, straight, clamp(s.a, 0.0, 1.0));
+        if (uIsVector == 1) {
+          // Layers were composited by lerping *encoded* normals, which shortens
+          // the vector wherever two differing directions met. Renormalizing here
+          // is what turns that back into a unit direction the shading can use.
+          vec3 n = resolved * 2.0 - 1.0;
+          resolved = normalize(length(n) > 0.0001 ? n : vec3(0.0, 0.0, 1.0)) * 0.5 + 0.5;
+        }
+        gl_FragColor = vec4(resolved, 1.0);
+      }
+    `,
+    blending: THREE.NoBlending,
+    depthTest: false,
+    depthWrite: false
+  })
+}
 
 let nextId = 1
 
@@ -74,6 +123,18 @@ export class LayerStack {
   private blendMaterial: ReturnType<typeof createBlendCompositeMaterial>
   private scratchA: THREE.WebGLRenderTarget
   private scratchB: THREE.WebGLRenderTarget
+  /** Linear (NoColorSpace) counterparts of scratchA/B, shared by the three data
+   * channels. Ping-ponging roughness or normals through the sRGB pair would
+   * gamma-shift every value on the way through. Allocated on first PBR use. */
+  private dataScratchA: THREE.WebGLRenderTarget | null = null
+  private dataScratchB: THREE.WebGLRenderTarget | null = null
+  /** Flattened, material-ready map per PBR channel — see createChannelFlattenMaterial. */
+  private pbrTargets = new Map<PaintChannel, THREE.WebGLRenderTarget>()
+  private flattenMaterial: THREE.ShaderMaterial | null = null
+  /** The mesh material these composites are bound to, so newly-appearing
+   * channels can be attached the moment a layer first paints into them. */
+  private boundMaterial: THREE.MeshStandardMaterial | null = null
+  private boundChannelKey = ''
   readonly textureSize: number
   /** Undo/redo history for this layer stack. Assigned once construction finishes. */
   history!: HistoryManager
@@ -111,6 +172,80 @@ export class LayerStack {
 
   get texture(): THREE.Texture {
     return this.compositeTarget.texture
+  }
+
+  /** Channels at least one layer has painted into — base color always included. */
+  activeChannels(): PaintChannel[] {
+    const present = new Set<PaintChannel>(['baseColor'])
+    for (const layer of this.layers) {
+      for (const channel of layer.engine.allocatedChannels) present.add(channel)
+    }
+    return PAINT_CHANNELS.filter((c) => present.has(c))
+  }
+
+  /** Flattened map for one PBR channel, or null if nothing has painted it yet. */
+  channelTexture(channel: PaintChannel): THREE.Texture | null {
+    return this.channelTarget(channel)?.texture ?? null
+  }
+
+  /**
+   * UV coverage of this stack's mesh (see PaintEngine.coverageTarget) — what an
+   * atlas export masks each piece with. Null only before any layer exists.
+   */
+  coverageTarget(): THREE.WebGLRenderTarget | null {
+    return this.layers[0]?.engine.coverageTarget() ?? null
+  }
+
+  /** The render target behind channelTexture — what the exporters read back. */
+  channelTarget(channel: PaintChannel): THREE.WebGLRenderTarget | null {
+    if (channel === 'baseColor') return this.compositeTarget
+    return this.pbrTargets.get(channel) ?? null
+  }
+
+  get roughnessTexture(): THREE.Texture | null {
+    return this.channelTexture('roughness')
+  }
+
+  get metalnessTexture(): THREE.Texture | null {
+    return this.channelTexture('metalness')
+  }
+
+  get normalTexture(): THREE.Texture | null {
+    return this.channelTexture('normal')
+  }
+
+  /**
+   * Binds this stack's composites onto the mesh material and keeps them bound:
+   * a channel that first appears mid-session (the artist enables Metallic and
+   * lays down one stroke) has to be attached to the material at that moment,
+   * which is why recomposite() calls back into this rather than the viewport
+   * wiring maps up once at load.
+   *
+   * roughness/metalness are pinned to 1.0 where a map exists because the
+   * material multiplies scalar × map; anything less would silently scale down
+   * every value the artist painted.
+   */
+  bindMaterial(material: THREE.MeshStandardMaterial): void {
+    this.boundMaterial = material
+    this.boundChannelKey = ''
+    this.syncMaterialMaps()
+  }
+
+  private syncMaterialMaps(): void {
+    const material = this.boundMaterial
+    if (!material) return
+    const active = this.activeChannels()
+    const key = active.join(',')
+    if (key === this.boundChannelKey) return
+    this.boundChannelKey = key
+
+    material.map = this.compositeTarget.texture
+    material.roughnessMap = this.channelTexture('roughness')
+    material.metalnessMap = this.channelTexture('metalness')
+    material.normalMap = this.channelTexture('normal')
+    if (material.roughnessMap) material.roughness = 1
+    if (material.metalnessMap) material.metalness = 1
+    material.needsUpdate = true
   }
 
   addLayer(name?: string, isMask = false, fillWhite = false): Layer {
@@ -385,11 +520,6 @@ export class LayerStack {
     this.renderer.autoClear = false
     this.renderer.setClearColor(0x000000, 0)
 
-    this.renderer.setRenderTarget(this.scratchA)
-    this.renderer.clear(true, true, true)
-    this.renderer.setRenderTarget(this.scratchB)
-    this.renderer.clear(true, true, true)
-
     const maskMap = this.maskMapScratch
     maskMap.clear()
     for (const l of this.layers) {
@@ -398,8 +528,41 @@ export class LayerStack {
       }
     }
 
-    let backdrop = this.scratchA
-    let target = this.scratchB
+    this.compositeChannel('baseColor', maskMap)
+    for (const channel of PBR_CHANNELS) {
+      if (this.layers.some((l) => l.engine.hasChannel(channel))) {
+        this.compositeChannel(channel, maskMap)
+      }
+    }
+
+    this.renderer.setClearColor(prevClearColor, prevClearAlpha)
+    this.renderer.setRenderTarget(prevTarget)
+    this.renderer.autoClear = prevAutoClear
+    this.syncMaterialMaps()
+  }
+
+  /**
+   * Composites one channel of the stack. Identical blend/mask/opacity maths for
+   * every channel — a layer's opacity and blend mode mean the same thing to its
+   * roughness as to its color, and a mask hides all of a layer or none of it.
+   * Only the buffers and the final resolve differ (see channels.ts).
+   */
+  private compositeChannel(channel: PaintChannel, maskMap: Map<number, Layer>): void {
+    const isBaseColor = channel === 'baseColor'
+    if (!isBaseColor && (!this.dataScratchA || !this.dataScratchB)) {
+      this.dataScratchA = createChannelRenderTarget(this.textureSize, channel)
+      this.dataScratchB = createChannelRenderTarget(this.textureSize, channel)
+    }
+    const scratchA = isBaseColor ? this.scratchA : this.dataScratchA!
+    const scratchB = isBaseColor ? this.scratchB : this.dataScratchB!
+
+    this.renderer.setRenderTarget(scratchA)
+    this.renderer.clear(true, true, true)
+    this.renderer.setRenderTarget(scratchB)
+    this.renderer.clear(true, true, true)
+
+    let backdrop = scratchA
+    let target = scratchB
     this.recompositeQuad.material = this.blendMaterial
     const u = this.blendMaterial.uniforms
 
@@ -426,14 +589,18 @@ export class LayerStack {
     for (let i = 0; i < this.layers.length; i++) {
       const layer = this.layers[i]
       if (!layer.visible) continue
+      // A layer that never painted this channel contributes nothing to it,
+      // rather than contributing an empty sheet.
+      const source = layer.engine.textureFor(channel)
+      if (!source) continue
 
       // If this is a Mask Layer:
       if (layer.isMask) {
         // Mask layers don't render on top of the composite as opaque sheets —
         // they modulate the layer(s) below them — except when the user has
         // asked to inspect the raw mask buffer directly on the model.
-        if (layer.previewMaskOnModel) {
-          drawLayer(layer.engine.texture, layer.opacity, 'normal')
+        if (layer.previewMaskOnModel && isBaseColor) {
+          drawLayer(source, layer.opacity, 'normal')
         }
         continue
       }
@@ -446,7 +613,7 @@ export class LayerStack {
         : undefined
 
       drawLayer(
-        layer.engine.texture,
+        source,
         layer.opacity,
         layer.blendMode,
         maskLayer && maskLayer.visible ? maskLayer : undefined
@@ -454,22 +621,39 @@ export class LayerStack {
     }
 
     // Edge Wear "bake to new layer" live preview: composited as an extra top
-    // layer so it doesn't have to mutate any real layer's content.
-    if (this.edgeWearGhost) {
+    // layer so it doesn't have to mutate any real layer's content. It is a
+    // base-color pass (see PaintEngine.applyEdgeWear).
+    if (this.edgeWearGhost && isBaseColor) {
       drawLayer(this.edgeWearGhost.texture, 1, 'normal')
     }
 
-    // Blit the final ping-pong result into the stable public composite target.
-    this.recompositeQuad.material = this.recompositePlainMaterial
-    this.recompositePlainMaterial.map = backdrop.texture
-    configurePremultipliedSourceMaterial(this.recompositePlainMaterial, 1)
-    this.renderer.setRenderTarget(this.compositeTarget)
-    this.renderer.clear(true, true, true)
-    this.renderer.render(this.recompositeScene, this.orthoCamera)
+    if (isBaseColor) {
+      // Blit the final ping-pong result into the stable public composite target.
+      this.recompositeQuad.material = this.recompositePlainMaterial
+      this.recompositePlainMaterial.map = backdrop.texture
+      configurePremultipliedSourceMaterial(this.recompositePlainMaterial, 1)
+      this.renderer.setRenderTarget(this.compositeTarget)
+      this.renderer.clear(true, true, true)
+      this.renderer.render(this.recompositeScene, this.orthoCamera)
+      return
+    }
 
-    this.renderer.setClearColor(prevClearColor, prevClearAlpha)
-    this.renderer.setRenderTarget(prevTarget)
-    this.renderer.autoClear = prevAutoClear
+    // A data channel resolves against its neutral default instead: the material
+    // samples the map with no notion of coverage, so an unpainted texel has to
+    // read as "plain matte dielectric", not as black.
+    let output = this.pbrTargets.get(channel)
+    if (!output) {
+      output = createChannelRenderTarget(this.textureSize, channel)
+      this.pbrTargets.set(channel, output)
+    }
+    this.flattenMaterial ??= createChannelFlattenMaterial()
+    const spec = CHANNEL_SPECS[channel]
+    this.flattenMaterial.uniforms.tSrc.value = backdrop.texture
+    this.flattenMaterial.uniforms.uDefault.value.copy(spec.flattenDefault ?? new THREE.Vector4(0, 0, 0, 1))
+    this.flattenMaterial.uniforms.uIsVector.value = spec.vector ? 1 : 0
+    this.recompositeQuad.material = this.flattenMaterial
+    this.renderer.setRenderTarget(output)
+    this.renderer.render(this.recompositeScene, this.orthoCamera)
   }
 
   /** Low-res preview thumbnail of one layer's own buffer (not the composite). */
@@ -663,6 +847,11 @@ export class LayerStack {
     this.recompositePlainMaterial.dispose()
     this.scratchA.dispose()
     this.scratchB.dispose()
+    this.dataScratchA?.dispose()
+    this.dataScratchB?.dispose()
+    this.flattenMaterial?.dispose()
+    for (const target of this.pbrTargets.values()) target.dispose()
+    this.pbrTargets.clear()
     for (const layer of this.layers) {
       layer.engine.dispose()
     }

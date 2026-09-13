@@ -1,7 +1,7 @@
 import { Show, type JSX } from 'solid-js'
 
 export interface BadgeProps {
-  variant?: 'default' | 'primary' | 'amber' | 'success' | 'danger' | 'outline'
+  variant?: 'default' | 'primary' | 'amber' | 'success' | 'danger' | 'outline' | 'purple'
   size?: 'xs' | 'sm'
   dot?: boolean
   class?: string
@@ -14,7 +14,8 @@ const VARIANT_CLASSES = {
   amber: 'bg-amber-950/60 text-amber-300 border-amber-800/60',
   success: 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60',
   danger: 'bg-red-950/60 text-red-300 border-red-800/60',
-  outline: 'bg-transparent text-zinc-400 border-zinc-700'
+  outline: 'bg-transparent text-zinc-400 border-zinc-700',
+  purple: 'bg-purple-950/60 text-purple-300 border-purple-800/60'
 }
 
 const DOT_CLASSES = {
@@ -23,7 +24,8 @@ const DOT_CLASSES = {
   amber: 'bg-amber-400',
   success: 'bg-emerald-400',
   danger: 'bg-red-400',
-  outline: 'bg-zinc-400'
+  outline: 'bg-zinc-400',
+  purple: 'bg-purple-400'
 }
 
 export default function Badge(props: BadgeProps) {

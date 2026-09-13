@@ -56,13 +56,40 @@ const api = {
   startDrag: (filePaths: string[]): void => ipcRenderer.send('drag:start', filePaths),
   pickTextureFolder: (): Promise<string[] | null> => ipcRenderer.invoke('folder:pick-textures'),
   loadLastTextureFolder: (): Promise<string[] | null> => ipcRenderer.invoke('folder:load-last-textures'),
+  listTexturesInFolder: (dir: string): Promise<string[] | null> =>
+    ipcRenderer.invoke('folder:list-textures-in', dir),
   savePng: (filePath: string, dataUrl: string): Promise<boolean> =>
     ipcRenderer.invoke('file:save-png', filePath, dataUrl),
   readBinaryFile: (filePath: string): Promise<Uint8Array | null> =>
     ipcRenderer.invoke('file:read-binary', filePath),
   loadBrushPacks: (): Promise<any | null> => ipcRenderer.invoke('brushes:load'),
   saveBrushPacks: (packsJson: string): Promise<boolean> =>
-    ipcRenderer.invoke('brushes:save', packsJson)
+    ipcRenderer.invoke('brushes:save', packsJson),
+  detectBlender: (): Promise<{ path: string | null; version?: string }> =>
+    ipcRenderer.invoke('blender:detect'),
+  setBlenderPath: (
+    customPath: string | null
+  ): Promise<{ success: boolean; version?: string; error?: string }> =>
+    ipcRenderer.invoke('blender:set-path', customPath),
+  browseBlenderExecutable: (): Promise<{
+    success: boolean
+    path?: string
+    version?: string
+    error?: string
+  } | null> => ipcRenderer.invoke('blender:browse-executable'),
+  convertBlendFile: (
+    blendPath: string
+  ): Promise<{
+    success: boolean
+    glbPath?: string
+    durationMs?: number
+    version?: string
+    error?: string
+  }> => ipcRenderer.invoke('blend:convert', blendPath),
+  isBlenderPromptDismissed: (): Promise<boolean> =>
+    ipcRenderer.invoke('blender:is-prompt-dismissed'),
+  setBlenderPromptDismissed: (dismissed: boolean): Promise<boolean> =>
+    ipcRenderer.invoke('blender:set-prompt-dismissed', dismissed)
 }
 
 contextBridge.exposeInMainWorld('electron', electronAPI)

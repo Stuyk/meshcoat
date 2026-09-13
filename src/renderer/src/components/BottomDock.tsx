@@ -1,5 +1,6 @@
 import { Show } from 'solid-js'
 import { brush, setTextureMapping } from '../paint/brush'
+import { CHANNEL_SPECS, PAINT_CHANNELS } from '../paint/channels'
 import type { ToolMode } from '../paint/brush'
 import { stencil, setStencilTransforming } from '../paint/stencil'
 import { EFFECT_MODES, EFFECT_MODE_LABELS } from '../paint/effectShader'
@@ -109,6 +110,19 @@ export default function StatusBar(props: StatusBarProps) {
           >
             <span class="text-zinc-500 font-sans">Op:</span>
             <span>{Math.round(brush.opacity() * 100)}%</span>
+          </div>
+        </Show>
+
+        {/* Active material channels — what the next stroke will actually write */}
+        <Show when={props.tool === 'brush' || props.tool === 'line' || props.tool === 'stamp' || props.tool === 'fill'}>
+          <div
+            class="hidden lg:flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-900/80 border border-zinc-800/60 font-mono text-zinc-300"
+            title="Material channels this brush writes (toggle them in Brush Settings)"
+          >
+            <span class="text-zinc-500 font-sans">Ch:</span>
+            {PAINT_CHANNELS.filter((c) => brush.channelEnabled()[c]).map((c) => (
+              <span class="text-[10px] text-zinc-300">{CHANNEL_SPECS[c].short}</span>
+            ))}
           </div>
         </Show>
 

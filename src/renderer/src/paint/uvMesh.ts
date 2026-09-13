@@ -75,6 +75,69 @@ export function buildUvMesh(mesh: THREE.Mesh): THREE.Mesh {
     }
   }
 
+  // Per-face world-space UV tangent frame, needed by the normal-map paint
+  // channel: a dab computes its bump direction in the *brush's* tangent frame
+  // (which follows the cursor and rotates with the stroke), but a tangent-space
+  // normal map has to be stored in the *mesh's* UV frame or the lighting reads
+  // it as pointing somewhere else entirely.
+  //
+  // Derived here from the triangle's own world positions and UVs rather than
+  // read off geometry.attributes.tangent: computeTangents() only runs for
+  // indexed geometry (see modelLoader.ts) and throws on non-indexed, while this
+  // works for every mesh that has UVs at all — which is already a hard
+  // requirement above. Constant per triangle, matching the flat face normal
+  // convention used for aWorldNormal for the same reason.
+  const faceTangent = new Float32Array(vertexCount * 3)
+  const faceBitangent = new Float32Array(vertexCount * 3)
+  {
+    const e1 = new THREE.Vector3()
+    const e2 = new THREE.Vector3()
+    const t = new THREE.Vector3()
+    const bt = new THREE.Vector3()
+    const n = new THREE.Vector3()
+    for (let i = 0; i + 2 < vertexCount; i += 3) {
+      a.set(worldPos[i * 3], worldPos[i * 3 + 1], worldPos[i * 3 + 2])
+      b.set(worldPos[(i + 1) * 3], worldPos[(i + 1) * 3 + 1], worldPos[(i + 1) * 3 + 2])
+      c.set(worldPos[(i + 2) * 3], worldPos[(i + 2) * 3 + 1], worldPos[(i + 2) * 3 + 2])
+      e1.subVectors(b, a)
+      e2.subVectors(c, a)
+      const du1 = uv.getX(i + 1) - uv.getX(i)
+      const dv1 = uv.getY(i + 1) - uv.getY(i)
+      const du2 = uv.getX(i + 2) - uv.getX(i)
+      const dv2 = uv.getY(i + 2) - uv.getY(i)
+      const det = du1 * dv2 - du2 * dv1
+      n.set(worldNormal[i * 3], worldNormal[i * 3 + 1], worldNormal[i * 3 + 2])
+      if (Math.abs(det) < 1e-12) {
+        // Degenerate UVs (a zero-area island): any stable frame will do — the
+        // texels of such a triangle cover no area to look wrong in.
+        const up = Math.abs(n.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0)
+        t.crossVectors(up, n).normalize()
+      } else {
+        const r = 1 / det
+        t.copy(e1).multiplyScalar(dv2 * r).addScaledVector(e2, -dv1 * r)
+        // Gram-Schmidt against the face normal, then normalize.
+        t.addScaledVector(n, -n.dot(t))
+        if (t.lengthSq() < 1e-18) {
+          const up = Math.abs(n.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0)
+          t.crossVectors(up, n)
+        }
+        t.normalize()
+      }
+      bt.crossVectors(n, t).normalize()
+      for (let corner = 0; corner < 3; corner++) {
+        const vi = i + corner
+        faceTangent[vi * 3] = t.x
+        faceTangent[vi * 3 + 1] = t.y
+        faceTangent[vi * 3 + 2] = t.z
+        faceBitangent[vi * 3] = bt.x
+        faceBitangent[vi * 3 + 1] = bt.y
+        faceBitangent[vi * 3 + 2] = bt.z
+      }
+    }
+  }
+  geometry.setAttribute('aSurfaceTangent', new THREE.BufferAttribute(faceTangent, 3))
+  geometry.setAttribute('aSurfaceBitangent', new THREE.BufferAttribute(faceBitangent, 3))
+
   // One id per triangle (repeated across its 3 corners), matching the raycast
   // hit's faceIndex against the same (post-toNonIndexed) mesh — lets the paint
   // shader restrict a stroke or fill to a single picked face (spec: face

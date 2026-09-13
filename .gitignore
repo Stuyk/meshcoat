@@ -5,3 +5,4 @@ out
 .eslintcache
 *.log*
 */settings.local.json
+.pbr-smoke-out

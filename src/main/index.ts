@@ -5,13 +5,17 @@ import { readdir, writeFile, readFile } from 'fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { getRecentProjects, addRecentProject, removeRecentProject, clearRecentProjects } from './recent'
-import { getLastTextureFolder, setLastTextureFolder } from './prefs'
+import { getLastTextureFolder, setLastTextureFolder, isBlenderPromptDismissed, setBlenderPromptDismissed, setBlenderPath } from './prefs'
 import { saveAutosave, loadAutosave, clearAutosave } from './recovery'
 import { existsSync } from 'fs'
+import { getEffectiveBlender, convertBlendToGlb, testBlenderExecutable } from './blenderBridge'
 
-// .tga isn't decodable by <img>/browser image loaders without a custom
-// decoder, so the texture shelf only lists formats Chromium can load directly.
-const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
+// Chromium can't decode .tga in an <img>, but three's TGALoader can, and
+// texture packs routinely ship a .tga albedo beside .png data maps. Excluding
+// it dropped those materials' color channel on the floor without a word — so
+// the shelf lists them, decodes them through TGALoader for painting, and falls
+// back to a sibling map for the thumbnail (see TextureShelf).
+const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.tga'])
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -126,6 +130,11 @@ app.whenReady().then(() => {
     return listTextures(dir)
   })
 
+  ipcMain.handle('folder:list-textures-in', async (_e, dir: string) => {
+    if (!dir || !existsSync(dir)) return null
+    return listTextures(dir)
+  })
+
   ipcMain.handle('file:save-png', async (_e, filePath: string, dataUrl: string) => {
     const base64 = dataUrl.replace(/^data:image\/png;base64,/, '')
     await writeFile(filePath, Buffer.from(base64, 'base64'))
@@ -213,6 +222,62 @@ app.whenReady().then(() => {
   ipcMain.handle('project:clear-recent', () => {
     clearRecentProjects()
     return []
+  })
+
+  ipcMain.handle('blender:detect', async () => {
+    return getEffectiveBlender()
+  })
+
+  ipcMain.handle('blender:set-path', async (_e, customPath: string | null) => {
+    if (!customPath) {
+      setBlenderPath(undefined)
+      return { success: true }
+    }
+    const test = await testBlenderExecutable(customPath)
+    if (test.valid) {
+      setBlenderPath(customPath)
+      return { success: true, version: test.version }
+    }
+    return { success: false, error: test.error || 'Invalid Blender executable' }
+  })
+
+  ipcMain.handle('blender:browse-executable', async () => {
+    if (!mainWindow) return null
+    const isWin = process.platform === 'win32'
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Select Blender Executable',
+      properties: ['openFile'],
+      filters: isWin
+        ? [{ name: 'Blender Executable', extensions: ['exe'] }]
+        : [{ name: 'All Files', extensions: ['*'] }]
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    const chosen = result.filePaths[0]
+    const test = await testBlenderExecutable(chosen)
+    if (test.valid) {
+      setBlenderPath(chosen)
+      return { success: true, path: chosen, version: test.version }
+    }
+    return { success: false, error: test.error || 'Selected file is not a valid Blender executable.' }
+  })
+
+  ipcMain.handle('blend:convert', async (_e, blendPath: string) => {
+    try {
+      const res = await convertBlendToGlb(blendPath)
+      return { success: true, glbPath: res.glbPath, durationMs: res.durationMs, version: res.version }
+    } catch (err) {
+      console.error('Failed to convert .blend file:', err)
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  ipcMain.handle('blender:is-prompt-dismissed', () => {
+    return isBlenderPromptDismissed()
+  })
+
+  ipcMain.handle('blender:set-prompt-dismissed', (_e, dismissed: boolean) => {
+    setBlenderPromptDismissed(dismissed)
+    return true
   })
 
   ipcMain.on('shell:reveal', (_e, filePath: string) => {

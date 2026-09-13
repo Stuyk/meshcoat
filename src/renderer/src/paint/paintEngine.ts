@@ -3,6 +3,14 @@ import { buildUvMesh } from './uvMesh'
 import { createPaintMaterial } from './paintShader'
 import { createEdgeWearMaterial } from './edgeWearShader'
 import { createEffectMaterial, EFFECT_MODE_INDEX, type EffectMode } from './effectShader'
+import {
+  CHANNEL_SPECS,
+  PAINT_CHANNELS,
+  createChannelRenderTarget,
+  payloadChannels,
+  type ChannelPayload,
+  type PaintChannel
+} from './channels'
 import type { SurfaceHit } from '../viewport/raycast'
 
 export const DEFAULT_TEXTURE_SIZE = 2048
@@ -28,15 +36,14 @@ export function configurePremultipliedSourceMaterial(material: THREE.MeshBasicMa
   material.blendDst = THREE.OneMinusSrcAlphaFactor
 }
 
-function createRenderTarget(size: number): THREE.WebGLRenderTarget {
-  const target = new THREE.WebGLRenderTarget(size, size, {
-    format: THREE.RGBAFormat,
-    type: THREE.UnsignedByteType,
-    colorSpace: THREE.SRGBColorSpace,
-    minFilter: THREE.LinearFilter,
-    magFilter: THREE.LinearFilter
-  })
-  return target
+function createRenderTarget(size: number, channel: PaintChannel = 'baseColor'): THREE.WebGLRenderTarget {
+  return createChannelRenderTarget(size, channel)
+}
+
+/** One channel's ping-pong pair. */
+interface ChannelBuffers {
+  read: THREE.WebGLRenderTarget
+  write: THREE.WebGLRenderTarget
 }
 
 const dilateVertexShader = /* glsl */ `
@@ -108,6 +115,27 @@ export interface StrokeParams {
   occlusion?: OcclusionParams | null
   /** Screen-space stencil to paint through (see stencil.ts); null = unrestricted. */
   stencil?: StencilParams | null
+  /**
+   * Which PBR channels this stroke writes and with what values (see
+   * channels.ts). Omitted = base color only, using `color`/`alpha` — which is
+   * exactly the flat-texture behaviour this app has always had.
+   */
+  channels?: ChannelPayload
+  /**
+   * Per-channel source maps, when painting with a material set (see
+   * materialSets.ts): each channel's pass samples its own map through the same
+   * projection, so a set's color, roughness and relief land in register. The
+   * base-color map keeps travelling as `brushTexture`, which already tints and
+   * masks the stroke the way it always has.
+   */
+  channelMaps?: ChannelMaps
+  /**
+   * Erase rather than paint: base color reverts to the layer's own base
+   * color/alpha (as it always has), and every other written channel has its
+   * coverage taken back to zero so the layer below — or the channel's neutral
+   * default — shows through again.
+   */
+  erase?: boolean
 }
 
 export interface StencilParams {
@@ -140,13 +168,26 @@ export interface FillOptions {
   alpha?: number
   texture?: THREE.Texture | null
   scale?: number
+  /** Fill PBR channels too (see channels.ts); omitted = base color only. */
+  channels?: ChannelPayload
+  /** Per-channel source maps for a material-set fill (see StrokeParams.channelMaps). */
+  channelMaps?: ChannelMaps
 }
 
+/** One texture per channel, for painting with a material set. */
+export type ChannelMaps = Partial<Record<PaintChannel, THREE.Texture | null>>
+
 /**
- * Owns the ping-pong base-color render targets for one mesh and paints
- * strokes onto them via the UV-flattened mesh + custom shader (spec
- * section 4.3-4.4). Only the baseColor channel is implemented — roughness/
- * metalness/normal ping-pong pairs follow the same pattern once needed.
+ * Owns the ping-pong render targets for one mesh and paints strokes onto them
+ * via the UV-flattened mesh + custom shader (spec section 4.3-4.4).
+ *
+ * Base color is always allocated. The roughness / metalness / normal pairs are
+ * allocated lazily, the first time a stroke or fill actually writes to them
+ * (ensureChannel) — so a flat-texture project costs exactly what it always
+ * did, in VRAM and in undo snapshots alike, and only a genuinely PBR layer
+ * pays for four buffers. Every channel uses the same premultiplied RGBA8
+ * storage, so all the machinery below (dilation, blit, snapshots, merging)
+ * treats them identically; see channels.ts for what does differ.
  */
 export class PaintEngine {
   private renderer: THREE.WebGLRenderer
@@ -154,10 +195,8 @@ export class PaintEngine {
   private material: ReturnType<typeof createPaintMaterial>
   private orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
   private orthoScene = new THREE.Scene()
-  private targetA: THREE.WebGLRenderTarget
-  private targetB: THREE.WebGLRenderTarget
-  private readTarget: THREE.WebGLRenderTarget
-  private writeTarget: THREE.WebGLRenderTarget
+  /** Allocated channels, keyed by name. baseColor is always present. */
+  private buffers = new Map<PaintChannel, ChannelBuffers>()
   /** Lazily built on first dilate() call — every layer pays for this render
    * pass at construction otherwise, even ones nobody ever paints on. */
   private coverageMask: THREE.WebGLRenderTarget | null = null
@@ -200,26 +239,7 @@ export class PaintEngine {
     this.uvMesh.material = this.material
     this.orthoScene.add(this.uvMesh)
 
-    this.targetA = createRenderTarget(textureSize)
-    this.targetB = createRenderTarget(textureSize)
-    this.readTarget = this.targetA
-    this.writeTarget = this.targetB
-
-    // A hardware clear (not a blended quad) so the target's alpha channel
-    // ends up exactly baseAlpha regardless of the renderer's own default
-    // clear color/alpha — a transparent (opacity 0) quad can't be trusted to
-    // undo whatever autoClear wrote first.
-    const prevTarget = this.renderer.getRenderTarget()
-    const prevClearColor = new THREE.Color()
-    this.renderer.getClearColor(prevClearColor)
-    const prevClearAlpha = this.renderer.getClearAlpha()
-    this.renderer.setClearColor(this.baseColor, this.baseAlpha)
-    this.renderer.setRenderTarget(this.targetA)
-    this.renderer.clear(true, true, true)
-    this.renderer.setRenderTarget(this.targetB)
-    this.renderer.clear(true, true, true)
-    this.renderer.setRenderTarget(prevTarget)
-    this.renderer.setClearColor(prevClearColor, prevClearAlpha)
+    this.ensureChannel('baseColor')
 
     this.dilateMaterial = new THREE.ShaderMaterial({
       uniforms: {
@@ -237,17 +257,188 @@ export class PaintEngine {
     // Coverage mask (and its render pass) is built lazily — see ensureCoverageMask().
   }
 
+  /**
+   * Allocates a channel's ping-pong pair if it doesn't exist yet, cleared to
+   * its starting state: base color to the layer's own base color/alpha (an
+   * opaque background layer, a transparent stacked one), every PBR channel to
+   * zero coverage — an unpainted PBR texel resolves to that channel's neutral
+   * default at flatten time (see LayerStack), never to black.
+   */
+  private ensureChannel(channel: PaintChannel): ChannelBuffers {
+    const existing = this.buffers.get(channel)
+    if (existing) return existing
+
+    const read = createRenderTarget(this.textureSize, channel)
+    const write = createRenderTarget(this.textureSize, channel)
+
+    // A hardware clear (not a blended quad) so the target's alpha channel ends
+    // up exactly right regardless of the renderer's own default clear
+    // color/alpha — a transparent (opacity 0) quad can't be trusted to undo
+    // whatever autoClear wrote first.
+    const clearColor = channel === 'baseColor' ? this.baseColor : new THREE.Color(0x000000)
+    const clearAlpha = channel === 'baseColor' ? this.baseAlpha : 0
+    const prevTarget = this.renderer.getRenderTarget()
+    const prevClearColor = new THREE.Color()
+    this.renderer.getClearColor(prevClearColor)
+    const prevClearAlpha = this.renderer.getClearAlpha()
+    this.renderer.setClearColor(clearColor, clearAlpha)
+    this.renderer.setRenderTarget(read)
+    this.renderer.clear(true, true, true)
+    this.renderer.setRenderTarget(write)
+    this.renderer.clear(true, true, true)
+    this.renderer.setRenderTarget(prevTarget)
+    this.renderer.setClearColor(prevClearColor, prevClearAlpha)
+
+    const buffers: ChannelBuffers = { read, write }
+    this.buffers.set(channel, buffers)
+    this._channelsVersion++
+    return buffers
+  }
+
+  /** Bumped whenever the set of allocated channels changes, so the layer stack
+   * knows to (re)bind maps onto the mesh material. */
+  private _channelsVersion = 0
+  get channelsVersion(): number {
+    return this._channelsVersion
+  }
+
+  /** Channels this layer actually has buffers for, in canonical order. */
+  get allocatedChannels(): PaintChannel[] {
+    return PAINT_CHANNELS.filter((c) => this.buffers.has(c))
+  }
+
+  hasChannel(channel: PaintChannel): boolean {
+    return this.buffers.has(channel)
+  }
+
+  /** This layer's own buffer for one channel, or null if it was never painted. */
+  textureFor(channel: PaintChannel): THREE.Texture | null {
+    return this.buffers.get(channel)?.read.texture ?? null
+  }
+
+  private buf(channel: PaintChannel): ChannelBuffers {
+    return this.ensureChannel(channel)
+  }
+
+  /** Promotes the just-rendered write buffer to be the readable one. */
+  private swap(channel: PaintChannel): void {
+    const b = this.buffers.get(channel)
+    if (!b) return
+    const tmp = b.read
+    b.read = b.write
+    b.write = tmp
+  }
+
+  /**
+   * This mesh's UV coverage: white where a triangle of this piece rasterizes,
+   * black elsewhere. Exporting several pieces onto one atlas needs it — a
+   * piece's maps are opaque across the whole square (a flat fill covers every
+   * texel, painted or not), so without a mask the last piece drawn erases
+   * every piece under it.
+   */
+  coverageTarget(): THREE.WebGLRenderTarget {
+    this.ensureCoverageMask()
+    return this.coverageMask!
+  }
+
+  /**
+   * Whether the coverage mask actually came out with anything in it. A mask
+   * that rasterized empty is indistinguishable from "this mesh covers no
+   * texels", and anything that trusts it then erases the layer it was meant to
+   * protect — so it is measured once and the destructive paths opt out.
+   */
+  private coverageUsable = true
+
   /** Allocates and rasterizes the coverage mask the first time it's actually needed. */
   private ensureCoverageMask(): void {
     if (this.coverageMask) return
     this.coverageMask = createRenderTarget(this.textureSize)
     this.dilateMaterial.uniforms.uMask.value = this.coverageMask.texture
     this.buildCoverageMask()
+    this.coverageUsable = this.measureCoverage()
+    if (!this.coverageUsable) {
+      console.warn(
+        '[slip] UV coverage mask rasterized empty — masking and dilation are disabled for this ' +
+          'mesh. Either its UVs are degenerate, or the mask pass is broken.'
+      )
+    }
+  }
+
+  /**
+   * Re-rasterizes the coverage at a small fixed size purely to answer "did
+   * anything land?". Reading the full-size mask back would mean pulling up to
+   * 256 MB across the bus at 8192; a 64x64 copy costs 16 KB and only misses UV
+   * islands too small to matter.
+   */
+  private measureCoverage(): boolean {
+    const probe = new THREE.WebGLRenderTarget(64, 64, {
+      format: THREE.RGBAFormat,
+      type: THREE.UnsignedByteType,
+      colorSpace: THREE.NoColorSpace,
+      minFilter: THREE.NearestFilter,
+      magFilter: THREE.NearestFilter
+    })
+    const material = new THREE.ShaderMaterial({
+      vertexShader: 'void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }',
+      fragmentShader: 'void main() { gl_FragColor = vec4(1.0); }',
+      side: THREE.DoubleSide,
+      blending: THREE.NoBlending,
+      depthTest: false,
+      depthWrite: false
+    })
+    const prevMaterial = this.uvMesh.material
+    const prevTarget = this.renderer.getRenderTarget()
+    const prevClear = new THREE.Color()
+    this.renderer.getClearColor(prevClear)
+    const prevClearAlpha = this.renderer.getClearAlpha()
+
+    this.uvMesh.material = material
+    this.renderer.setClearColor(0x000000, 1)
+    this.renderer.setRenderTarget(probe)
+    this.renderer.clear(true, true, true)
+    this.renderer.render(this.orthoScene, this.orthoCamera)
+
+    const pixels = new Uint8Array(64 * 64 * 4)
+    this.renderer.readRenderTargetPixels(probe, 0, 0, 64, 64, pixels)
+
+    this.renderer.setRenderTarget(prevTarget)
+    this.renderer.setClearColor(prevClear, prevClearAlpha)
+    this.uvMesh.material = prevMaterial
+    material.dispose()
+    probe.dispose()
+
+    for (let i = 0; i < pixels.length; i += 4) {
+      if (pixels[i] > 0) return true
+    }
+    return false
   }
 
   /** Rasterizes the UV mesh as flat white once — used to guide edge dilation (see dilateFragmentShader). */
   private buildCoverageMask(): void {
-    const maskMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff })
+    /**
+     * Must use the same NDC passthrough vertex shader the paint material uses.
+     * The UV mesh's positions ARE clip coordinates already (uv * 2 - 1, z = 0),
+     * so a stock material — which multiplies them by the view/projection of an
+     * ortho camera sitting at the origin with near = 0 — puts every triangle
+     * exactly on the near plane and clips the lot. That silently produced a
+     * fully black mask: dilation became a no-op, and anything that treats the
+     * mask as coverage (atlas export, clipToCoverage) saw the mesh as covering
+     * nothing at all.
+     */
+    const maskMaterial = new THREE.ShaderMaterial({
+      vertexShader: /* glsl */ `
+        void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }
+      `,
+      fragmentShader: /* glsl */ `
+        void main() { gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0); }
+      `,
+      // See the paint material: a glTF model's UV winding is reversed, so
+      // FrontSide culls the whole flattened mesh and the mask comes out empty.
+      side: THREE.DoubleSide,
+      blending: THREE.NoBlending,
+      depthTest: false,
+      depthWrite: false
+    })
     const prevMaterial = this.uvMesh.material
     this.uvMesh.material = maskMaterial
     const prevTarget = this.renderer.getRenderTarget()
@@ -289,6 +480,7 @@ export class PaintEngine {
     const countMaterial = new THREE.ShaderMaterial({
       vertexShader: 'void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }',
       fragmentShader: 'void main() { gl_FragColor = vec4(4.0 / 255.0); }',
+      side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
       depthTest: false,
       depthWrite: false
@@ -363,6 +555,74 @@ export class PaintEngine {
   }
 
   private scratchDilateTarget: THREE.WebGLRenderTarget | null = null
+  private coverageClipMaterial: THREE.ShaderMaterial | null = null
+  private coverageClipQuad: THREE.Mesh | null = null
+  private coverageClipScene: THREE.Scene | null = null
+
+  /**
+   * Clips every allocated channel to this mesh's own UV coverage.
+   *
+   * This is what makes a shared atlas importable. When several pieces of a
+   * model index into one texture sheet, each piece's layer stack is handed the
+   * *whole* sheet, so every piece would carry every other piece's artwork:
+   * paint one and the neighbour's islands sit underneath it, export one and the
+   * file contains the entire atlas. Zeroing the texels this mesh's triangles
+   * don't rasterize into leaves each texture set holding only its own region.
+   *
+   * Everything is stored premultiplied, so scaling RGB and alpha by the same
+   * mask is the correct way to take coverage to zero; the dilation afterwards
+   * puts the bilinear bleed margin back around the kept islands.
+   */
+  clipToCoverage(): void {
+    this.ensureCoverageMask()
+    const mask = this.coverageMask
+    if (!mask) return
+    // Never clip against a mask that came out empty: that multiplies the whole
+    // layer by zero and throws away artwork this was supposed to be separating.
+    if (!this.coverageUsable) return
+
+    if (!this.coverageClipMaterial) {
+      this.coverageClipMaterial = new THREE.ShaderMaterial({
+        uniforms: { uColor: { value: null }, uMask: { value: mask.texture } },
+        vertexShader: /* glsl */ `
+          varying vec2 vUv;
+          void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
+        `,
+        fragmentShader: /* glsl */ `
+          uniform sampler2D uColor;
+          uniform sampler2D uMask;
+          varying vec2 vUv;
+          void main() {
+            // The mask is rendered white-on-black and opaque, so coverage is in
+            // red. Hard threshold rather than a multiply: an antialiased edge
+            // texel is still this piece's texel, and halving its alpha would
+            // show as a seam once the dilation spreads it.
+            float covered = step(0.004, texture2D(uMask, vUv).r);
+            gl_FragColor = texture2D(uColor, vUv) * covered;
+          }
+        `,
+        blending: THREE.NoBlending,
+        depthTest: false,
+        depthWrite: false
+      })
+      this.coverageClipQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.coverageClipMaterial)
+      this.coverageClipScene = new THREE.Scene()
+      this.coverageClipScene.add(this.coverageClipQuad)
+    }
+    this.coverageClipMaterial.uniforms.uMask.value = mask.texture
+
+    const prevTarget = this.renderer.getRenderTarget()
+    for (const channel of this.allocatedChannels) {
+      const buffers = this.buf(channel)
+      this.coverageClipMaterial.uniforms.uColor.value = buffers.read.texture
+      this.renderer.setRenderTarget(buffers.write)
+      this.renderer.render(this.coverageClipScene!, this.orthoCamera)
+      this.dilate(buffers.write)
+      this.swap(channel)
+    }
+    this.renderer.setRenderTarget(prevTarget)
+    this._contentVersion++
+  }
 
   /** Rewrites the uvMesh's `aSelected` attribute (see uvMesh.ts) from a set of triangle indices, for the paint shader's face-restriction mask. */
   private setSelectionMask(faces: ReadonlySet<number> | null | undefined): void {
@@ -382,12 +642,65 @@ export class PaintEngine {
   }
 
   get texture(): THREE.Texture {
-    return this.readTarget.texture
+    return this.buf('baseColor').read.texture
+  }
+
+  /**
+   * Fills in the payload (rgb, alpha, shader channel mode) for one channel of a
+   * stroke. Erasing takes base color back to the layer's own base color/alpha
+   * exactly as it always has, and takes a PBR channel's coverage to zero, which
+   * re-exposes whatever is underneath rather than stamping a black normal or a
+   * zero roughness over it.
+   */
+  private applyChannelPayload(
+    channel: PaintChannel,
+    payload: ChannelPayload,
+    erase: boolean,
+    maps?: ChannelMaps
+  ): void {
+    const u = this.material.uniforms
+    // Base color takes its map through uBrushTexture (the long-standing shelf
+    // texture path, which tints and masks); the data channels sample their own.
+    const channelMap = channel === 'baseColor' ? null : (maps?.[channel] ?? null)
+    // Erasing removes coverage, so there is nothing for a map to supply.
+    u.uChannelMap.value = erase ? null : channelMap
+    u.uUseChannelMap.value = !erase && channelMap ? 1 : 0
+    switch (channel) {
+      case 'baseColor': {
+        const bc = payload.baseColor
+        const color = erase ? this.baseColor : (bc?.color ?? new THREE.Color(0xffffff))
+        const alpha = erase ? this.baseAlpha : (bc?.alpha ?? 1)
+        u.uBrushColor.value.set(color.r, color.g, color.b, alpha)
+        u.uChannelMode.value = 0
+        u.uNormalStrength.value = 1
+        break
+      }
+      case 'roughness':
+      case 'metalness': {
+        const v = THREE.MathUtils.clamp(payload[channel] ?? 0, 0, 1)
+        u.uBrushColor.value.set(v, v, v, erase ? 0 : 1)
+        u.uChannelMode.value = 1
+        u.uNormalStrength.value = 1
+        break
+      }
+      case 'normal': {
+        u.uBrushColor.value.set(0.5, 0.5, 1, erase ? 0 : 1)
+        u.uChannelMode.value = 2
+        u.uNormalStrength.value = payload.normal ?? 1
+        break
+      }
+    }
   }
 
   paintStroke(hit: SurfaceHit, params: StrokeParams): void {
+    // No `channels` means the legacy flat-texture call: base color only, from
+    // the stroke's own color/alpha.
+    const payload: ChannelPayload =
+      params.channels ?? { baseColor: { color: params.color, alpha: params.alpha ?? 1 } }
+    const channels = payloadChannels(payload)
+    if (channels.length === 0) return
+
     const u = this.material.uniforms
-    u.uPrevTexture.value = this.readTarget.texture
     u.uBrushWorldPos.value.copy(hit.point)
     u.uBrushNormal.value.copy(hit.normal)
     u.uBrushRadius.value = params.radius
@@ -395,7 +708,6 @@ export class PaintEngine {
     u.uProjectorDepth.value = params.projectorDepth ?? 0.35
     u.uMaxAngle.value = params.maxAngle ?? 85
     u.uBrushOpacity.value = params.opacity
-    u.uBrushColor.value.set(params.color.r, params.color.g, params.color.b, params.alpha ?? 1)
     u.uBrushTexture.value = params.brushTexture ?? null
     u.uUseTexture.value = params.brushTexture ? 1 : 0
     u.uBrushTipTexture.value = params.brushTipTexture ?? null
@@ -464,15 +776,23 @@ export class PaintEngine {
     u.uBrushTangent.value.copy(tangent)
     u.uBrushBitangent.value.copy(bitangent)
 
+    // One pass per enabled channel. They share every dab parameter set above —
+    // the same footprint, the same tip alpha, the same stencil and occlusion
+    // gates — so a multi-channel brush stroke lands in perfect register across
+    // base color, roughness, metalness and normal.
     const prevTarget = this.renderer.getRenderTarget()
-    this.renderer.setRenderTarget(this.writeTarget)
-    this.renderer.render(this.orthoScene, this.orthoCamera)
-    this.renderer.setRenderTarget(prevTarget)
-    this.dilate(this.writeTarget)
-
-    const tmp = this.readTarget
-    this.readTarget = this.writeTarget
-    this.writeTarget = tmp
+    for (const channel of channels) {
+      const buffers = this.buf(channel)
+      this.applyChannelPayload(channel, payload, params.erase ?? false, params.channelMaps)
+      u.uPrevTexture.value = buffers.read.texture
+      this.renderer.setRenderTarget(buffers.write)
+      this.renderer.render(this.orthoScene, this.orthoCamera)
+      this.renderer.setRenderTarget(prevTarget)
+      this.dilate(buffers.write)
+      this.swap(channel)
+    }
+    u.uChannelMode.value = 0
+    u.uUseChannelMap.value = 0
     this._contentVersion++
   }
 
@@ -488,7 +808,6 @@ export class PaintEngine {
       this.effectMaterial = createEffectMaterial(this.textureSize)
     }
     const u = this.effectMaterial.uniforms
-    u.uPrevTexture.value = this.readTarget.texture
     u.uBrushWorldPos.value.copy(hit.point)
     u.uBrushNormal.value.copy(hit.normal)
     u.uBrushRadius.value = params.radius
@@ -531,17 +850,22 @@ export class PaintEngine {
     const prevMaterial = this.uvMesh.material
     this.uvMesh.material = this.effectMaterial
 
+    // Filters rework whatever is already on the layer, so they run over every
+    // channel this layer has: blurring a stroke's color while leaving its
+    // roughness and normal razor-sharp underneath would look wrong under
+    // lighting, not just inconsistent on export.
     const prevTarget = this.renderer.getRenderTarget()
-    this.renderer.setRenderTarget(this.writeTarget)
-    this.renderer.render(this.orthoScene, this.orthoCamera)
-    this.renderer.setRenderTarget(prevTarget)
-    this.dilate(this.writeTarget)
+    for (const channel of this.allocatedChannels) {
+      const buffers = this.buf(channel)
+      u.uPrevTexture.value = buffers.read.texture
+      this.renderer.setRenderTarget(buffers.write)
+      this.renderer.render(this.orthoScene, this.orthoCamera)
+      this.renderer.setRenderTarget(prevTarget)
+      this.dilate(buffers.write)
+      this.swap(channel)
+    }
 
     this.uvMesh.material = prevMaterial
-
-    const tmp = this.readTarget
-    this.readTarget = this.writeTarget
-    this.writeTarget = tmp
     this._contentVersion++
   }
 
@@ -564,10 +888,19 @@ export class PaintEngine {
     useLuminance?: boolean
     /** Confine the projection to these triangles; null = the whole model. */
     restrictFaces?: ReadonlySet<number> | null
+    /** PBR values to stamp alongside the decal; omitted = base color only. */
+    channels?: ChannelPayload
   }): void {
+    const payload: ChannelPayload =
+      params.channels ?? { baseColor: { color: params.color, alpha: 1 } }
+    // The normal channel is deliberately excluded: a stamped decal has no dab
+    // geometry, so there is no height field to take a slope from — it would
+    // write a flat (neutral) normal over whatever is already there and quietly
+    // erase detail. Stamping surface relief is the brush's job.
+    const channels = payloadChannels(payload).filter((c) => c !== 'normal')
+    if (channels.length === 0) return
+
     const u = this.material.uniforms
-    u.uPrevTexture.value = this.readTarget.texture
-    u.uBrushColor.value.set(params.color.r, params.color.g, params.color.b, 1)
     u.uBrushOpacity.value = params.opacity
     u.uFillMode.value = 0
     u.uUseTexture.value = 0
@@ -604,17 +937,21 @@ export class PaintEngine {
     u.uBrushRadius.value = 0.01
 
     const prevTarget = this.renderer.getRenderTarget()
-    this.renderer.setRenderTarget(this.writeTarget)
-    this.renderer.render(this.orthoScene, this.orthoCamera)
-    this.renderer.setRenderTarget(prevTarget)
-    this.dilate(this.writeTarget)
-
-    const tmp = this.readTarget
-    this.readTarget = this.writeTarget
-    this.writeTarget = tmp
+    for (const channel of channels) {
+      const buffers = this.buf(channel)
+      this.applyChannelPayload(channel, payload, false)
+      u.uPrevTexture.value = buffers.read.texture
+      this.renderer.setRenderTarget(buffers.write)
+      this.renderer.render(this.orthoScene, this.orthoCamera)
+      this.renderer.setRenderTarget(prevTarget)
+      this.dilate(buffers.write)
+      this.swap(channel)
+    }
     this._contentVersion++
 
     u.uStencilStamp.value = 0
+    u.uUseChannelMap.value = 0
+    u.uChannelMode.value = 0
   }
 
   /** Fills the whole active layer with color or pattern (spec: bucket tool across whole model). */
@@ -637,53 +974,113 @@ export class PaintEngine {
       alpha = 1
     }
 
-    if (texture) {
-      const u = this.material.uniforms
-      u.uPrevTexture.value = this.readTarget.texture
-      u.uBrushColor.value.set(color.r, color.g, color.b, alpha)
-      u.uBrushOpacity.value = alpha
-      u.uFillMode.value = 1
-      u.uRestrictFace.value = 0 // Apply across whole model
-      // A bucket fill is not a brush dab: clear the per-stroke gates so it
-      // can't inherit the stencil or occlusion state left by the last stroke.
-      u.uUseStencil.value = 0
-      u.uUseOcclusion.value = 0
-      u.uUseTexture.value = 1
-      u.uBrushTexture.value = texture
-      u.uFillScale.value = scale
-      u.uStampMode.value = 0
+    const payload: ChannelPayload =
+      (options instanceof THREE.Color ? undefined : options?.channels) ?? {
+        baseColor: { color, alpha }
+      }
+    const channels = payloadChannels(payload)
+    if (channels.length === 0) return
 
-      const prevTarget = this.renderer.getRenderTarget()
-      this.renderer.setRenderTarget(this.writeTarget)
-      this.renderer.render(this.orthoScene, this.orthoCamera)
-      this.renderer.setRenderTarget(prevTarget)
-      this.dilate(this.writeTarget)
-
-      u.uFillMode.value = 0
-      u.uRestrictFace.value = 0
-      u.uUseTexture.value = 0
-      u.uBrushTexture.value = null
-
-      const tmp = this.readTarget
-      this.readTarget = this.writeTarget
-      this.writeTarget = tmp
-    } else {
-      const fillScene = new THREE.Scene()
-      const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: alpha, premultipliedAlpha: true })
-      const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat)
-      fillScene.add(quad)
-      const prevTarget = this.renderer.getRenderTarget()
-      this.renderer.setRenderTarget(this.writeTarget)
-      this.renderer.render(fillScene, this.orthoCamera)
-      this.renderer.setRenderTarget(prevTarget)
-      mat.dispose()
-      quad.geometry.dispose()
-
-      const tmp = this.readTarget
-      this.readTarget = this.writeTarget
-      this.writeTarget = tmp
+    const maps = options instanceof THREE.Color ? undefined : options?.channelMaps
+    for (const channel of channels) {
+      // A material-set fill goes through the textured path even when the base
+      // color itself is a flat swatch, since the data channels still have maps
+      // of their own to tile across the model.
+      if (texture || maps?.[channel]) {
+        this.fillChannelWithTexture(channel, payload, texture, scale, alpha, null, maps)
+      } else {
+        this.fillChannelFlat(channel, payload, alpha)
+      }
     }
     this._contentVersion++
+  }
+
+  /** Flat (untextured) fill of one channel — replaces the channel outright. */
+  private fillChannelFlat(channel: PaintChannel, payload: ChannelPayload, alpha: number): void {
+    const buffers = this.buf(channel)
+    const { color, quadAlpha } = this.flatFillValue(channel, payload, alpha)
+    const fillScene = new THREE.Scene()
+    const mat = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: quadAlpha,
+      premultipliedAlpha: true
+    })
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat)
+    fillScene.add(quad)
+    const prevTarget = this.renderer.getRenderTarget()
+    this.renderer.setRenderTarget(buffers.write)
+    this.renderer.render(fillScene, this.orthoCamera)
+    this.renderer.setRenderTarget(prevTarget)
+    mat.dispose()
+    quad.geometry.dispose()
+    this.swap(channel)
+  }
+
+  /** The constant a flat fill writes into one channel. */
+  private flatFillValue(
+    channel: PaintChannel,
+    payload: ChannelPayload,
+    alpha: number
+  ): { color: THREE.Color; quadAlpha: number } {
+    if (channel === 'baseColor') {
+      const bc = payload.baseColor
+      return { color: bc?.color ?? new THREE.Color(0xffffff), quadAlpha: bc?.alpha ?? alpha }
+    }
+    if (channel === 'normal') {
+      // Filling the normal channel means "flat surface everywhere" — the
+      // neutral encoded normal, fully covering.
+      return { color: new THREE.Color(0.5, 0.5, 1), quadAlpha: 1 }
+    }
+    const v = THREE.MathUtils.clamp(payload[channel] ?? 0, 0, 1)
+    return { color: new THREE.Color(v, v, v), quadAlpha: 1 }
+  }
+
+  /**
+   * Textured fill of one channel. The texture tiles across the model (or the
+   * given face selection) and, for a data channel, contributes its alpha as a
+   * mask only — see the uChannelMode note in paintShader.ts.
+   */
+  private fillChannelWithTexture(
+    channel: PaintChannel,
+    payload: ChannelPayload,
+    texture: THREE.Texture | null,
+    scale: number,
+    alpha: number,
+    faces: ReadonlySet<number> | null,
+    maps?: ChannelMaps
+  ): void {
+    const buffers = this.buf(channel)
+    const u = this.material.uniforms
+    this.applyChannelPayload(channel, payload, false, maps)
+    if (channel === 'baseColor') u.uBrushColor.value.w = payload.baseColor?.alpha ?? alpha
+    u.uPrevTexture.value = buffers.read.texture
+    u.uBrushOpacity.value = alpha
+    u.uFillMode.value = 1
+    u.uRestrictFace.value = faces ? 1 : 0
+    // A bucket fill is not a brush dab: clear the per-stroke gates so it can't
+    // inherit the stencil or occlusion state left by the last stroke.
+    u.uUseStencil.value = 0
+    u.uUseOcclusion.value = 0
+    u.uUseTexture.value = texture ? 1 : 0
+    u.uBrushTexture.value = texture
+    u.uFillScale.value = scale
+    u.uStampMode.value = 0
+
+    const prevTarget = this.renderer.getRenderTarget()
+    this.renderer.setRenderTarget(buffers.write)
+    this.renderer.render(this.orthoScene, this.orthoCamera)
+    this.renderer.setRenderTarget(prevTarget)
+    this.dilate(buffers.write)
+
+    u.uFillMode.value = 0
+    u.uRestrictFace.value = 0
+    u.uUseTexture.value = 0
+    u.uBrushTexture.value = null
+    u.uChannelMode.value = 0
+    u.uUseChannelMap.value = 0
+
+    this.swap(channel)
   }
 
   /** Fills only the given triangles (spec: bucket fill by face selection, best-effort texture mapping). */
@@ -714,34 +1111,17 @@ export class PaintEngine {
 
     this.setSelectionMask(faces)
 
-    const u = this.material.uniforms
-    u.uPrevTexture.value = this.readTarget.texture
-    u.uBrushColor.value.set(color.r, color.g, color.b, alpha)
-    u.uBrushOpacity.value = alpha
-    u.uFillMode.value = 1
-    u.uRestrictFace.value = 1
-    // Same as fill(): a face fill must not inherit the last stroke's gates.
-    u.uUseStencil.value = 0
-    u.uUseOcclusion.value = 0
-    u.uUseTexture.value = texture ? 1 : 0
-    u.uBrushTexture.value = texture
-    u.uFillScale.value = scale
-    u.uStampMode.value = 0
+    const payload: ChannelPayload =
+      (options instanceof THREE.Color ? undefined : options?.channels) ?? {
+        baseColor: { color, alpha }
+      }
+    const channels = payloadChannels(payload)
+    if (channels.length === 0) return
 
-    const prevTarget = this.renderer.getRenderTarget()
-    this.renderer.setRenderTarget(this.writeTarget)
-    this.renderer.render(this.orthoScene, this.orthoCamera)
-    this.renderer.setRenderTarget(prevTarget)
-    this.dilate(this.writeTarget)
-
-    u.uFillMode.value = 0
-    u.uRestrictFace.value = 0
-    u.uUseTexture.value = 0
-    u.uBrushTexture.value = null
-
-    const tmp = this.readTarget
-    this.readTarget = this.writeTarget
-    this.writeTarget = tmp
+    const maps = options instanceof THREE.Color ? undefined : options?.channelMaps
+    for (const channel of channels) {
+      this.fillChannelWithTexture(channel, payload, texture, scale, alpha, faces, maps)
+    }
     this._contentVersion++
   }
 
@@ -762,58 +1142,65 @@ export class PaintEngine {
       quad.geometry.dispose()
     }
 
+    // Every channel either layer has, so merging down never silently drops the
+    // roughness or normal work on the layer being merged.
+    const channels = new Set([...this.allocatedChannels, ...other.allocatedChannels])
     const prevAutoClear = this.renderer.autoClear
     const prevTarget = this.renderer.getRenderTarget()
     this.renderer.autoClear = false
-    this.renderer.setRenderTarget(other.writeTarget)
-    this.renderer.clear(true, true, true)
-    drawQuad(other.readTarget.texture, 1)
-    drawQuad(this.readTarget.texture, opacity)
+    for (const channel of channels) {
+      const mine = this.buf(channel)
+      const theirs = other.buf(channel)
+      this.renderer.setRenderTarget(theirs.write)
+      this.renderer.clear(true, true, true)
+      drawQuad(theirs.read.texture, 1)
+      drawQuad(mine.read.texture, opacity)
+      other.swap(channel)
+    }
     this.renderer.setRenderTarget(prevTarget)
     this.renderer.autoClear = prevAutoClear
-
-    const tmp = other.readTarget
-    other.readTarget = other.writeTarget
-    other.writeTarget = tmp
     other._contentVersion++
   }
 
   /** Copies this layer's content onto another PaintEngine buffer (for duplication). */
   copyOnto(other: PaintEngine): void {
-    const mat = new THREE.MeshBasicMaterial({ map: this.readTarget.texture })
-    configurePremultipliedSourceMaterial(mat, 1)
-    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat)
-    const scene = new THREE.Scene()
-    scene.add(quad)
-
     const prevAutoClear = this.renderer.autoClear
     const prevTarget = this.renderer.getRenderTarget()
     this.renderer.autoClear = false
-    this.renderer.setRenderTarget(other.writeTarget)
-    this.renderer.clear(true, true, true)
-    this.renderer.render(scene, this.orthoCamera)
+    for (const channel of this.allocatedChannels) {
+      const mat = new THREE.MeshBasicMaterial({ map: this.buf(channel).read.texture })
+      configurePremultipliedSourceMaterial(mat, 1)
+      const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat)
+      const scene = new THREE.Scene()
+      scene.add(quad)
+      this.renderer.setRenderTarget(other.buf(channel).write)
+      this.renderer.clear(true, true, true)
+      this.renderer.render(scene, this.orthoCamera)
+      mat.dispose()
+      quad.geometry.dispose()
+      other.swap(channel)
+    }
     this.renderer.setRenderTarget(prevTarget)
     this.renderer.autoClear = prevAutoClear
-    mat.dispose()
-    quad.geometry.dispose()
-
-    const tmp = other.readTarget
-    other.readTarget = other.writeTarget
-    other.writeTarget = tmp
     other._contentVersion++
   }
 
-  /** Clears this layer's buffer back to baseColor / baseAlpha. */
+  /** Clears every channel of this layer back to its starting state. */
   clear(): void {
     const prevTarget = this.renderer.getRenderTarget()
     const prevClearColor = new THREE.Color()
     this.renderer.getClearColor(prevClearColor)
     const prevClearAlpha = this.renderer.getClearAlpha()
-    this.renderer.setClearColor(this.baseColor, this.baseAlpha)
-    this.renderer.setRenderTarget(this.readTarget)
-    this.renderer.clear(true, true, true)
-    this.renderer.setRenderTarget(this.writeTarget)
-    this.renderer.clear(true, true, true)
+    for (const channel of this.allocatedChannels) {
+      const buffers = this.buf(channel)
+      const color = channel === 'baseColor' ? this.baseColor : new THREE.Color(0x000000)
+      const alpha = channel === 'baseColor' ? this.baseAlpha : 0
+      this.renderer.setClearColor(color, alpha)
+      this.renderer.setRenderTarget(buffers.read)
+      this.renderer.clear(true, true, true)
+      this.renderer.setRenderTarget(buffers.write)
+      this.renderer.clear(true, true, true)
+    }
     this.renderer.setClearColor(prevClearColor, prevClearAlpha)
     this.renderer.setRenderTarget(prevTarget)
     this._contentVersion++
@@ -824,7 +1211,7 @@ export class PaintEngine {
     const x = Math.floor(uv.x * this.textureSize)
     const y = Math.floor(uv.y * this.textureSize)
     const buffer = new Uint8Array(4)
-    this.renderer.readRenderTargetPixels(this.readTarget, x, y, 1, 1, buffer)
+    this.renderer.readRenderTargetPixels(this.buf('baseColor').read, x, y, 1, 1, buffer)
     // Stored premultiplied (see paintShader.ts) — undo it to get the true color.
     const a = buffer[3]
     if (a === 0) return new THREE.Color(0, 0, 0)
@@ -834,7 +1221,7 @@ export class PaintEngine {
   /** Inverts the RGB color of the current target (useful for inverting layer masks). */
   invert(): void {
     const invertMat = new THREE.ShaderMaterial({
-      uniforms: { tSrc: { value: this.readTarget.texture } },
+      uniforms: { tSrc: { value: this.buf('baseColor').read.texture } },
       vertexShader: /* glsl */ `
         varying vec2 vUv;
         void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
@@ -851,7 +1238,7 @@ export class PaintEngine {
       depthWrite: false
     })
     const prevTarget = this.renderer.getRenderTarget()
-    this.renderer.setRenderTarget(this.writeTarget)
+    this.renderer.setRenderTarget(this.buf('baseColor').write)
     const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), invertMat)
     const scene = new THREE.Scene()
     scene.add(quad)
@@ -860,9 +1247,7 @@ export class PaintEngine {
     invertMat.dispose()
     quad.geometry.dispose()
 
-    const tmp = this.readTarget
-    this.readTarget = this.writeTarget
-    this.writeTarget = tmp
+    this.swap('baseColor')
     this._contentVersion++
   }
 
@@ -874,8 +1259,12 @@ export class PaintEngine {
       this.edgeWearMaterial = createEdgeWearMaterial()
     }
 
+    // Edge wear lays down a color (chipped paint, settled grime), so it is a
+    // base-color operation; roughness/metalness/normal are left to the brush
+    // rather than being invented from a curvature pass.
+    const buffers = this.buf('baseColor')
     const u = this.edgeWearMaterial.uniforms
-    u.tSource.value = this.readTarget.texture
+    u.tSource.value = buffers.read.texture
     if (typeof options.color === 'string') {
       u.uColor.value.set(options.color)
     } else {
@@ -901,16 +1290,14 @@ export class PaintEngine {
     this.uvMesh.material = this.edgeWearMaterial
 
     const prevTarget = this.renderer.getRenderTarget()
-    this.renderer.setRenderTarget(this.writeTarget)
+    this.renderer.setRenderTarget(buffers.write)
     this.renderer.render(this.orthoScene, this.orthoCamera)
     this.renderer.setRenderTarget(prevTarget)
-    this.dilate(this.writeTarget)
+    this.dilate(buffers.write)
 
     this.uvMesh.material = prevMaterial
 
-    const tmp = this.readTarget
-    this.readTarget = this.writeTarget
-    this.writeTarget = tmp
+    this.swap('baseColor')
     this._contentVersion++
   }
 
@@ -971,16 +1358,16 @@ export class PaintEngine {
     this.renderer.autoClear = prevAutoClear
   }
 
-  /** Copies content from a source render target into this engine's read target. */
+  /** Copies content from a source render target into this engine's base-color read target. */
   copyFrom(sourceTarget: THREE.WebGLRenderTarget): void {
-    this.blit(sourceTarget.texture, this.readTarget)
+    this.blit(sourceTarget.texture, this.buf('baseColor').read)
     this._contentVersion++
   }
 
-  /** Creates a snapshot clone of the current readTarget so preview can be reverted. */
+  /** Creates a snapshot clone of the current base-color target so preview can be reverted. */
   createSnapshot(): THREE.WebGLRenderTarget {
     const snapshot = createRenderTarget(this.textureSize)
-    this.blit(this.readTarget.texture, snapshot)
+    this.blit(this.buf('baseColor').read.texture, snapshot)
     return snapshot
   }
 
@@ -994,34 +1381,86 @@ export class PaintEngine {
    */
   createCpuSnapshot(): CpuPixelSnapshot {
     const size = this.textureSize
-    const data = new Uint8Array(size * size * 4)
-    this.renderer.readRenderTargetPixels(this.readTarget, 0, 0, size, size, data)
-    return { size, data }
+    const readChannel = (channel: PaintChannel): Uint8Array => {
+      const data = new Uint8Array(size * size * 4)
+      this.renderer.readRenderTargetPixels(this.buf(channel).read, 0, 0, size, size, data)
+      return data
+    }
+    const snapshot: CpuPixelSnapshot = { size, data: readChannel('baseColor') }
+    // Only channels this layer actually has: a flat-color layer's snapshot
+    // stays exactly the size it always was, which is what keeps undo depth on
+    // a large canvas from collapsing the moment PBR exists in the build.
+    for (const channel of this.allocatedChannels) {
+      if (channel === 'baseColor') continue
+      snapshot.channels ??= {}
+      snapshot.channels[channel] = readChannel(channel)
+    }
+    return snapshot
   }
 
   /** Restores this layer's content from a createCpuSnapshot() buffer. */
   restoreFromCpuSnapshot(snapshot: CpuPixelSnapshot): void {
-    const tex = new THREE.DataTexture(snapshot.data, snapshot.size, snapshot.size, THREE.RGBAFormat, THREE.UnsignedByteType)
-    // Must match the render targets' color space: both end up SRGB8_ALPHA8
-    // internally, so the hardware's decode-on-read cancels its encode-on-write
-    // and the bytes land back exactly as readRenderTargetPixels saw them.
-    tex.colorSpace = THREE.SRGBColorSpace
-    tex.needsUpdate = true
+    const restoreChannel = (channel: PaintChannel, data: Uint8Array): void => {
+      const tex = new THREE.DataTexture(data, snapshot.size, snapshot.size, THREE.RGBAFormat, THREE.UnsignedByteType)
+      // Must match the render target's color space: with both the same, the
+      // hardware's decode-on-read cancels its encode-on-write and the bytes
+      // land back exactly as readRenderTargetPixels saw them. Getting this
+      // wrong on a linear data channel would gamma-shift every roughness and
+      // normal value on every undo.
+      tex.colorSpace = CHANNEL_SPECS[channel].colorSpace
+      tex.needsUpdate = true
+      this.blit(tex, this.buf(channel).read)
+      tex.dispose()
+    }
 
-    this.blit(tex, this.readTarget)
-
-    tex.dispose()
+    restoreChannel('baseColor', snapshot.data)
+    for (const channel of PAINT_CHANNELS) {
+      if (channel === 'baseColor') continue
+      const data = snapshot.channels?.[channel]
+      if (data) {
+        restoreChannel(channel, data)
+      } else if (this.buffers.has(channel)) {
+        // The snapshot predates this channel existing on the layer — undoing
+        // back past the first PBR stroke has to take the channel back to
+        // "never painted", not leave the last strokes standing.
+        this.clearChannel(channel)
+      }
+    }
     this._contentVersion++
   }
 
+  /** Resets one channel to zero coverage (PBR) / the layer base (base color). */
+  private clearChannel(channel: PaintChannel): void {
+    const buffers = this.buffers.get(channel)
+    if (!buffers) return
+    const color = channel === 'baseColor' ? this.baseColor : new THREE.Color(0x000000)
+    const alpha = channel === 'baseColor' ? this.baseAlpha : 0
+    const prevTarget = this.renderer.getRenderTarget()
+    const prevClearColor = new THREE.Color()
+    this.renderer.getClearColor(prevClearColor)
+    const prevClearAlpha = this.renderer.getClearAlpha()
+    this.renderer.setClearColor(color, alpha)
+    this.renderer.setRenderTarget(buffers.read)
+    this.renderer.clear(true, true, true)
+    this.renderer.setRenderTarget(buffers.write)
+    this.renderer.clear(true, true, true)
+    this.renderer.setClearColor(prevClearColor, prevClearAlpha)
+    this.renderer.setRenderTarget(prevTarget)
+  }
+
   dispose(): void {
-    this.targetA.dispose()
-    this.targetB.dispose()
+    for (const buffers of this.buffers.values()) {
+      buffers.read.dispose()
+      buffers.write.dispose()
+    }
+    this.buffers.clear()
     this.material.dispose()
     this.edgeWearMaterial?.dispose()
     this.effectMaterial?.dispose()
     this.uvMesh.geometry.dispose()
     this.coverageMask?.dispose()
+    this.coverageClipMaterial?.dispose()
+    this.coverageClipQuad?.geometry.dispose()
     this.dilateMaterial.dispose()
     this.dilateQuad.geometry.dispose()
     this.blitMaterial?.dispose()
@@ -1030,10 +1469,17 @@ export class PaintEngine {
   }
 }
 
-/** Plain CPU-side copy of one layer's pixels — see createCpuSnapshot(). */
+/**
+ * Plain CPU-side copy of one layer's pixels — see createCpuSnapshot().
+ *
+ * `data` is base color, which every layer has. The PBR channels appear in
+ * `channels` only when the layer actually carries them, so a flat-texture
+ * project's undo history weighs exactly what it always did.
+ */
 export interface CpuPixelSnapshot {
   size: number
   data: Uint8Array
+  channels?: Partial<Record<PaintChannel, Uint8Array>>
 }
 
 export interface EdgeWearParams {

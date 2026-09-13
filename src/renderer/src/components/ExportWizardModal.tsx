@@ -1,0 +1,566 @@
+import { createSignal, createEffect, For, Show } from 'solid-js'
+import { Modal, Button, SegmentedControl } from './ui'
+import {
+  DownloadIcon,
+  HelpCircleIcon,
+  LayersIcon,
+  ImagesIcon,
+  CubeIcon,
+  FileTextIcon
+} from './icons'
+import type { ViewportHandle, PieceInfo } from '../viewport/Viewport'
+import { combineDataUrls, combineMaskedDataUrls, packOrmFromDataUrls } from '../paint/exportTexture'
+
+export interface ExportWizardModalProps {
+  isOpen: boolean
+  onClose: () => void
+  modelName: string
+  pieces?: PieceInfo[]
+  getViewportHandle?: () => ViewportHandle | undefined
+  viewportHandle?: ViewportHandle
+  onToast?: (message: string, type?: 'info' | 'success' | 'warning' | 'error') => void
+}
+
+type ExportMode = 'individual' | 'combined'
+type ResolutionOption = 'native' | '1024' | '2048' | '4096'
+
+export default function ExportWizardModal(props: ExportWizardModalProps) {
+  const getHandle = (): ViewportHandle | undefined => {
+    return props.getViewportHandle ? props.getViewportHandle() : props.viewportHandle
+  }
+
+  const getPieces = (): PieceInfo[] => {
+    if (props.pieces && props.pieces.length > 0) return props.pieces
+    const h = getHandle()
+    return h?.pieces() ?? []
+  }
+
+  const initialStem = () => props.modelName.replace(/\.[^/.]+$/, '') || 'Model'
+  const [stem, setStem] = createSignal(initialStem())
+
+  const isMultiPiece = () => getPieces().length > 1
+  const [mode, setMode] = createSignal<ExportMode>(getPieces().length > 1 ? 'individual' : 'combined')
+
+  // Keep mode in sync if piece count changes
+  createEffect(() => {
+    if (getPieces().length <= 1) {
+      setMode('combined')
+    }
+  })
+
+  // Reset default stem when modelName changes
+  createEffect(() => {
+    setStem(initialStem())
+  })
+
+  // Channel toggles
+  const [exportBaseColor, setExportBaseColor] = createSignal(true)
+  const [exportOrm, setExportOrm] = createSignal(true)
+  const [exportRoughness, setExportRoughness] = createSignal(false)
+  const [exportMetalness, setExportMetalness] = createSignal(false)
+  const [exportNormal, setExportNormal] = createSignal(false)
+
+  // Resolution override
+  const [resolution, setResolution] = createSignal<ResolutionOption>('native')
+  const [isExporting, setIsExporting] = createSignal(false)
+
+  function applyPreset(preset: 'pbr' | 'colorOnly' | 'allUnpacked') {
+    if (preset === 'pbr') {
+      setExportBaseColor(true)
+      setExportOrm(true)
+      setExportRoughness(false)
+      setExportMetalness(false)
+      setExportNormal(true)
+    } else if (preset === 'colorOnly') {
+      setExportBaseColor(true)
+      setExportOrm(false)
+      setExportRoughness(false)
+      setExportMetalness(false)
+      setExportNormal(false)
+    } else if (preset === 'allUnpacked') {
+      setExportBaseColor(true)
+      setExportOrm(false)
+      setExportRoughness(true)
+      setExportMetalness(true)
+      setExportNormal(true)
+    }
+  }
+
+  function pieceStem(baseStem: string, pieceName: string, count: number): string {
+    if (count < 2) return baseStem
+    const safe = pieceName.replace(/[^A-Za-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '')
+    return `${baseStem}_${safe || 'Piece'}`
+  }
+
+  const previewFiles = (): string[] => {
+    const currentStem = stem().trim() || 'Model'
+    const files: string[] = []
+    const pieceList = getPieces()
+
+    if (mode() === 'combined' || pieceList.length <= 1) {
+      if (exportBaseColor()) files.push(`${currentStem}_BaseColor.png`)
+      if (exportOrm()) files.push(`${currentStem}_ORM.png`)
+      if (exportRoughness()) files.push(`${currentStem}_Roughness.png`)
+      if (exportMetalness()) files.push(`${currentStem}_Metalness.png`)
+      if (exportNormal()) files.push(`${currentStem}_Normal.png`)
+    } else {
+      for (const piece of pieceList) {
+        const pStem = pieceStem(currentStem, piece.name, pieceList.length)
+        if (exportBaseColor()) files.push(`${pStem}_BaseColor.png`)
+        if (exportOrm()) files.push(`${pStem}_ORM.png`)
+        if (exportRoughness()) files.push(`${pStem}_Roughness.png`)
+        if (exportMetalness()) files.push(`${pStem}_Metalness.png`)
+        if (exportNormal()) files.push(`${pStem}_Normal.png`)
+      }
+    }
+    return files
+  }
+
+  async function handleExport(): Promise<void> {
+    const handle = getHandle()
+    if (!handle) {
+      props.onToast?.('3D Viewport is not ready yet. Please wait for model to load.', 'error')
+      return
+    }
+    const pieceList = getPieces()
+    if (pieceList.length === 0) {
+      props.onToast?.('No 3D model is currently loaded to export textures from.', 'warning')
+      return
+    }
+    const currentStem = stem().trim() || 'Model'
+
+    const filesToGenerate = previewFiles()
+    if (filesToGenerate.length === 0) {
+      props.onToast?.('Select at least one channel to export', 'warning')
+      return
+    }
+
+    const defaultFileName = filesToGenerate[0]
+    const filePath = await window.api.saveFileDialog({
+      defaultPath: defaultFileName,
+      filters: [{ name: 'PNG Image', extensions: ['png'] }]
+    })
+    if (!filePath) return
+
+    setIsExporting(true)
+    try {
+      const separator = filePath.includes('\\') ? '\\' : '/'
+      const dir = filePath.slice(0, filePath.lastIndexOf(separator) + 1)
+      const chosenStem = filePath
+        .slice(dir.length)
+        .replace(/\.png$/i, '')
+        .replace(/_BaseColor$/i, '')
+        .replace(/_ORM$/i, '')
+        .replace(/_Roughness$/i, '')
+        .replace(/_Metalness$/i, '')
+        .replace(/_Normal$/i, '') || currentStem
+
+      const maxNativeSize = Math.max(...pieceList.map((p) => p.textureSize || 2048), 2048)
+      const targetSize = resolution() === 'native' ? maxNativeSize : parseInt(resolution(), 10)
+
+      let writtenCount = 0
+
+      if (mode() === 'combined' || pieceList.length <= 1) {
+        const isSingleNative = pieceList.length <= 1 && resolution() === 'native'
+        const primaryPieceIdx = pieceList[0]?.index ?? 0
+
+        // Each piece's maps are opaque across the whole square (a flat fill
+        // covers every texel, painted or not), so merging them onto one sheet
+        // has to clip each piece to its own UV coverage — otherwise the last
+        // piece drawn wipes out every piece before it and the file comes out
+        // as that piece's flat background.
+        const masks = pieceList.map((p) => handle.exportCoverageMaskPng(p.index))
+        const merge = (
+          urls: (string | undefined)[],
+          background?: string
+        ): Promise<string> =>
+          combineMaskedDataUrls(
+            urls.map((url, i) => ({ url, maskUrl: masks[i] })),
+            targetSize,
+            background
+          )
+
+        // BaseColor
+        if (exportBaseColor()) {
+          let finalUrl: string | undefined
+          if (isSingleNative) {
+            finalUrl = handle.exportBaseColorPng(primaryPieceIdx)
+          } else {
+            finalUrl = await merge(pieceList.map((p) => handle.exportBaseColorPng(p.index)))
+          }
+          if (finalUrl) {
+            await window.api.savePng(`${dir}${chosenStem}_BaseColor.png`, finalUrl)
+            writtenCount++
+          }
+        }
+
+        // Roughness — neutral for the untouched sheet is fully rough (white).
+        let combinedRoughUrl: string | null = null
+        if (exportRoughness() || exportOrm()) {
+          if (isSingleNative) {
+            combinedRoughUrl = handle.exportChannelPng('roughness', primaryPieceIdx) ?? null
+          } else {
+            const urls = pieceList.map((p) => handle.exportChannelPng('roughness', p.index))
+            combinedRoughUrl = urls.some(Boolean) ? await merge(urls, '#ffffff') : null
+          }
+          if (exportRoughness() && combinedRoughUrl) {
+            await window.api.savePng(`${dir}${chosenStem}_Roughness.png`, combinedRoughUrl)
+            writtenCount++
+          }
+        }
+
+        // Metalness — neutral is fully dielectric (black).
+        let combinedMetalUrl: string | null = null
+        if (exportMetalness() || exportOrm()) {
+          if (isSingleNative) {
+            combinedMetalUrl = handle.exportChannelPng('metalness', primaryPieceIdx) ?? null
+          } else {
+            const urls = pieceList.map((p) => handle.exportChannelPng('metalness', p.index))
+            combinedMetalUrl = urls.some(Boolean) ? await merge(urls, '#000000') : null
+          }
+          if (exportMetalness() && combinedMetalUrl) {
+            await window.api.savePng(`${dir}${chosenStem}_Metalness.png`, combinedMetalUrl)
+            writtenCount++
+          }
+        }
+
+        // Normal — neutral is flat tangent-space (128, 128, 255).
+        if (exportNormal()) {
+          let finalUrl: string | undefined
+          if (isSingleNative) {
+            finalUrl = handle.exportChannelPng('normal', primaryPieceIdx)
+          } else {
+            const urls = pieceList.map((p) => handle.exportChannelPng('normal', p.index))
+            finalUrl = urls.some(Boolean) ? await merge(urls, '#8080ff') : undefined
+          }
+          if (finalUrl) {
+            await window.api.savePng(`${dir}${chosenStem}_Normal.png`, finalUrl)
+            writtenCount++
+          }
+        }
+
+        // ORM Map
+        if (exportOrm()) {
+          let orm: string | undefined
+          if (isSingleNative) {
+            orm = handle.exportOrmPng(primaryPieceIdx)
+          } else {
+            orm = await packOrmFromDataUrls(combinedRoughUrl, combinedMetalUrl, null, targetSize)
+          }
+          if (orm) {
+            await window.api.savePng(`${dir}${chosenStem}_ORM.png`, orm)
+            writtenCount++
+          }
+        }
+      } else {
+        // Individual pieces mode
+        for (const piece of pieceList) {
+          const pStem = pieceStem(chosenStem, piece.name, pieceList.length)
+          const size = resolution() === 'native' ? (piece.textureSize || 2048) : targetSize
+
+          if (exportBaseColor()) {
+            const url = handle.exportBaseColorPng(piece.index)
+            if (url) {
+              const finalUrl = resolution() === 'native' ? url : await combineDataUrls([url], size, size)
+              await window.api.savePng(`${dir}${pStem}_BaseColor.png`, finalUrl)
+              writtenCount++
+            }
+          }
+
+          if (exportRoughness()) {
+            const url = handle.exportChannelPng('roughness', piece.index)
+            if (url) {
+              const finalUrl = resolution() === 'native' ? url : await combineDataUrls([url], size, size)
+              await window.api.savePng(`${dir}${pStem}_Roughness.png`, finalUrl)
+              writtenCount++
+            }
+          }
+
+          if (exportMetalness()) {
+            const url = handle.exportChannelPng('metalness', piece.index)
+            if (url) {
+              const finalUrl = resolution() === 'native' ? url : await combineDataUrls([url], size, size)
+              await window.api.savePng(`${dir}${pStem}_Metalness.png`, finalUrl)
+              writtenCount++
+            }
+          }
+
+          if (exportNormal()) {
+            const url = handle.exportChannelPng('normal', piece.index)
+            if (url) {
+              const finalUrl = resolution() === 'native' ? url : await combineDataUrls([url], size, size)
+              await window.api.savePng(`${dir}${pStem}_Normal.png`, finalUrl)
+              writtenCount++
+            }
+          }
+
+          if (exportOrm()) {
+            const orm = handle.exportOrmPng(piece.index)
+            if (orm) {
+              const finalUrl = resolution() === 'native' ? orm : await combineDataUrls([orm], size, size)
+              await window.api.savePng(`${dir}${pStem}_ORM.png`, finalUrl)
+              writtenCount++
+            }
+          }
+        }
+      }
+
+      props.onToast?.(
+        writtenCount === 1
+          ? `Exported 1 texture map to ${dir}`
+          : `Successfully exported ${writtenCount} texture maps to ${dir}`,
+        'success'
+      )
+      props.onClose()
+    } catch (err: any) {
+      console.error('Export wizard error:', err)
+      props.onToast?.(`Export failed: ${err?.message || err}`, 'error')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  return (
+    <Modal
+      isOpen={props.isOpen}
+      onClose={props.onClose}
+      title="Export Textures"
+      icon={(p) => <DownloadIcon size={p.size} class="text-blue-400" />}
+      size="lg"
+      footer={
+        <div class="flex items-center justify-between w-full">
+          <Button variant="ghost" onClick={props.onClose} disabled={isExporting()}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={handleExport}
+            disabled={isExporting() || previewFiles().length === 0}
+          >
+            <DownloadIcon size={15} />
+            <span>{isExporting() ? 'Exporting...' : `Export ${previewFiles().length} File${previewFiles().length === 1 ? '' : 's'}`}</span>
+          </Button>
+        </div>
+      }
+    >
+      <div class="flex flex-col gap-4 text-xs text-zinc-300">
+        {/* Mode Selector for Multi-Piece Models */}
+        <Show
+          when={isMultiPiece()}
+          fallback={
+            <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-950/40 border border-zinc-800/80 text-zinc-400">
+              <CubeIcon size={15} class="text-blue-400 shrink-0" />
+              <span>Single model piece: exporting unified texture maps.</span>
+            </div>
+          }
+        >
+          <div class="flex flex-col gap-2">
+            <label class="font-semibold text-zinc-200">Piece Export Mode</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                class={`flex flex-col gap-1 p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                  mode() === 'individual'
+                    ? 'bg-blue-600/15 border-blue-500/50 shadow-xs'
+                    : 'bg-zinc-950/60 border-zinc-800 hover:border-zinc-700'
+                }`}
+                onClick={() => setMode('individual')}
+              >
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2 font-semibold text-zinc-100">
+                    <LayersIcon size={15} class={mode() === 'individual' ? 'text-blue-400' : 'text-zinc-400'} />
+                    <span>Individual Pieces</span>
+                  </div>
+                  <Show when={mode() === 'individual'}>
+                    <span class="w-2 h-2 rounded-full bg-blue-500" />
+                  </Show>
+                </div>
+                <p class="text-[11px] text-zinc-400 leading-snug">
+                  Each piece gets its own set of textures (e.g. <code class="text-zinc-300">Head_BaseColor</code>, <code class="text-zinc-300">Body_BaseColor</code>).
+                </p>
+              </button>
+
+              <button
+                type="button"
+                class={`flex flex-col gap-1 p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                  mode() === 'combined'
+                    ? 'bg-blue-600/15 border-blue-500/50 shadow-xs'
+                    : 'bg-zinc-950/60 border-zinc-800 hover:border-zinc-700'
+                }`}
+                onClick={() => setMode('combined')}
+              >
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2 font-semibold text-zinc-100">
+                    <ImagesIcon size={15} class={mode() === 'combined' ? 'text-blue-400' : 'text-zinc-400'} />
+                    <span>Single Image (Shared UV)</span>
+                  </div>
+                  <Show when={mode() === 'combined'}>
+                    <span class="w-2 h-2 rounded-full bg-blue-500" />
+                  </Show>
+                </div>
+                <p class="text-[11px] text-zinc-400 leading-snug">
+                  All pieces are merged into one texture atlas sheet (e.g. <code class="text-zinc-300">Model_BaseColor</code>).
+                </p>
+              </button>
+            </div>
+          </div>
+        </Show>
+
+        {/* Channels to Export */}
+        <div class="flex flex-col gap-2">
+          <div class="flex items-center justify-between">
+            <label class="font-semibold text-zinc-200">Channels to Export</label>
+            <div class="flex items-center gap-1.5 text-[11px]">
+              <span class="text-zinc-500">Presets:</span>
+              <button
+                type="button"
+                class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-750 text-zinc-300 hover:text-zinc-100 transition-colors cursor-pointer"
+                onClick={() => applyPreset('pbr')}
+              >
+                PBR + ORM
+              </button>
+              <button
+                type="button"
+                class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-750 text-zinc-300 hover:text-zinc-100 transition-colors cursor-pointer"
+                onClick={() => applyPreset('colorOnly')}
+              >
+                Color Only
+              </button>
+              <button
+                type="button"
+                class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-750 text-zinc-300 hover:text-zinc-100 transition-colors cursor-pointer"
+                onClick={() => applyPreset('allUnpacked')}
+              >
+                All Unpacked
+              </button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 md:grid-cols-3 gap-2.5 p-3 rounded-xl bg-zinc-950/60 border border-zinc-800">
+            {/* Base Color */}
+            <label class="flex items-center gap-2 select-none cursor-pointer">
+              <input
+                type="checkbox"
+                checked={exportBaseColor()}
+                onChange={(e) => setExportBaseColor(e.currentTarget.checked)}
+                class="rounded bg-zinc-900 border-zinc-700 text-blue-600 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+              />
+              <span class="font-medium text-zinc-200">Base Color</span>
+              <span class="text-[10px] text-zinc-500 font-mono">_BaseColor</span>
+            </label>
+
+            {/* Packed ORM */}
+            <label class="flex items-center gap-2 select-none cursor-pointer">
+              <input
+                type="checkbox"
+                checked={exportOrm()}
+                onChange={(e) => setExportOrm(e.currentTarget.checked)}
+                class="rounded bg-zinc-900 border-zinc-700 text-blue-600 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+              />
+              <span class="font-medium text-zinc-200">Packed ORM</span>
+              <span class="text-[10px] text-purple-400 font-mono">_ORM</span>
+            </label>
+
+            {/* Normal */}
+            <label class="flex items-center gap-2 select-none cursor-pointer">
+              <input
+                type="checkbox"
+                checked={exportNormal()}
+                onChange={(e) => setExportNormal(e.currentTarget.checked)}
+                class="rounded bg-zinc-900 border-zinc-700 text-blue-600 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+              />
+              <span class="font-medium text-zinc-200">Normal Map</span>
+              <span class="text-[10px] text-zinc-500 font-mono">_Normal</span>
+            </label>
+
+            {/* Roughness */}
+            <label class="flex items-center gap-2 select-none cursor-pointer">
+              <input
+                type="checkbox"
+                checked={exportRoughness()}
+                onChange={(e) => setExportRoughness(e.currentTarget.checked)}
+                class="rounded bg-zinc-900 border-zinc-700 text-blue-600 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+              />
+              <span class="font-medium text-zinc-200">Roughness</span>
+              <span class="text-[10px] text-zinc-500 font-mono">_Roughness</span>
+            </label>
+
+            {/* Metalness */}
+            <label class="flex items-center gap-2 select-none cursor-pointer">
+              <input
+                type="checkbox"
+                checked={exportMetalness()}
+                onChange={(e) => setExportMetalness(e.currentTarget.checked)}
+                class="rounded bg-zinc-900 border-zinc-700 text-blue-600 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+              />
+              <span class="font-medium text-zinc-200">Metalness</span>
+              <span class="text-[10px] text-zinc-500 font-mono">_Metalness</span>
+            </label>
+          </div>
+        </div>
+
+        {/* Settings Row: Filename Stem & Resolution */}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {/* Filename Stem */}
+          <div class="flex flex-col gap-1.5">
+            <label class="font-semibold text-zinc-200">Filename Prefix</label>
+            <input
+              type="text"
+              value={stem()}
+              onInput={(e) => setStem(e.currentTarget.value)}
+              placeholder="e.g. MyModel"
+              class="w-full px-3 py-1.5 rounded-lg bg-zinc-950/70 border border-zinc-800 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-blue-500/80 focus:ring-1 focus:ring-blue-500/40 font-mono"
+            />
+          </div>
+
+          {/* Resolution Override */}
+          <div class="flex flex-col gap-1.5">
+            <label class="font-semibold text-zinc-200">Resolution</label>
+            <SegmentedControl
+              size="sm"
+              options={[
+                { value: 'native', label: 'Native' },
+                { value: '1024', label: '1024px' },
+                { value: '2048', label: '2048px' },
+                { value: '4096', label: '4096px' }
+              ]}
+              value={resolution()}
+              onChange={(v) => setResolution(v as ResolutionOption)}
+            />
+          </div>
+        </div>
+
+        {/* Files Preview Box */}
+        <div class="flex flex-col gap-1.5">
+          <div class="flex items-center justify-between">
+            <label class="font-semibold text-zinc-200">Files to be Exported</label>
+            <span class="text-[10px] text-zinc-500 font-mono">{previewFiles().length} file(s)</span>
+          </div>
+          <div class="max-h-28 overflow-y-auto p-2.5 rounded-lg bg-zinc-950/80 border border-zinc-800/80 font-mono text-[11px] text-zinc-400 space-y-1 select-none">
+            <Show
+              when={previewFiles().length > 0}
+              fallback={<span class="text-zinc-600 italic">No channels selected. Select at least one channel above.</span>}
+            >
+              <For each={previewFiles()}>
+                {(file) => (
+                  <div class="flex items-center gap-2 text-zinc-300">
+                    <FileTextIcon size={12} class="text-blue-400/80 shrink-0" />
+                    <span class="truncate">{file}</span>
+                  </div>
+                )}
+              </For>
+            </Show>
+          </div>
+        </div>
+
+        {/* User Requested Disclaimer Tooltip Banner */}
+        <div class="flex items-start gap-2.5 p-3 rounded-lg bg-zinc-950/80 border border-amber-500/30 text-xs text-zinc-400 leading-relaxed shadow-xs">
+          <HelpCircleIcon size={16} class="text-amber-400 shrink-0 mt-0.5" />
+          <p>
+            <span class="font-semibold text-zinc-200">Note:</span> You are only exporting texture images here and not assigning materials to the model. You will need to use your 3D program of choice (such as Blender, Maya, Unreal Engine, Unity, Godot, etc.) to hook up the textures as the final step.
+          </p>
+        </div>
+      </div>
+    </Modal>
+  )
+}
