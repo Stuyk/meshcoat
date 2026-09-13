@@ -1,5 +1,12 @@
 import { For, Show, createSignal, createMemo, createEffect, on, onMount, onCleanup } from 'solid-js'
-import { brush, setTexturePath, setMaterialSet } from '../paint/brush'
+import {
+  brush,
+  setTexturePath,
+  setMaterialSet,
+  addPastedTexture,
+  removePastedTexture,
+  clearPastedTextures
+} from '../paint/brush'
 import { groupMaterialSets, paintableChannels, type MaterialSet } from '../paint/materialSets'
 import { CHANNEL_SPECS } from '../paint/channels'
 import { Button, IconButton, SearchInput, Label } from './ui'
@@ -7,7 +14,9 @@ import {
   FolderOpenIcon,
   XIcon,
   CheckIcon,
-  StampIcon
+  StampIcon,
+  ClipboardIcon,
+  Trash2Icon
 } from './icons'
 import { toAssetUrl } from '../utils/assetUrl'
 import { isBrowserDisplayable } from '../utils/textureLoad'
@@ -28,11 +37,61 @@ export default function TextureShelf(props: {
   onPickFolder: () => void
   onClearFolder: () => void
   isMaskTarget?: () => boolean
+  onToast?: (message: string, kind?: 'success' | 'warning' | 'error') => void
 }) {
   const [searchQuery, setSearchQuery] = createSignal('')
-  const [activeShelf, setActiveShelf] = createSignal<'all' | 'used'>('all')
+  const [activeShelf, setActiveShelf] = createSignal<'all' | 'used' | 'pasted'>('all')
 
-  const sourceTextures = () => (activeShelf() === 'used' ? brush.recentTextures() : props.textures)
+  const pastedUrls = (): string[] => brush.pastedTextures().map((t) => t.url)
+
+  /**
+   * The pasted texture the brush currently holds, if any — what the tab's
+   * trash button acts on. With nothing selected it falls back to clearing the
+   * whole tab, which is the only other thing that button could mean.
+   */
+  const selectedPasted = (): { url: string; name: string } | undefined => {
+    const current = brush.texturePath()
+    if (!current || brush.materialSet()) return undefined
+    return brush.pastedTextures().find((t) => t.url === current)
+  }
+
+  const sourceTextures = (): string[] =>
+    activeShelf() === 'used'
+      ? brush.recentTextures()
+      : activeShelf() === 'pasted'
+        ? pastedUrls()
+        : props.textures
+
+  /**
+   * Pulls whatever image is on the system clipboard onto the Pasted shelf and
+   * selects it. It stays a data URL in memory — nothing is written to disk —
+   * which is the point: cropping a 64x64 tile out of a reference and getting it
+   * onto the model is a two-step loop for PSX-style work, not an asset import.
+   */
+  async function pasteFromClipboard(): Promise<void> {
+    const image = await window.api.readClipboardImage()
+    if (!image) {
+      props.onToast?.('No image on the clipboard — copy one first', 'warning')
+      return
+    }
+    const entry = addPastedTexture(image)
+    setActiveShelf('pasted')
+    setTexturePath(entry.url, !props.isMaskTarget?.())
+    props.onToast?.(`${entry.name} — ${image.width}x${image.height}`, 'success')
+  }
+
+  // Ctrl/Cmd+V only while the Pasted tab is open, matching how the stencil
+  // panel claims paste: elsewhere it stays whatever the focused control expects.
+  const onPasteKey = (e: KeyboardEvent): void => {
+    if (activeShelf() !== 'pasted') return
+    if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'v') return
+    const target = e.target as HTMLElement | null
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
+    e.preventDefault()
+    void pasteFromClipboard()
+  }
+  onMount(() => window.addEventListener('keydown', onPasteKey))
+  onCleanup(() => window.removeEventListener('keydown', onPasteKey))
 
   // A PBR texture set arrives as loose files that only a filename convention
   // ties together (rock_BaseColor.png, rock_Roughness.png, ...). Group them back
@@ -132,37 +191,90 @@ export default function TextureShelf(props: {
         </div>
       </div>
 
-      {/* All / Used Tabs */}
-      <Show when={props.textures.length > 0}>
-        <div class="px-3 pt-2 pb-1 flex items-center gap-1 border-b border-zinc-800/80 bg-zinc-925">
-          <button
-            type="button"
-            class={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
-              activeShelf() === 'all'
-                ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-xs'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/50'
-            }`}
-            onClick={() => setActiveShelf('all')}
+      {/* All / Used / Pasted Tabs. Always shown, unlike the rest of the shelf
+          chrome: Pasted is the one tab that works with no folder loaded at all,
+          so gating the bar on props.textures would hide the only way to reach
+          it from exactly the empty project that most wants it. */}
+      <div class="px-3 pt-2 pb-1 flex items-center gap-1 border-b border-zinc-800/80 bg-zinc-925">
+        <button
+          type="button"
+          class={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
+            activeShelf() === 'all'
+              ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-xs'
+              : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/50'
+          }`}
+          onClick={() => setActiveShelf('all')}
+        >
+          All
+        </button>
+        <button
+          type="button"
+          class={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
+            activeShelf() === 'used'
+              ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-xs'
+              : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/50'
+          }`}
+          onClick={() => setActiveShelf('used')}
+          title="Textures you've painted, stamped, or filled with"
+        >
+          <span>Used</span>
+          <Show when={brush.recentTextures().length > 0}>
+            <span class="font-mono text-[10px] text-zinc-500">
+              {brush.recentTextures().length}
+            </span>
+          </Show>
+        </button>
+        <button
+          type="button"
+          class={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
+            activeShelf() === 'pasted'
+              ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-xs'
+              : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/50'
+          }`}
+          onClick={() => setActiveShelf('pasted')}
+          title="Images pasted from the clipboard — kept in memory for this session only"
+        >
+          <span>Pasted</span>
+          <Show when={brush.pastedTextures().length > 0}>
+            <span class="font-mono text-[10px] text-zinc-500">
+              {brush.pastedTextures().length}
+            </span>
+          </Show>
+        </button>
+      </div>
+
+      {/* Paste toolbar — lives inside the Pasted tab rather than in the shelf
+          header, so the header keeps meaning "the loaded folder". */}
+      <Show when={activeShelf() === 'pasted'}>
+        <div class="px-2.5 py-2 border-b border-zinc-800 bg-zinc-925 flex items-center gap-1.5 flex-shrink-0">
+          <Button
+            variant="primary"
+            size="xs"
+            class="flex-1"
+            onClick={() => void pasteFromClipboard()}
+            title="Paste the clipboard image as a texture (Ctrl+V)"
           >
-            All
-          </button>
-          <button
-            type="button"
-            class={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
-              activeShelf() === 'used'
-                ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-xs'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/50'
-            }`}
-            onClick={() => setActiveShelf('used')}
-            title="Textures you've painted, stamped, or filled with"
-          >
-            <span>Used</span>
-            <Show when={brush.recentTextures().length > 0}>
-              <span class="font-mono text-[10px] text-zinc-500">
-                {brush.recentTextures().length}
-              </span>
-            </Show>
-          </button>
+            <ClipboardIcon size={13} />
+            <span>Paste Image</span>
+          </Button>
+          <Show when={brush.pastedTextures().length > 0}>
+            <IconButton
+              size="xs"
+              variant="ghost"
+              onClick={() => {
+                const selected = selectedPasted()
+                if (selected) removePastedTexture(selected.url)
+                else clearPastedTextures()
+              }}
+              title={
+                selectedPasted()
+                  ? `Discard ${selectedPasted()!.name}`
+                  : 'Discard every pasted texture'
+              }
+            >
+              <Trash2Icon size={13} class="text-zinc-400 hover:text-red-400" />
+            </IconButton>
+          </Show>
         </div>
       </Show>
 
@@ -184,7 +296,7 @@ export default function TextureShelf(props: {
         class="flex-1 overflow-y-auto p-2.5 relative"
       >
         <Show
-          when={props.textures.length > 0}
+          when={props.textures.length > 0 || activeShelf() === 'pasted'}
           fallback={
             <div
               onClick={props.onPickFolder}
@@ -209,7 +321,13 @@ export default function TextureShelf(props: {
             when={activeShelf() === 'all' || sourceTextures().length > 0}
             fallback={
               <div class="flex items-center justify-center h-48 text-center text-[11px] text-zinc-500 p-4">
-                No textures used yet — paint, stamp, or fill with one to see it here.
+                <Show
+                  when={activeShelf() === 'pasted'}
+                  fallback="No textures used yet — paint, stamp, or fill with one to see it here."
+                >
+                  Copy an image anywhere — a browser, a screenshot, an image editor — then
+                  hit Paste Image (Ctrl+V). It stays in memory for this session.
+                </Show>
               </div>
             }
           >
@@ -325,17 +443,24 @@ export default function TextureShelf(props: {
 
                     const path = item
                     const isSelected = () => brush.texturePath() === path && !brush.materialSet()
-                    const filename = fileName(path, '')
+                    // A pasted texture's "path" is a data URL with no filename
+                    // in it, so it carries its own label instead.
+                    const pasted = () => brush.pastedTextures().find((t) => t.url === path)
+                    const filename = (): string => pasted()?.name ?? fileName(path, '')
 
                     return (
+                      <div style={style} class="relative">
                       <button
                         type="button"
                         onClick={() => {
                           setTexturePath(isSelected() ? null : path, !props.isMaskTarget?.())
                         }}
-                        title={`${filename} (Click to toggle)`}
-                        style={style}
-                        class={`flex flex-col p-1.5 rounded-lg border text-left transition-all cursor-pointer group ${
+                        title={
+                          pasted()
+                            ? `${filename()} — ${pasted()!.width}x${pasted()!.height} (Click to toggle)`
+                            : `${filename()} (Click to toggle)`
+                        }
+                        class={`w-full flex flex-col p-1.5 rounded-lg border text-left transition-all cursor-pointer group ${
                           isSelected()
                             ? 'bg-blue-600/15 border-blue-500/80 shadow-xs'
                             : 'bg-zinc-900/60 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-850/60'
@@ -346,13 +471,13 @@ export default function TextureShelf(props: {
                             when={isBrowserDisplayable(path)}
                             fallback={
                               <span class="text-[10px] font-mono uppercase text-zinc-500">
-                                {(filename.split('.').pop() ?? '').toUpperCase()}
+                                {(filename().split('.').pop() ?? '').toUpperCase()}
                               </span>
                             }
                           >
                             <img
                               src={toAssetUrl(path)}
-                              alt={filename}
+                              alt={filename()}
                               loading="lazy"
                               decoding="async"
                               class="max-w-full max-h-full object-cover group-hover:scale-105 transition-transform"
@@ -364,10 +489,11 @@ export default function TextureShelf(props: {
                             </div>
                           </Show>
                         </div>
-                        <span class="text-[10px] font-medium text-zinc-300 truncate mt-1.5" title={filename}>
-                          {filename}
+                        <span class="text-[10px] font-medium text-zinc-300 truncate mt-1.5" title={filename()}>
+                          {filename()}
                         </span>
                       </button>
+                      </div>
                     )
                   }}
                 </For>

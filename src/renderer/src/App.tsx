@@ -1,9 +1,10 @@
-import { createSignal, createEffect, onMount, onCleanup, Show, Suspense, lazy } from 'solid-js'
+import { createSignal, createEffect, onMount, onCleanup, Show, Suspense, lazy, type JSX } from 'solid-js'
 import * as THREE from 'three'
 import Viewport, {
   type ViewportHandle,
   type ChannelViewMode,
-  type InitialTexturePayload
+  type InitialTexturePayload,
+  type PieceInfo
 } from './viewport/Viewport'
 import { CHANNEL_SPECS, type PaintChannel } from './paint/channels'
 import TextureShelf from './components/TextureShelf'
@@ -46,6 +47,7 @@ import {
   DownloadIcon,
   RefreshCwIcon,
   MousePointerIcon,
+  CompassIcon,
   AppIcon,
   SparklesIcon,
   LineIcon,
@@ -76,7 +78,7 @@ import {
 } from './paint/brush'
 import { DEFAULT_TEXTURE_SIZE, type TextureSize } from './paint/paintEngine'
 
-const LIGHTING_MODES: { value: LightingMode; label: string; icon: (props: { size?: number }) => any }[] = [
+const LIGHTING_MODES: { value: LightingMode; label: string; icon: (props: { size?: number }) => JSX.Element }[] = [
   { value: 'studio', label: 'Studio', icon: (p) => <StudioLightIcon size={p.size ?? 14} /> },
   { value: 'flat', label: 'Flat', icon: (p) => <FlatLightIcon size={p.size ?? 14} /> },
   { value: 'outdoor', label: 'Outdoor', icon: (p) => <OutdoorLightIcon size={p.size ?? 14} /> },
@@ -97,7 +99,7 @@ const VIEW_MODES: { value: ChannelViewMode; label: string; title: string }[] = [
   { value: 'normal', label: 'Normal', title: 'Tangent-space normal map only' }
 ]
 
-export default function App() {
+export default function App(): JSX.Element {
   const [activeTool, setActiveTool] = createSignal<ToolMode>('brush')
   const [showHelp, setShowHelp] = createSignal(false)
   const [showSettings, setShowSettings] = createSignal(false)
@@ -128,25 +130,25 @@ export default function App() {
     }
   })
 
-  const currentLayerCount = () => {
+  const currentLayerCount = (): number => {
     void layersVersion()
     return viewportHandle?.getLayerStack()?.layers.length ?? 1
   }
-  const canUndo = () => {
+  const canUndo = (): boolean => {
     void layersVersion()
     return viewportHandle?.canUndo() ?? false
   }
-  const canRedo = () => {
+  const canRedo = (): boolean => {
     void layersVersion()
     return viewportHandle?.canRedo() ?? false
   }
 
   /** Texture sets of the loaded model — one per mesh piece. */
-  const modelPieces = () => {
+  const modelPieces = (): PieceInfo[] => {
     void piecesVersion()
     return viewportHandle?.pieces() ?? []
   }
-  const activePiece = () => {
+  const activePiece = (): number => {
     void piecesVersion()
     return viewportHandle?.activePieceIndex() ?? 0
   }
@@ -387,7 +389,10 @@ export default function App() {
       try {
         const files = await window.api.listTexturesInFolder(textureFolderPath)
         if (files && files.length > 0) setTextures(files)
-      } catch {}
+      } catch {
+        // Texture folder is optional context from the project file — a
+        // missing/unreadable one just means the shelf starts empty.
+      }
     }
 
     let pbrCount = 0
@@ -668,6 +673,11 @@ export default function App() {
       case 'v':
         setActiveTool('faceSelect')
         break
+      case '8':
+      case 'p':
+        setActiveTool('faceProjector')
+        setShowPanelDock(true)
+        break
       case '7':
       case 'u':
         if (activeTool() === 'effect') {
@@ -761,7 +771,17 @@ export default function App() {
   onMount(() => {
     window.addEventListener('keydown', onKeyDown)
     if (typeof window !== 'undefined') {
-      ;(window as any).__app = {
+      ;(
+        window as unknown as {
+          __app: {
+            setActiveTool: typeof setActiveTool
+            setShowEdgeWearWizard: typeof setShowEdgeWearWizard
+            toggleWireframe: typeof toggleWireframe
+            setTextures: typeof setTextures
+            showToast: typeof showToast
+          }
+        }
+      ).__app = {
         setActiveTool,
         setShowEdgeWearWizard,
         toggleWireframe,
@@ -782,7 +802,9 @@ export default function App() {
             'info'
           )
         }
-      } catch {}
+      } catch {
+        // Detection is a startup nicety — nothing to surface if it fails.
+      }
     })()
 
     // Periodic Autosave every 60s if there are unsaved changes
@@ -1286,6 +1308,26 @@ export default function App() {
             <MousePointerIcon size={18} />
           </IconButton>
 
+          {/*
+            Its own tool rather than a mode of Face Select or Fill: those
+            tools' click behavior (paint, or start a fill drag) conflicts with
+            "click a face to preview & place a texture on it", and folding the
+            projector panel under an unrelated tool's relevance made it appear
+            unpredictably depending on what the artist happened to be doing.
+          */}
+          <IconButton
+            size="md"
+            active={activeTool() === 'faceProjector'}
+            onClick={() => {
+              setActiveTool('faceProjector')
+              setShowPanelDock(true)
+            }}
+            shortcut="P"
+            title="Face UV Projector (P)"
+          >
+            <CompassIcon size={18} />
+          </IconButton>
+
           <div class="w-6 h-px bg-zinc-800 my-1" />
 
           {/* Viewport & Wizard Actions */}
@@ -1321,6 +1363,7 @@ export default function App() {
           textures={textures()}
           onPickFolder={pickTextureFolder}
           onClearFolder={clearTextureFolder}
+          onToast={showToast}
           isMaskTarget={() => {
             void layersVersion()
             return !!viewportHandle?.getLayerStack()?.active?.isMask
@@ -1375,6 +1418,8 @@ export default function App() {
               }}
               onStamp={() => viewportHandle?.stampStencil() ?? false}
               onToast={showToast}
+              onFillSelection={handleFillActiveLayer}
+              stencilPanelOpen={showStencilPanel()}
             />
           </div>
         </Show>

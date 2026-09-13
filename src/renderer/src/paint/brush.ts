@@ -13,6 +13,7 @@ export type ToolMode =
   | 'eyedropper'
   | 'faceSelect'
   | 'effect'
+  | 'faceProjector'
 export type BrushTextureMapping = 'uv' | 'triplanar' | 'tip'
 /**
  * How the selected region repeats across a stroke.
@@ -70,6 +71,28 @@ const [textureScale, setTextureScaleRaw] = createSignal(8)
  * mid-stroke instead of asking the artist to go and cut a new file.
  */
 const [textureRegion, setTextureRegionRaw] = createSignal({ x: 0, y: 0, w: 1, h: 1, rotation: 0 })
+/**
+ * Face UV Projector: places the (cropped) texture on the current face
+ * selection with its own offset/scale/rotation instead of starting at the
+ * mesh's raw UV origin — TrenchBroom-style face texturing. Offset/scale are
+ * in UV units (1 = one full image width/height); rotation in degrees.
+ * Identity is a no-op, matching a plain fill of the selection.
+ *
+ * `fit` switches the meaning of that identity: instead of tiling the crop
+ * across the mesh's raw UV at the shelf tiling scale, one copy of the crop is
+ * stretched across the selection's UV bounding box — "put this image on this
+ * face", which is what the tool is for. Offset/scale/rotation then nudge that
+ * single copy around inside the selection. Off, the old raw-UV tiling
+ * behaviour is unchanged.
+ */
+const [faceProjection, setFaceProjectionRaw] = createSignal({
+  offsetX: 0,
+  offsetY: 0,
+  scaleX: 1,
+  scaleY: 1,
+  rotation: 0,
+  fit: true
+})
 const [color, setColor] = createSignal('#ffffff')
 /** Selected texture-shelf image: tiles world-space, maps surface UVs, or is stamped whole under the stamp tool. */
 const [texturePath, setTexturePathRaw] = createSignal<string | null>(null)
@@ -160,6 +183,7 @@ export function setMaterialSet(set: MaterialSet | null): void {
   if (set.maps.normal) setNormalStrengthRaw(1)
   setTexturePathRaw(set.maps.baseColor ?? null)
   setTextureRegionRaw({ x: 0, y: 0, w: 1, h: 1, rotation: 0 })
+  setFaceProjectionRaw({ offsetX: 0, offsetY: 0, scaleX: 1, scaleY: 1, rotation: 0, fit: faceProjection().fit })
   // A set carries its own color; a stale tint would recolour every map.
   setColor('#ffffff')
 }
@@ -244,8 +268,8 @@ export function setSymmetryX(enabled: boolean): void {
   setSymmetryAxisRaw(enabled ? 'x' : 'off')
 }
 
-export const symmetryX = () => symmetryAxis() === 'x'
-export const symmetryEnabled = () => symmetryAxis() !== 'off'
+export const symmetryX = (): boolean => symmetryAxis() === 'x'
+export const symmetryEnabled = (): boolean => symmetryAxis() !== 'off'
 
 /** Recent textures chosen by the user (persisted in localStorage). */
 const [recentTextures, setRecentTextures] = createSignal<string[]>(
@@ -260,13 +284,85 @@ const [recentTextures, setRecentTextures] = createSignal<string[]>(
 )
 
 export function recordRecentTexture(path: string): void {
+  // Pasted textures are data URLs — a handful of them is megabytes of base64,
+  // which blows localStorage's quota and would take the whole recents list
+  // down with it. They live in pastedTextures (session-only) instead.
+  if (path.startsWith('data:') || path.startsWith('blob:')) return
   setRecentTextures((prev) => {
     const next = [path, ...prev.filter((p) => p !== path)].slice(0, 5)
     try {
       localStorage.setItem('slip_recent_textures', JSON.stringify(next))
-    } catch {}
+    } catch {
+      // Recent-textures list is a convenience — a full/blocked localStorage
+      // just means it won't persist across sessions this time.
+    }
     return next
   })
+}
+
+/**
+ * Textures pasted from the system clipboard rather than loaded from a folder.
+ *
+ * They are PNG data URLs, which every consumer already handles (toAssetUrl
+ * passes data: through untouched), so a paste is usable as a brush/fill/stamp
+ * texture immediately with nothing written to disk. Deliberately session-only
+ * and capped: this is the "grab a 64x64 tile out of a reference image and get
+ * it onto the model now" workflow (PSX-style texturing lives on it), not an
+ * asset library. Anything worth keeping gets exported or saved to a folder.
+ */
+export interface PastedTexture {
+  /** PNG data URL — doubles as the texture's identity everywhere a path is expected. */
+  url: string
+  name: string
+  width: number
+  height: number
+}
+
+const MAX_PASTED_TEXTURES = 24
+
+const [pastedTextures, setPastedTexturesRaw] = createSignal<PastedTexture[]>([])
+
+/**
+ * Adds a clipboard image to the Pasted shelf and returns it. An identical
+ * paste (same bytes) is moved back to the front rather than duplicated — the
+ * usual cause is pasting twice because the first one wasn't noticed.
+ */
+export function addPastedTexture(image: { dataUrl: string; width: number; height: number }): PastedTexture {
+  const existing = untrack(pastedTextures).find((t) => t.url === image.dataUrl)
+  if (existing) {
+    setPastedTexturesRaw((prev) => [existing, ...prev.filter((t) => t !== existing)])
+    return existing
+  }
+  const used = untrack(pastedTextures)
+  // Numbered by how many have been pasted this session, not by list position,
+  // so removing one doesn't renumber the others out from under the artist.
+  let n = used.length + 1
+  while (used.some((t) => t.name === `Pasted ${n}`)) n++
+  const entry: PastedTexture = {
+    url: image.dataUrl,
+    name: `Pasted ${n}`,
+    width: image.width,
+    height: image.height
+  }
+  setPastedTexturesRaw((prev) => [entry, ...prev].slice(0, MAX_PASTED_TEXTURES))
+  return entry
+}
+
+/** Drops one pasted texture, deselecting it first if the brush is holding it. */
+export function removePastedTexture(url: string): void {
+  if (untrack(texturePath) === url) setTexturePath(null)
+  setPastedTexturesRaw((prev) => prev.filter((t) => t.url !== url))
+}
+
+export function clearPastedTextures(): void {
+  const current = untrack(texturePath)
+  if (current && untrack(pastedTextures).some((t) => t.url === current)) setTexturePath(null)
+  setPastedTexturesRaw([])
+}
+
+/** Display name for a pasted texture, or null if the path isn't one. */
+export function pastedTextureName(url: string): string | null {
+  return pastedTextures().find((t) => t.url === url)?.name ?? null
 }
 
 /** Static brush rotation in degrees (0 - 360). */
@@ -416,6 +512,9 @@ export function setTexturePath(path: string | null, resetColor = true): void {
   // A crop is meaningful only for the image it was drawn on — carrying one
   // across to a different texture would silently paint a corner of it.
   setTextureRegionRaw({ x: 0, y: 0, w: 1, h: 1, rotation: 0 })
+  // Same reasoning for the face projector's placement — a stale offset/scale
+  // dialled in for one texture shouldn't silently apply to the next.
+  setFaceProjectionRaw({ offsetX: 0, offsetY: 0, scaleX: 1, scaleY: 1, rotation: 0, fit: faceProjection().fit })
   // Note: recordRecentTexture() is deliberately NOT called here — the "Used"
   // shelf tab tracks textures actually applied by a stroke/fill, not merely
   // browsed/selected. See applyToolAt/fillActive in Viewport.tsx.
@@ -475,6 +574,32 @@ export function setTextureRegion(region: {
 /** Back to the whole image. */
 export function resetTextureRegion(): void {
   setTextureRegionRaw({ x: 0, y: 0, w: 1, h: 1, rotation: 0 })
+}
+
+export function setFaceProjection(next: {
+  offsetX?: number
+  offsetY?: number
+  scaleX?: number
+  scaleY?: number
+  rotation?: number
+  fit?: boolean
+}): void {
+  const current = faceProjection()
+  setFaceProjectionRaw({
+    fit: next.fit ?? current.fit,
+    offsetX: next.offsetX ?? current.offsetX,
+    offsetY: next.offsetY ?? current.offsetY,
+    // A zero-or-negative scale would collapse the projection to nothing (or
+    // flip it in a way the sliders don't expect); floor it just above zero.
+    scaleX: Math.max(next.scaleX ?? current.scaleX, 0.01),
+    scaleY: Math.max(next.scaleY ?? current.scaleY, 0.01),
+    rotation: next.rotation ?? current.rotation
+  })
+}
+
+/** Back to identity: no offset, unit scale, no rotation. */
+export function resetFaceProjection(): void {
+  setFaceProjectionRaw({ offsetX: 0, offsetY: 0, scaleX: 1, scaleY: 1, rotation: 0, fit: faceProjection().fit })
 }
 
 /** True when only part of the source texture is in use. */
@@ -591,6 +716,9 @@ export const brush = {
   setTextureRepeat,
   resetTextureRegion,
   hasTextureRegion,
+  faceProjection,
+  setFaceProjection,
+  resetFaceProjection,
   color,
   setColor,
   texturePath,
@@ -608,6 +736,8 @@ export const brush = {
   setSymmetryX,
   recentTextures,
   recordRecentTexture,
+  pastedTextures,
+  pastedTextureName,
   brushRotation,
   setBrushRotation,
   angleFollowStroke,

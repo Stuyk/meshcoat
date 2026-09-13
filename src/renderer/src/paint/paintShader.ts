@@ -49,6 +49,24 @@ ${BRUSH_MASK_UNIFORMS_GLSL}
   // PaintEngine.fillFaces / fill for a bucket fill of the selected faces or whole model.
   uniform float uFillMode;
   uniform float uFillScale;
+  // Face UV Projector: a shared offset/scale/rotation applied on top of the
+  // mesh's own UV before the fill/region-crop stage, so a fill can place a
+  // texture like TrenchBroom's face editor instead of always starting the
+  // crop at the mesh's raw UV origin. Identity (0,0 / 1,1 / 0) is a no-op and
+  // reduces exactly to the previous fillUv = vUv * uFillScale behavior.
+  uniform vec2 uProjOffset;
+  uniform vec2 uProjScale;
+  uniform float uProjRotation;
+  /**
+   * Fit mode: 1 = stretch ONE copy of the crop across uFitRect (the UV
+   * bounding box of the face selection) instead of tiling it across the mesh's
+   * raw UV at uFillScale. This is what "put this image on this face" means —
+   * the tiling scale, the crop's aspect correction and the repeat mode are all
+   * bypassed, because a fitted copy by definition covers the selection exactly
+   * once. uProjOffset/Scale/Rotation still nudge that copy around inside it.
+   */
+  uniform float uFillFit;
+  uniform vec4 uFitRect;
   // 0 = Surface UV (straightforward), 1 = World Triplanar
   uniform float uTextureMapping;
   /**
@@ -213,9 +231,22 @@ ${BRUSH_MASK_GLSL}
     // face selection (previously this normalized to the selection's UV
     // bounding box, which stretched the same scale value differently
     // depending on how large the selection was).
-    vec2 fillUv = vUv * max(uFillScale, 0.0001);
+    // In fit mode the selection's UV bounding box is remapped to 0-1 first, so
+    // the projector transform (and everything downstream) works in "one copy
+    // spans the selection" units rather than raw UV units.
+    vec2 fitBase = (vUv - uFitRect.xy) / max(uFitRect.zw, vec2(0.0001));
+    vec2 projected = mix(vUv, fitBase, uFillFit) - 0.5;
+    if (uProjRotation != 0.0) {
+      float pcr = cos(uProjRotation);
+      float psr = sin(uProjRotation);
+      projected = vec2(projected.x * pcr - projected.y * psr, projected.x * psr + projected.y * pcr);
+    }
+    projected = projected * uProjScale + 0.5 + uProjOffset;
+    vec2 fillUv = projected * mix(max(uFillScale, 0.0001), 1.0, uFillFit);
 
     vec2 texUv = mix(strokeTexUv, fillUv, uFillMode);
+    // Fit only ever describes a fill; a stroke's UV has no selection to fit to.
+    float fitOn = uFillFit * uFillMode;
 
     /**
      * Repeat handling. Everything below works in "region space": 0-1 is ONE
@@ -229,13 +260,23 @@ ${BRUSH_MASK_GLSL}
      * every tile comes out stretched — which is what "the scale doesn't tile
      * right" looks like. Full-image regions are 1:1 and unaffected.
      */
-    if (uStampMode < 0.5) {
+    // ...except when fitting: there the crop is being stretched to the
+    // selection on purpose, so correcting its aspect would letterbox it back
+    // out of the box the artist asked it to fill.
+    if (uStampMode < 0.5 && fitOn < 0.5) {
       texUv.y *= uTextureRegion.z / max(uTextureRegion.w, 0.0001);
     }
 
     vec2 regionUv;
     float insideOnce = 1.0;
-    if (uStampMode > 0.5) {
+    if (fitOn > 0.5) {
+      // One copy, clipped outside: a fitted copy already spans the selection,
+      // so wrapping could only reprint it over itself once offset/scale push
+      // part of it past the edge.
+      insideOnce = step(0.0, texUv.x) * step(texUv.x, 1.0) *
+                   step(0.0, texUv.y) * step(texUv.y, 1.0);
+      regionUv = clamp(texUv, 0.0, 1.0);
+    } else if (uStampMode > 0.5) {
       // A stamp/tip decal's 0-1 range IS its extent; wrapping would reprint the
       // crop around its own edges.
       regionUv = clamp(texUv, 0.0, 1.0);
@@ -387,6 +428,11 @@ export interface PaintUniforms extends BrushMaskUniforms {
   uRestrictFace: THREE.IUniform<number>
   uFillMode: THREE.IUniform<number>
   uFillScale: THREE.IUniform<number>
+  uFillFit: THREE.IUniform<number>
+  uFitRect: THREE.IUniform<THREE.Vector4>
+  uProjOffset: THREE.IUniform<THREE.Vector2>
+  uProjScale: THREE.IUniform<THREE.Vector2>
+  uProjRotation: THREE.IUniform<number>
   uTextureMapping: THREE.IUniform<number>
   uTextureRegion: THREE.IUniform<THREE.Vector4>
   uTextureRegionRotation: THREE.IUniform<number>
@@ -420,6 +466,11 @@ export function createPaintMaterial(): THREE.ShaderMaterial & { uniforms: PaintU
     uRestrictFace: { value: 0 },
     uFillMode: { value: 0 },
     uFillScale: { value: 1 },
+    uFillFit: { value: 0 },
+    uFitRect: { value: new THREE.Vector4(0, 0, 1, 1) },
+    uProjOffset: { value: new THREE.Vector2(0, 0) },
+    uProjScale: { value: new THREE.Vector2(1, 1) },
+    uProjRotation: { value: 0 },
     uTextureMapping: { value: 0 },
     uTextureRegion: { value: new THREE.Vector4(0, 0, 1, 1) },
     uTextureRegionRotation: { value: 0 },

@@ -1,4 +1,4 @@
-import { Show, createSignal, onCleanup } from 'solid-js'
+import { Show, createSignal, onCleanup, type JSX } from 'solid-js'
 import { brush, setTextureRegion, resetTextureRegion, type ToolMode } from '../paint/brush'
 import { CropIcon, RefreshCwIcon, XIcon } from './icons'
 import { IconButton, Slider, Label } from './ui'
@@ -24,18 +24,19 @@ type DragMode = 'move' | 'resize' | null
  * works for every textured tool — brush, stamp, line and fill alike — and can
  * be changed between strokes.
  */
-export default function TextureRegionHUD(props: TextureRegionHUDProps) {
+export default function TextureRegionHUD(props: TextureRegionHUDProps): JSX.Element {
   let frameRef: HTMLDivElement | undefined
   const [drag, setDrag] = createSignal<DragMode>(null)
 
-  const region = () => brush.textureRegion()
+  const region = (): ReturnType<typeof brush.textureRegion> => brush.textureRegion()
 
   /** Tools whose paint actually samples the shelf texture. */
   const isApplicable = (): boolean =>
     props.activeTool === 'brush' ||
     props.activeTool === 'stamp' ||
     props.activeTool === 'fill' ||
-    props.activeTool === 'line'
+    props.activeTool === 'line' ||
+    props.activeTool === 'faceProjector'
 
   const isVisible = (): boolean => !!brush.texturePath() && isApplicable()
 

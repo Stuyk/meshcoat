@@ -1,4 +1,4 @@
-import { Show } from 'solid-js'
+import { Show, type JSX } from 'solid-js'
 import { brush, setTextureMapping } from '../paint/brush'
 import { CHANNEL_SPECS, PAINT_CHANNELS } from '../paint/channels'
 import type { ToolMode } from '../paint/brush'
@@ -15,6 +15,7 @@ import {
   LineIcon,
   HelpCircleIcon,
   FocusIcon,
+  CompassIcon,
   XIcon
 } from './icons'
 import { Kbd } from './ui'
@@ -29,7 +30,9 @@ export interface StatusBarProps {
   onFrameCamera: () => void
 }
 
-const TOOL_CONFIG: Record<ToolMode, { label: string; key: string; num: string; Icon: (props: any) => any }> = {
+type ToolIcon = (props: { size?: number; class?: string }) => JSX.Element
+
+const TOOL_CONFIG: Record<ToolMode, { label: string; key: string; num: string; Icon: ToolIcon }> = {
   brush: { label: 'Brush', key: 'B', num: '1', Icon: BrushIcon },
   line: { label: 'Line', key: 'L', num: 'L', Icon: LineIcon },
   eraser: { label: 'Eraser', key: 'E', num: '2', Icon: EraserIcon },
@@ -37,11 +40,12 @@ const TOOL_CONFIG: Record<ToolMode, { label: string; key: string; num: string; I
   fill: { label: 'Fill', key: 'G', num: '4', Icon: FillIcon },
   eyedropper: { label: 'Eyedropper', key: 'I', num: '5', Icon: EyedropperIcon },
   faceSelect: { label: 'Face Select', key: 'V', num: '6', Icon: MousePointerIcon },
-  effect: { label: 'Effects', key: 'U', num: '7', Icon: DropletsIcon }
+  effect: { label: 'Effects', key: 'U', num: '7', Icon: DropletsIcon },
+  faceProjector: { label: 'Face UV Projector', key: 'P', num: '8', Icon: CompassIcon }
 }
 
-export default function StatusBar(props: StatusBarProps) {
-  const currentTool = () => TOOL_CONFIG[props.tool] ?? TOOL_CONFIG.brush
+export default function StatusBar(props: StatusBarProps): JSX.Element {
+  const currentTool = (): (typeof TOOL_CONFIG)[ToolMode] => TOOL_CONFIG[props.tool] ?? TOOL_CONFIG.brush
 
   return (
     <footer

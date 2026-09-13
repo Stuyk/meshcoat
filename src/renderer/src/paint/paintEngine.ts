@@ -180,6 +180,31 @@ export interface FillOptions {
   channels?: ChannelPayload
   /** Per-channel source maps for a material-set fill (see StrokeParams.channelMaps). */
   channelMaps?: ChannelMaps
+  /**
+   * Face UV Projector: places the texture on top of the mesh's own UV rather
+   * than starting the crop at its raw origin — offset/scale in UV units (1 =
+   * one full image width/height), rotation in degrees. Omitted = identity, the
+   * previous "fill uses the mesh's UV as-is" behavior.
+   */
+  projection?: FaceProjectionOptions
+}
+
+/**
+ * The Face UV Projector transform as the engine consumes it: the artist's
+ * offset/scale/rotation, plus — when `fit` is on — the UV bounding box of the
+ * faces being filled, which the caller computes because the engine has no
+ * access to the triangle list.
+ */
+export interface FaceProjectionOptions {
+  offsetX: number
+  offsetY: number
+  scaleX: number
+  scaleY: number
+  rotation: number
+  /** Stretch one copy of the crop across `fitRect` instead of tiling at the fill scale. */
+  fit?: boolean
+  /** UV-space bounds of the target faces: xy = min corner, wh = size. */
+  fitRect?: { x: number; y: number; w: number; h: number }
 }
 
 /** One texture per channel, for painting with a material set. */
@@ -1081,6 +1106,29 @@ export class PaintEngine {
     }
   }
 
+  /** Pushes the Face UV Projector transform, defaulting to identity (no-op). */
+  private applyProjection(projection?: FaceProjectionOptions): void {
+    const u = this.material.uniforms
+    if (projection) {
+      u.uProjOffset.value.set(projection.offsetX, projection.offsetY)
+      u.uProjScale.value.set(projection.scaleX, projection.scaleY)
+      u.uProjRotation.value = (projection.rotation * Math.PI) / 180
+      // Fit needs the selection's UV bounds, which only the caller knows (the
+      // engine never sees the triangle list). No rect means nothing to fit to,
+      // so it falls back to the raw-UV tiling path rather than stretching the
+      // crop across a bogus box.
+      const rect = projection.fit ? projection.fitRect : undefined
+      u.uFillFit.value = rect ? 1 : 0
+      if (rect) u.uFitRect.value.set(rect.x, rect.y, rect.w, rect.h)
+    } else {
+      u.uProjOffset.value.set(0, 0)
+      u.uProjScale.value.set(1, 1)
+      u.uProjRotation.value = 0
+      u.uFillFit.value = 0
+      u.uFitRect.value.set(0, 0, 1, 1)
+    }
+  }
+
   private fillChannelWithTexture(
     channel: PaintChannel,
     payload: ChannelPayload,
@@ -1090,7 +1138,8 @@ export class PaintEngine {
     faces: ReadonlySet<number> | null,
     maps?: ChannelMaps,
     region?: { x: number; y: number; w: number; h: number; rotation: number },
-    repeat?: 'tile' | 'mirror' | 'once'
+    repeat?: 'tile' | 'mirror' | 'once',
+    projection?: FaceProjectionOptions
   ): void {
     const buffers = this.buf(channel)
     const u = this.material.uniforms
@@ -1109,6 +1158,7 @@ export class PaintEngine {
     u.uFillScale.value = scale
     u.uStampMode.value = 0
     this.applyTextureRegion(region, repeat)
+    this.applyProjection(projection)
 
     const prevTarget = this.renderer.getRenderTarget()
     this.renderer.setRenderTarget(buffers.write)
@@ -1122,6 +1172,7 @@ export class PaintEngine {
     u.uBrushTexture.value = null
     u.uChannelMode.value = 0
     u.uUseChannelMap.value = 0
+    this.applyProjection(undefined)
 
     this.swap(channel)
   }
@@ -1164,8 +1215,9 @@ export class PaintEngine {
     const maps = options instanceof THREE.Color ? undefined : options?.channelMaps
     const region = options instanceof THREE.Color ? undefined : options?.textureRegion
     const repeat = options instanceof THREE.Color ? undefined : options?.textureRepeat
+    const projection = options instanceof THREE.Color ? undefined : options?.projection
     for (const channel of channels) {
-      this.fillChannelWithTexture(channel, payload, texture, scale, alpha, faces, maps, region, repeat)
+      this.fillChannelWithTexture(channel, payload, texture, scale, alpha, faces, maps, region, repeat, projection)
     }
     this._contentVersion++
   }

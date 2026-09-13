@@ -1,4 +1,4 @@
-import { Show } from 'solid-js'
+import { Show, type JSX } from 'solid-js'
 import {
   brush,
   setTexturePath,
@@ -6,7 +6,10 @@ import {
   setTextureMapping,
   setTextureRepeat,
   setFillMode,
-  type ToolMode
+  type ToolMode,
+  type FillMode,
+  type BrushTextureMapping,
+  type BrushTextureRepeat
 } from '../paint/brush'
 import { ImagesIcon, XIcon, Trash2Icon } from './icons'
 import { Slider, SegmentedControl, IconButton, Label } from './ui'
@@ -23,14 +26,17 @@ export interface MaterialTextureHUDProps {
   isMaskTarget?: () => boolean
 }
 
-export default function MaterialTextureHUD(props: MaterialTextureHUDProps) {
-  const isApplicableTool = () =>
-    props.activeTool === 'brush' || props.activeTool === 'fill' || props.activeTool === 'stamp'
+export default function MaterialTextureHUD(props: MaterialTextureHUDProps): JSX.Element {
+  const isApplicableTool = (): boolean =>
+    props.activeTool === 'brush' ||
+    props.activeTool === 'fill' ||
+    props.activeTool === 'stamp' ||
+    props.activeTool === 'faceProjector'
 
-  const isVisible = () =>
+  const isVisible = (): boolean =>
     props.isOpen && ((!!brush.texturePath() && isApplicableTool()) || props.activeTool === 'fill')
 
-  const filename = () => fileName(brush.texturePath())
+  const filename = (): string => fileName(brush.texturePath())
 
   return (
     <Show when={isVisible()}>
@@ -116,7 +122,7 @@ export default function MaterialTextureHUD(props: MaterialTextureHUDProps) {
                 { value: 'face', label: 'Fill Face', title: 'Fill only the single face clicked' }
               ]}
               value={brush.fillMode()}
-              onChange={(m) => setFillMode(m as any)}
+              onChange={(m) => setFillMode(m as FillMode)}
               class="w-full justify-between"
             />
           </div>
@@ -139,7 +145,7 @@ export default function MaterialTextureHUD(props: MaterialTextureHUDProps) {
                 { value: 'tip', label: 'Cursor', title: 'One copy of the region per dab, centred on the cursor and rotated with the brush.' }
               ]}
               value={brush.textureMapping()}
-              onChange={(m) => setTextureMapping(m as any)}
+              onChange={(m) => setTextureMapping(m as BrushTextureMapping)}
               class="w-full justify-between"
             />
           </div>
@@ -154,7 +160,7 @@ export default function MaterialTextureHUD(props: MaterialTextureHUDProps) {
                 { value: 'once', label: 'Once', title: 'A single copy, nothing outside it — brush to reveal a decal' }
               ]}
               value={brush.textureRepeat()}
-              onChange={(m) => setTextureRepeat(m as any)}
+              onChange={(m) => setTextureRepeat(m as BrushTextureRepeat)}
               class="w-full justify-between"
             />
           </div>

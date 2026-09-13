@@ -1,4 +1,4 @@
-import { onMount, onCleanup, createEffect, createSignal, untrack, Show } from 'solid-js'
+import { onMount, onCleanup, createEffect, createSignal, untrack, Show, type JSX } from 'solid-js'
 import * as THREE from 'three'
 import { createScene, type SceneHandle, type LightingMode } from './scene'
 import { loadModel, createDefaultTestModel, type LoadedModel } from './modelLoader'
@@ -34,6 +34,7 @@ import { LayerStack, type StackSnapshot } from '../paint/layers'
 import {
   DEFAULT_TEXTURE_SIZE,
   type FillOptions,
+  type FaceProjectionOptions,
   type EdgeWearParams,
   type OcclusionParams,
   type StencilParams
@@ -46,6 +47,7 @@ import type { ChannelMaps } from '../paint/paintEngine'
 import { loadPaintTexture, asyncLoadTexture } from '../utils/textureLoad'
 import { toAssetUrl } from '../utils/assetUrl'
 import { findUvIslandFaces } from '../paint/uvMesh'
+import { createFacePreviewMaterial } from '../paint/facePreviewShader'
 import type { MeshCoatProject } from '../utils/projectSerializer'
 import RadialPieMenu from '../components/RadialPieMenu'
 
@@ -141,9 +143,15 @@ interface PaintPiece {
   stack: LayerStack
   /** Local-space triangle positions for the selection/hover overlays. */
   facePositions: Float32Array
+  /** Parallel per-triangle UVs (same non-indexed triangle order as facePositions), for the projector preview. */
+  faceUVs: Float32Array
+  /** Parallel per-triangle normals (same order again) — lets the projector preview shade like the model. */
+  faceNormals: Float32Array
   highlightMesh: THREE.LineSegments
   /** Translucent wash under the selection outline — a 1px line can't carry it alone. */
   selectionFillMesh: THREE.Mesh
+  /** Live preview of the Face UV Projector fill — same triangles as selectionFillMesh, textured. */
+  projectorPreviewMesh: THREE.Mesh
   hoverFaceMesh: THREE.LineSegments
   hoverFillMesh: THREE.Mesh
   shadedMaterial: THREE.MeshStandardMaterial
@@ -584,7 +592,7 @@ export default function Viewport(props: {
   onIsolatePieceChanged?: (isolate: boolean) => void
   /** Fires when the piece list or the active piece changes. */
   onPiecesChanged?: () => void
-}) {
+}): JSX.Element {
   let canvasRef: HTMLCanvasElement | undefined
   let sceneHandle: SceneHandle | undefined
   let currentModel: LoadedModel | undefined
@@ -640,9 +648,14 @@ export default function Viewport(props: {
   let wireframeVisible = false
   let highlightMesh: THREE.LineSegments | undefined
   let selectionFillMesh: THREE.Mesh | undefined
+  let projectorPreviewMesh: THREE.Mesh | undefined
   let hoverFillMesh: THREE.Mesh | undefined
   /** Local-space positions, 9 floats per triangle, in the same order as SurfaceHit.faceIndex — built once per model so the highlight overlay can slice out selected triangles without recomputing toNonIndexed(). */
   let facePositions: Float32Array | undefined
+  /** Parallel per-triangle UVs (6 floats/triangle), same order as facePositions — feeds the projector preview mesh. */
+  let faceUVs: Float32Array | undefined
+  /** Parallel per-triangle normals (9 floats/triangle) — lets the projector preview take the scene lighting. */
+  let faceNormals: Float32Array | undefined
 
   let resizeDrag: { shift: boolean; lastX: number; lastY: number } | null = null
   let ctrlFaceSelecting = false
@@ -658,6 +671,8 @@ export default function Viewport(props: {
    * body?" Null while the model has a single piece — nothing to disambiguate.
    */
   const [pieceHud, setPieceHud] = createSignal<{ active: string; hover: string | null } | null>(null)
+  /** True while the Face UV Projector preview is showing on the selected faces — drives the top-bar "not applied yet" badge. */
+  const [projectorPreviewActive, setProjectorPreviewActive] = createSignal(false)
 
   const [eyedropperPreview, setEyedropperPreview] = createSignal<{
     visible: boolean
@@ -738,6 +753,7 @@ export default function Viewport(props: {
         piece.highlightMesh,
         piece.hoverFaceMesh,
         piece.selectionFillMesh,
+        piece.projectorPreviewMesh,
         piece.hoverFillMesh
       ]) {
         overlay.geometry.dispose()
@@ -761,9 +777,15 @@ export default function Viewport(props: {
     // Both overlays belong to a piece and were disposed with it above.
     highlightMesh = undefined
     selectionFillMesh = undefined
+    projectorPreviewMesh = undefined
     hoverFaceMesh = undefined
     hoverFillMesh = undefined
     facePositions = undefined
+    faceUVs = undefined
+    faceNormals = undefined
+    previewTextureClone?.dispose()
+    previewTextureClone = null
+    previewTextureSource = null
     // A picked triangle index only means anything for the mesh it was picked
     // on — carrying it into a freshly loaded model could restrict painting
     // to an unrelated (or out-of-range) face.
@@ -891,6 +913,13 @@ export default function Viewport(props: {
     const nonIndexed = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry
     const piecePositions = (nonIndexed.attributes.position as THREE.BufferAttribute)
       .array.slice() as Float32Array
+    const pieceUVs = (nonIndexed.attributes.uv as THREE.BufferAttribute).array.slice() as Float32Array
+    // The model's own (usually smooth) normals, not recomputed flat ones: the
+    // projector preview mesh is a copy of a handful of the model's triangles,
+    // and faceted shading on top of a smooth-shaded surface reads as a seam.
+    if (!nonIndexed.attributes.normal) nonIndexed.computeVertexNormals()
+    const pieceNormals = (nonIndexed.attributes.normal as THREE.BufferAttribute)
+      .array.slice() as Float32Array
 
     const highlightGeometry = new THREE.BufferGeometry()
     highlightGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(0), 3))
@@ -939,6 +968,22 @@ export default function Viewport(props: {
     pieceSelectionFill.frustumCulled = false
     mesh.add(pieceSelectionFill)
 
+    /**
+     * Live preview of a Face UV Projector fill: same selected triangles as
+     * pieceSelectionFill, but textured with the shelf texture under the
+     * current crop region + projector offset/scale/rotation — see
+     * facePreviewShader.ts. Sits above the flat wash so the artist sees
+     * exactly what Apply will bake before committing.
+     */
+    const pieceProjectorPreview = new THREE.Mesh(new THREE.BufferGeometry(), createFacePreviewMaterial())
+    pieceProjectorPreview.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(0), 3))
+    pieceProjectorPreview.geometry.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(0), 2))
+    pieceProjectorPreview.geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(0), 3))
+    pieceProjectorPreview.renderOrder = 997.5
+    pieceProjectorPreview.frustumCulled = false
+    pieceProjectorPreview.visible = false
+    mesh.add(pieceProjectorPreview)
+
     const hoverFaceGeometry = new THREE.BufferGeometry()
     hoverFaceGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(0), 3))
     const hoverFaceMaterial = new THREE.LineBasicMaterial({
@@ -983,8 +1028,11 @@ export default function Viewport(props: {
       stack,
       embedded,
       facePositions: piecePositions,
+      faceUVs: pieceUVs,
+      faceNormals: pieceNormals,
       highlightMesh: pieceHighlight,
       selectionFillMesh: pieceSelectionFill,
+      projectorPreviewMesh: pieceProjectorPreview,
       hoverFaceMesh: pieceHover,
       hoverFillMesh: pieceHoverFill,
       shadedMaterial: material
@@ -1105,8 +1153,11 @@ export default function Viewport(props: {
     const piece = pieces[index]
     layerStack = piece.stack
     facePositions = piece.facePositions
+    faceUVs = piece.faceUVs
+    faceNormals = piece.faceNormals
     highlightMesh = piece.highlightMesh
     selectionFillMesh = piece.selectionFillMesh
+    projectorPreviewMesh = piece.projectorPreviewMesh
     hoverFaceMesh = piece.hoverFaceMesh
     hoverFillMesh = piece.hoverFillMesh
     // Face indices are per-mesh, so a selection made on another piece would
@@ -1119,6 +1170,7 @@ export default function Viewport(props: {
       }
     }
     updateHighlight()
+    updateProjectorPreview()
     if (symmetryGuide && currentModel) symmetryGuide.update(brush.symmetryAxis(), currentModel, activeMesh())
     // The depth map is keyed on its occluder set, which just changed.
     occlusionPass?.invalidate()
@@ -1262,6 +1314,187 @@ export default function Viewport(props: {
     const out = new Float32Array(finalCoords)
     highlightMesh.geometry.setAttribute('position', new THREE.BufferAttribute(out, 3))
     highlightMesh.geometry.attributes.position.needsUpdate = true
+  }
+
+  /**
+   * Live preview of the Face UV Projector: shows, on the selected faces
+   * themselves, exactly what "Apply to Selection" would bake — the shelf
+   * texture under the current crop region AND projector offset/scale/rotation
+   * combined (see facePreviewShader.ts, which mirrors the fill branch of
+   * paintShader.ts). Rebuilt whenever the selection changes; its uniforms are
+   * refreshed independently whenever the texture/region/projection change.
+   */
+  function updateProjectorPreview(): void {
+    if (!projectorPreviewMesh || !facePositions || !faceUVs || !faceNormals) return
+    const faces = brush.selectedFaces()
+    // Its own tool, not folded into Face Select or Fill: those tools' click
+    // behavior (paint, or start a fill drag) conflicts with "click a face to
+    // preview & place a texture on it" — see the toolbar button's comment.
+    const visible = props.tool() === 'faceProjector' && faces.size > 0 && !!brush.texturePath()
+
+    setProjectorPreviewActive(visible)
+
+    if (!visible) {
+      projectorPreviewMesh.visible = false
+      // A plain wash reads fine on its own; once a preview is available it
+      // would otherwise double up with (and dull) the actual texture.
+      if (selectionFillMesh) selectionFillMesh.visible = faces.size > 0
+      return
+    }
+
+    const positions = new Float32Array(faces.size * 9)
+    const uvs = new Float32Array(faces.size * 6)
+    const normals = new Float32Array(faces.size * 9)
+    let atPos = 0
+    let atUv = 0
+    for (const face of faces) {
+      const posBase = face * 9
+      const uvBase = face * 6
+      if (posBase < 0 || posBase + 9 > facePositions.length) continue
+      if (uvBase < 0 || uvBase + 6 > faceUVs.length) continue
+      if (posBase + 9 > faceNormals.length) continue
+      positions.set(facePositions.subarray(posBase, posBase + 9), atPos)
+      uvs.set(faceUVs.subarray(uvBase, uvBase + 6), atUv)
+      // Normals share the triangle layout of positions (3 floats x 3 verts).
+      normals.set(faceNormals.subarray(posBase, posBase + 9), atPos)
+      atPos += 9
+      atUv += 6
+    }
+    projectorPreviewMesh.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    projectorPreviewMesh.geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+    projectorPreviewMesh.geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3))
+    projectorPreviewMesh.geometry.attributes.position.needsUpdate = true
+    projectorPreviewMesh.geometry.attributes.uv.needsUpdate = true
+    projectorPreviewMesh.geometry.attributes.normal.needsUpdate = true
+    projectorPreviewMesh.visible = true
+    // The wash would otherwise tint straight over the textured preview.
+    if (selectionFillMesh) selectionFillMesh.visible = false
+
+    updateProjectorPreviewUniforms()
+  }
+
+  /**
+   * A selected face is often tiny on screen relative to the whole texture, so
+   * the GPU's own minification picks a heavily-downsampled mip level for it —
+   * averaged down to a single dark-ish blob on a busy/dark source texture,
+   * which is what read as "the preview is nearly pitch black" even after
+   * fixing the alpha/tone-mapping/z-fight issues above. A cloned, mipmap-less
+   * copy of the same image forces full-resolution sampling instead, so the
+   * preview always reads at the texture's real color regardless of how small
+   * the selection is on screen. Cloned (not mutated in place) because
+   * `brushTexture` is shared with every other paint tool, which still wants
+   * normal mipmapping.
+   */
+  let previewTextureSource: THREE.Texture | null = null
+  let previewTextureClone: THREE.Texture | null = null
+  function getPreviewTexture(source: THREE.Texture | null): THREE.Texture | null {
+    if (!source) {
+      previewTextureClone?.dispose()
+      previewTextureSource = null
+      previewTextureClone = null
+      return null
+    }
+    if (previewTextureSource === source && previewTextureClone) return previewTextureClone
+    previewTextureClone?.dispose()
+    previewTextureSource = source
+    previewTextureClone = source.clone()
+    previewTextureClone.generateMipmaps = false
+    previewTextureClone.minFilter = THREE.LinearFilter
+    previewTextureClone.needsUpdate = true
+    return previewTextureClone
+  }
+
+  /**
+   * UV-space bounding box of a face selection — the box the projector's "Fit
+   * to selection" mode stretches one copy of the crop across. Returns null
+   * when the selection has no area in UV (a degenerate unwrap), which the
+   * shader treats as "not fitting" rather than dividing by ~zero.
+   */
+  function selectionUvBounds(
+    faces: ReadonlySet<number>
+  ): { x: number; y: number; w: number; h: number } | null {
+    if (!faceUVs || faces.size === 0) return null
+    let minU = Infinity
+    let minV = Infinity
+    let maxU = -Infinity
+    let maxV = -Infinity
+    for (const face of faces) {
+      const base = face * 6
+      if (base < 0 || base + 6 > faceUVs.length) continue
+      for (let i = 0; i < 6; i += 2) {
+        const u = faceUVs[base + i]
+        const v = faceUVs[base + i + 1]
+        if (u < minU) minU = u
+        if (u > maxU) maxU = u
+        if (v < minV) minV = v
+        if (v > maxV) maxV = v
+      }
+    }
+    const w = maxU - minU
+    const h = maxV - minV
+    if (!isFinite(w) || !isFinite(h) || w < 1e-6 || h < 1e-6) return null
+    return { x: minU, y: minV, w, h }
+  }
+
+  /** The projector transform plus the fit box for the faces it will land on. */
+  function faceProjectionOptions(faces: ReadonlySet<number>): FaceProjectionOptions {
+    const proj = brush.faceProjection()
+    const fitRect = proj.fit ? (selectionUvBounds(faces) ?? undefined) : undefined
+    if (!fitRect) return { ...proj, fitRect: undefined }
+    // The shader scales the UV, so a bigger number there means the texture
+    // covers MORE uv and therefore looks smaller. That inversion is invisible
+    // in tile mode (where the slider reads as "how much UV per copy") but
+    // backwards in fit mode, where the artist is sizing a single visible decal.
+    // Invert here so "Scale X up" makes the decal bigger.
+    // Offset has the same inversion for the same reason: it shifts the UV the
+    // texture is read from, so a positive value slides the image the other way.
+    return {
+      ...proj,
+      offsetX: -proj.offsetX,
+      offsetY: -proj.offsetY,
+      scaleX: 1 / Math.max(proj.scaleX, 0.01),
+      scaleY: 1 / Math.max(proj.scaleY, 0.01),
+      fitRect
+    }
+  }
+
+  /** Pushes texture + crop-region + projector-transform state into the preview material, without touching geometry. */
+  function updateProjectorPreviewUniforms(): void {
+    if (!projectorPreviewMesh) return
+    const material = projectorPreviewMesh.material as ReturnType<typeof createFacePreviewMaterial>
+    const u = material.uniforms
+    material.setPreviewTexture(getPreviewTexture(brushTexture))
+    u.uFillScale.value = brush.textureScale()
+
+    // The preview sits directly on top of the model's own faces, so it has to
+    // shade with the same PBR response — otherwise a glossy surface gets a
+    // matte patch (or vice versa) exactly where the artist is judging the fill.
+    const target = activeMesh()
+    const shaded = (Array.isArray(target?.material) ? target.material[0] : target?.material) as
+      | THREE.MeshStandardMaterial
+      | undefined
+    if (shaded) {
+      material.roughness = shaded.roughness
+      material.metalness = shaded.metalness
+      material.envMapIntensity = shaded.envMapIntensity
+    }
+
+    const region = brush.textureRegion()
+    u.uTextureRegion.value.set(region.x, 1 - region.y - region.h, region.w, region.h)
+    u.uTextureRegionRotation.value = (region.rotation * Math.PI) / 180
+
+    const proj = faceProjectionOptions(brush.selectedFaces())
+    u.uProjOffset.value.set(proj.offsetX, proj.offsetY)
+    u.uProjScale.value.set(proj.scaleX, proj.scaleY)
+    u.uProjRotation.value = (proj.rotation * Math.PI) / 180
+    // Same guard as the bake path: fit without a usable box falls back to tiling.
+    u.uFillFit.value = proj.fitRect ? 1 : 0
+    if (proj.fitRect) {
+      u.uFitRect.value.set(proj.fitRect.x, proj.fitRect.y, proj.fitRect.w, proj.fitRect.h)
+    }
+
+    const repeat = brush.textureRepeat()
+    u.uRepeatMode.value = repeat === 'once' ? 2 : repeat === 'mirror' ? 1 : 0
   }
 
   function frameModel(model: LoadedModel): void {
@@ -1849,7 +2082,7 @@ export default function Viewport(props: {
       // cursor for a tool that has no footprint to indicate.
       gizmoHandle.group.visible = false
       if (hoverFaceMesh) updateHoverFace(hit.mesh === activeMesh() ? hit.faceIndex : -1)
-    } else if (tool === 'faceSelect') {
+    } else if (tool === 'faceSelect' || tool === 'faceProjector') {
       gizmoHandle.stampPreviewMesh.visible = false
       gizmoHandle.group.visible = false
       if (hoverFaceMesh) updateHoverFace(hit.mesh === activeMesh() ? hit.faceIndex : -1)
@@ -2075,7 +2308,7 @@ export default function Viewport(props: {
     // no separate toggle to remember to flip.
     const selection = brush.selectedFaces()
     const restrictFaces = selection.size > 0 ? selection : null
-    if (tool === 'faceSelect') {
+    if (tool === 'faceSelect' || tool === 'faceProjector') {
       const islandMesh = activeMesh()
       if (event?.altKey && islandMesh && hit.faceIndex >= 0) {
         const mesh = islandMesh
@@ -2361,7 +2594,10 @@ export default function Viewport(props: {
         baseColor: { color: new THREE.Color(brush.color()), alpha: isMask ? 1 : brush.opacity() },
         baseColorOnly: isMask
       }),
-      channelMaps: isMask ? undefined : channelMaps
+      channelMaps: isMask ? undefined : channelMaps,
+      // Only meaningful when filling an actual face selection — an identity
+      // projection on the whole-model fill path below is a no-op anyway.
+      projection: selection.size > 0 ? faceProjectionOptions(selection) : undefined
     }
     if (!isMask && brushTexture && brush.texturePath()) recordRecentTexture(brush.texturePath()!)
     if (selection.size > 0) {
@@ -2400,7 +2636,7 @@ export default function Viewport(props: {
       }
       return
     }
-    if (e.altKey && props.tool() !== 'faceSelect') {
+    if (e.altKey && props.tool() !== 'faceSelect' && props.tool() !== 'faceProjector') {
       if (eyedropperPreview().visible) setEyedropperPreview((p) => ({ ...p, visible: false }))
       return
     }
@@ -2503,7 +2739,7 @@ export default function Viewport(props: {
     }
 
     const isCtrl = e.ctrlKey || e.metaKey
-    const isFaceSelectTool = props.tool() === 'faceSelect'
+    const isFaceSelectTool = props.tool() === 'faceSelect' || props.tool() === 'faceProjector'
 
     // Connected UV Island Selection: In Face Select mode (or holding Ctrl), Alt + Click
     if ((isFaceSelectTool || isCtrl) && e.altKey && e.button === 0) {
@@ -2620,7 +2856,7 @@ export default function Viewport(props: {
   }
 
   function onDblClick(e: MouseEvent): void {
-    const isFaceSelectTool = props.tool() === 'faceSelect'
+    const isFaceSelectTool = props.tool() === 'faceSelect' || props.tool() === 'faceProjector'
     const isCtrl = e.ctrlKey || e.metaKey
     if ((isFaceSelectTool || isCtrl) && currentModel && currentModel.meshes.length > 0) {
       const hit = hitFromEvent(e as unknown as PointerEvent)
@@ -2919,7 +3155,7 @@ export default function Viewport(props: {
           let r = 0
           let g = 0
           let b = 0
-          let distinct = new Set<number>()
+          const distinct = new Set<number>()
           for (let y = 0; y < size; y += step) {
             for (let x = 0; x < size; x += step) {
               const i = (y * size + x) * 4
@@ -3141,12 +3377,18 @@ export default function Viewport(props: {
 
     // Expose helpers on window for automation / test suite
     if (typeof window !== 'undefined') {
-      ;(window as any).__viewportHandle = handle
-      ;(window as any).__openPieMenu = (x?: number, y?: number) => {
+      const w = window as unknown as {
+        __viewportHandle: ViewportHandle
+        __openPieMenu: (x?: number, y?: number) => void
+        __closePieMenu: () => void
+        __setWireframe: (v: boolean) => void
+      }
+      w.__viewportHandle = handle
+      w.__openPieMenu = (x?: number, y?: number) => {
         setPieMenu({ x: x ?? window.innerWidth * 0.48, y: y ?? window.innerHeight * 0.45 })
       }
-      ;(window as any).__closePieMenu = () => setPieMenu(null)
-      ;(window as any).__setWireframe = (v: boolean) => setWireframeVisible(v)
+      w.__closePieMenu = () => setPieMenu(null)
+      w.__setWireframe = (v: boolean) => setWireframeVisible(v)
     }
 
     const animate = (): void => {
@@ -3201,6 +3443,22 @@ export default function Viewport(props: {
   createEffect(() => {
     brush.selectedFaces()
     updateHighlight()
+    updateProjectorPreview()
+  })
+
+  createEffect(() => {
+    props.tool()
+    updateProjectorPreview()
+  })
+
+  // Selection is unaffected by these, so only the material needs refreshing —
+  // rebuilding the geometry every slider tick would be wasted work.
+  createEffect(() => {
+    brush.textureRegion()
+    brush.faceProjection()
+    brush.textureRepeat()
+    brush.textureScale()
+    updateProjectorPreviewUniforms()
   })
 
   createEffect(() => {
@@ -3208,6 +3466,7 @@ export default function Viewport(props: {
     if (!path) {
       brushTexture = null
       if (currentHit) updateGizmo(currentHit)
+      updateProjectorPreview()
       return
     }
     loadPaintTexture(textureLoader, path, (texture) => {
@@ -3219,6 +3478,7 @@ export default function Viewport(props: {
       texture.needsUpdate = true
       brushTexture = texture
       if (currentHit) updateGizmo(currentHit)
+      updateProjectorPreview()
     })
   })
 
@@ -3455,6 +3715,15 @@ export default function Viewport(props: {
               <span class="font-medium">{pieceHud()!.hover}</span>
             </div>
           </Show>
+        </div>
+      </Show>
+      {/* Face UV Projector preview badge: the mesh renders at full color/light
+          so it reads clearly, so this text badge is what marks it unbaked —
+          the swatch itself no longer dims to signal "preview". */}
+      <Show when={projectorPreviewActive()}>
+        <div class="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-2.5 py-1 rounded-full bg-zinc-900/90 border border-teal-500/50 text-[11px] text-zinc-100 shadow-lg shadow-black/50 backdrop-blur-sm select-none pointer-events-none">
+          <span class="w-2 h-2 rounded-full bg-teal-400 animate-pulse" />
+          <span class="font-medium">Preview — not applied yet</span>
         </div>
       </Show>
       <Show when={props.tool() === 'eyedropper' && eyedropperPreview().visible}>

@@ -3,6 +3,7 @@ import { brush, type ToolMode } from '../paint/brush'
 import { stencil } from '../paint/stencil'
 import MaterialTextureHUD from './MaterialTextureHUD'
 import TextureRegionHUD from './TextureRegionHUD'
+import FaceProjectorHUD from './FaceProjectorHUD'
 import EffectHUD from './EffectHUD'
 import StencilHUD from './StencilHUD'
 import {
@@ -13,7 +14,8 @@ import {
   RefreshCwIcon,
   Trash2Icon,
   EyeIcon,
-  EyeOffIcon
+  EyeOffIcon,
+  FocusIcon
 } from './icons'
 import { IconButton, PanelSection, Label } from './ui'
 import { setTexturePath, resetTextureRegion } from '../paint/brush'
@@ -26,6 +28,10 @@ export interface ToolPanelDockProps {
   isMaskTarget?: () => boolean
   onStamp: () => boolean
   onToast?: (text: string, type?: 'info' | 'success' | 'warning' | 'error') => void
+  /** Bakes the current texture (+ Face UV Projector placement) onto the face selection. */
+  onFillSelection?: () => void
+  /** Screen Stencil (S) toolbar toggle — the panel only shows while this is on, not for every paint tool. */
+  stencilPanelOpen?: boolean
 }
 
 interface PanelDef {
@@ -34,8 +40,6 @@ interface PanelDef {
   icon: (props: { size?: number; class?: string }) => JSX.Element
   /** Does this panel have anything to say for the current tool and state? */
   relevant: () => boolean
-  /** Why it is not relevant, shown in the dimmed list so the panel isn't just missing. */
-  requires: string
   /** A short live summary in the section header — what this panel is set to right now. */
   summary?: () => string | null
   /** Buttons for this panel, hosted in the section header the dock draws. */
@@ -49,11 +53,12 @@ interface PanelDef {
  * These used to float over the viewport: each one picked its own corner, they
  * overlapped each other and the model, closing one was hard to undo, and which
  * ones appeared depended on state the artist couldn't see. Docking them turns
- * that into a single predictable place, where the panels that apply to what you
- * are doing right now are open and the rest are listed, dimmed, with the reason
- * they're inactive.
+ * that into a single predictable place showing exactly the panels that apply to
+ * what you are doing right now. Panels that don't apply are simply absent —
+ * they used to be listed dimmed with the reason they were inactive, which just
+ * meant a permanent block of text about things you weren't doing.
  */
-export default function ToolPanelDock(props: ToolPanelDockProps) {
+export default function ToolPanelDock(props: ToolPanelDockProps): JSX.Element {
   // Collapsed state per section, remembered for the session. Panels open
   // themselves when they first become relevant; an explicit collapse sticks.
   const [collapsed, setCollapsed] = createSignal<Record<string, boolean>>({})
@@ -62,7 +67,8 @@ export default function ToolPanelDock(props: ToolPanelDockProps) {
     props.activeTool === 'brush' ||
     props.activeTool === 'stamp' ||
     props.activeTool === 'fill' ||
-    props.activeTool === 'line'
+    props.activeTool === 'line' ||
+    props.activeTool === 'faceProjector'
 
   const panels = (): PanelDef[] => [
     {
@@ -70,7 +76,6 @@ export default function ToolPanelDock(props: ToolPanelDockProps) {
       title: 'Material Texture',
       icon: (p) => <ImagesIcon {...p} />,
       relevant: () => (isTextured() && !!brush.texturePath()) || props.activeTool === 'fill',
-      requires: 'Pick a texture or material from the shelf',
       actions: () => (
         <IconButton
           size="xs"
@@ -96,7 +101,6 @@ export default function ToolPanelDock(props: ToolPanelDockProps) {
       title: 'Texture Region',
       icon: (p) => <CropIcon {...p} />,
       relevant: () => isTextured() && !!brush.texturePath(),
-      requires: 'Pick a texture to crop',
       summary: () => {
         const r = brush.textureRegion()
         const cropped = r.x !== 0 || r.y !== 0 || r.w !== 1 || r.h !== 1
@@ -110,11 +114,26 @@ export default function ToolPanelDock(props: ToolPanelDockProps) {
       render: () => <TextureRegionHUD docked activeTool={props.activeTool} onClose={() => {}} />
     },
     {
+      id: 'projector',
+      title: 'Face UV Projector',
+      icon: (p) => <FocusIcon {...p} />,
+      // Its own dedicated tool (see the toolbar button), not folded into Fill
+      // or Face Select — the Face UV Projector tool itself does the face
+      // picking, so this panel is only ever relevant while it's active.
+      relevant: () => props.activeTool === 'faceProjector' && !!brush.texturePath() && brush.selectedFaces().size > 0,
+      summary: () => {
+        const p = brush.faceProjection()
+        const identity = p.offsetX === 0 && p.offsetY === 0 && p.scaleX === 1 && p.scaleY === 1 && p.rotation === 0
+        const mode = p.fit ? 'Fit' : 'Tile'
+        return identity ? `${mode} — default placement` : `${mode} — custom placement`
+      },
+      render: () => <FaceProjectorHUD docked onApply={() => props.onFillSelection?.()} />
+    },
+    {
       id: 'effect',
       title: 'Effects Brush',
       icon: (p) => <DropletsIcon {...p} />,
       relevant: () => props.activeTool === 'effect',
-      requires: 'Switch to the Effects brush (U)',
       summary: () => brush.effectMode(),
       render: () => <EffectHUD docked activeTool={props.activeTool} isOpen onClose={() => {}} />
     },
@@ -122,9 +141,14 @@ export default function ToolPanelDock(props: ToolPanelDockProps) {
       id: 'stencil',
       title: 'Screen Stencil',
       icon: (p) => <SlidersIcon {...p} />,
-      // Never tool-specific: a stencil gates whichever paint tool is active.
-      relevant: () => true,
-      requires: '',
+      // Gated on the Screen Stencil (S) toolbar toggle, not on tool: showing
+      // it passively for every paint tool crowded the dock with a panel
+      // nobody asked for. It also can't apply to a fill pass (Fill Bucket,
+      // Face UV Projector force it off unconditionally — see
+      // PaintEngine.fillChannelWithTexture), so it stays hidden there even
+      // with the toggle on.
+      relevant: () =>
+        !!props.stencilPanelOpen && props.activeTool !== 'fill' && props.activeTool !== 'faceProjector',
       summary: () => (stencil.texturePath() ? (stencil.textureLabel() ?? 'Loaded') : 'None'),
       actions: () => (
         <Show when={stencil.texturePath()}>
@@ -153,7 +177,6 @@ export default function ToolPanelDock(props: ToolPanelDockProps) {
   ]
 
   const active = (): PanelDef[] => panels().filter((p) => p.relevant())
-  const inactive = (): PanelDef[] => panels().filter((p) => !p.relevant())
 
   return (
     <div class="h-full flex flex-col bg-zinc-900 border-l border-zinc-800 select-none">
@@ -177,22 +200,9 @@ export default function ToolPanelDock(props: ToolPanelDockProps) {
           )}
         </For>
 
-        {/* The rest, named rather than absent: a panel that silently disappears
-            reads as a bug, and the artist can't tell what would bring it back. */}
-        <Show when={inactive().length > 0}>
-          <div class="p-3 flex flex-col gap-1.5">
-            <Label uppercase class="text-zinc-600">
-              Not available here
-            </Label>
-            <For each={inactive()}>
-              {(panel) => (
-                <div class="flex items-center gap-2 text-[11px] text-zinc-600" title={panel.requires}>
-                  {panel.icon({ size: 12, class: 'shrink-0' })}
-                  <span>{panel.title}</span>
-                  <span class="ml-auto text-[10px] text-zinc-700 truncate">{panel.requires}</span>
-                </div>
-              )}
-            </For>
+        <Show when={active().length === 0}>
+          <div class="p-4 text-center text-[11px] text-zinc-600">
+            No panels for this tool.
           </div>
         </Show>
       </div>
