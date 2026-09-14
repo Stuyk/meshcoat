@@ -46,13 +46,9 @@ export default function Modal(props: ModalProps) {
           <header class="flex items-center justify-between px-5 py-3.5 border-b border-zinc-800 bg-zinc-850/60 select-none">
             <div class="flex items-center gap-2.5">
               {props.icon && (
-                <div class="text-blue-400 flex items-center">
-                  {props.icon({ size: 18 })}
-                </div>
+                <div class="text-blue-400 flex items-center">{props.icon({ size: 18 })}</div>
               )}
-              <h2 class="text-sm font-semibold text-zinc-100 tracking-tight">
-                {props.title}
-              </h2>
+              <h2 class="text-sm font-semibold text-zinc-100 tracking-tight">{props.title}</h2>
             </div>
             <button
               type="button"

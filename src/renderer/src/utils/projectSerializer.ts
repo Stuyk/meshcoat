@@ -66,7 +66,9 @@ export function cpuSnapshotToDataUrl(snapshot: CpuPixelSnapshot): string {
   canvas.width = size
   canvas.height = size
   const ctx = canvas.getContext('2d')
-  if (!ctx) return ''
+  if (!ctx) {
+    return ''
+  }
 
   const imgData = ctx.createImageData(size, size)
   imgData.data.set(data)
@@ -106,11 +108,15 @@ export function dataUrlToCpuSnapshot(dataUrl: string, size: number): Promise<Cpu
 function serializeChannels(
   snapshot: CpuPixelSnapshot
 ): Partial<Record<PbrChannel, string>> | undefined {
-  if (!snapshot.channels) return undefined
+  if (!snapshot.channels) {
+    return undefined
+  }
   let out: Partial<Record<PbrChannel, string>> | undefined
   for (const channel of PBR_CHANNELS) {
     const data = snapshot.channels[channel]
-    if (!data) continue
+    if (!data) {
+      continue
+    }
     out ??= {}
     out[channel] = cpuSnapshotToDataUrl({ size: snapshot.size, data })
   }
@@ -203,7 +209,9 @@ export async function deserializeProject(
           const pixels = await dataUrlToCpuSnapshot(l.dataUrl, textureSize)
           for (const channel of PBR_CHANNELS) {
             const url = l.channelDataUrls?.[channel]
-            if (!url) continue
+            if (!url) {
+              continue
+            }
             const channelPixels = await dataUrlToCpuSnapshot(url, textureSize)
             pixels.channels ??= {}
             pixels.channels[channel] = channelPixels.data

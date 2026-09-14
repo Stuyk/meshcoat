@@ -107,7 +107,12 @@ export default function ToolPanelDock(props: ToolPanelDockProps): JSX.Element {
         return cropped ? `${Math.round(r.w * 100)}% crop` : 'Full image'
       },
       actions: () => (
-        <IconButton size="xs" variant="ghost" onClick={resetTextureRegion} title="Use the whole image again">
+        <IconButton
+          size="xs"
+          variant="ghost"
+          onClick={resetTextureRegion}
+          title="Use the whole image again"
+        >
           <RefreshCwIcon size={12} />
         </IconButton>
       ),
@@ -120,10 +125,14 @@ export default function ToolPanelDock(props: ToolPanelDockProps): JSX.Element {
       // Its own dedicated tool (see the toolbar button), not folded into Fill
       // or Face Select — the Face UV Projector tool itself does the face
       // picking, so this panel is only ever relevant while it's active.
-      relevant: () => props.activeTool === 'faceProjector' && !!brush.texturePath() && brush.selectedFaces().size > 0,
+      relevant: () =>
+        props.activeTool === 'faceProjector' &&
+        !!brush.texturePath() &&
+        brush.selectedFaces().size > 0,
       summary: () => {
         const p = brush.faceProjection()
-        const identity = p.offsetX === 0 && p.offsetY === 0 && p.scaleX === 1 && p.scaleY === 1 && p.rotation === 0
+        const identity =
+          p.offsetX === 0 && p.offsetY === 0 && p.scaleX === 1 && p.scaleY === 1 && p.rotation === 0
         const mode = p.fit ? 'Fit' : 'Tile'
         return identity ? `${mode} — default placement` : `${mode} — custom placement`
       },
@@ -148,7 +157,9 @@ export default function ToolPanelDock(props: ToolPanelDockProps): JSX.Element {
       // PaintEngine.fillChannelWithTexture), so it stays hidden there even
       // with the toggle on.
       relevant: () =>
-        !!props.stencilPanelOpen && props.activeTool !== 'fill' && props.activeTool !== 'faceProjector',
+        !!props.stencilPanelOpen &&
+        props.activeTool !== 'fill' &&
+        props.activeTool !== 'faceProjector',
       summary: () => (stencil.texturePath() ? (stencil.textureLabel() ?? 'Loaded') : 'None'),
       actions: () => (
         <Show when={stencil.texturePath()}>
@@ -158,7 +169,10 @@ export default function ToolPanelDock(props: ToolPanelDockProps): JSX.Element {
             onClick={() => setStencilVisible(!stencil.visible())}
             title={stencil.visible() ? 'Hide the stencil sheet' : 'Show the stencil sheet'}
           >
-            <Show when={stencil.visible()} fallback={<EyeOffIcon size={12} class="text-zinc-500" />}>
+            <Show
+              when={stencil.visible()}
+              fallback={<EyeOffIcon size={12} class="text-zinc-500" />}
+            >
               <EyeIcon size={12} class="text-teal-400" />
             </Show>
           </IconButton>
@@ -181,7 +195,9 @@ export default function ToolPanelDock(props: ToolPanelDockProps): JSX.Element {
   return (
     <div class="h-full flex flex-col bg-zinc-900 border-l border-zinc-800 select-none">
       <div class="h-9 px-3.5 flex items-center justify-between border-b border-zinc-800 bg-zinc-850/50 flex-shrink-0">
-        <Label uppercase badge={active().length}>Tool Panels</Label>
+        <Label uppercase badge={active().length}>
+          Tool Panels
+        </Label>
       </div>
 
       <div class="flex-1 overflow-y-auto">
@@ -201,9 +217,7 @@ export default function ToolPanelDock(props: ToolPanelDockProps): JSX.Element {
         </For>
 
         <Show when={active().length === 0}>
-          <div class="p-4 text-center text-[11px] text-zinc-600">
-            No panels for this tool.
-          </div>
+          <div class="p-4 text-center text-[11px] text-zinc-600">No panels for this tool.</div>
         </Show>
       </div>
     </div>

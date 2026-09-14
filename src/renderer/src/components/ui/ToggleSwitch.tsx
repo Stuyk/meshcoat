@@ -28,14 +28,14 @@ export default function ToggleSwitch(props: ToggleSwitchProps) {
     >
       <div class="flex items-center gap-2 min-w-0 pr-2">
         <Show when={props.icon}>
-          <span class="text-blue-400 shrink-0">
-            {props.icon!({ size: 14 })}
-          </span>
+          <span class="text-blue-400 shrink-0">{props.icon!({ size: 14 })}</span>
         </Show>
         <div class="flex flex-col text-left min-w-0">
           <span class="truncate">{props.label}</span>
           <Show when={props.description}>
-            <span class="text-[10px] text-zinc-500 font-normal leading-tight mt-0.5">{props.description}</span>
+            <span class="text-[10px] text-zinc-500 font-normal leading-tight mt-0.5">
+              {props.description}
+            </span>
           </Show>
         </div>
       </div>

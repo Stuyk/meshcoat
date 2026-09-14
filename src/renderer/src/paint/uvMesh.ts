@@ -24,7 +24,9 @@ export function buildUvMesh(mesh: THREE.Mesh): THREE.Mesh {
   // triangle corner its own unshared vertex/UV fixes it.
   const source = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry
   const uv = source.attributes.uv
-  if (!uv) throw new Error('Mesh is missing UV0 — cannot build paint target')
+  if (!uv) {
+    throw new Error('Mesh is missing UV0 — cannot build paint target')
+  }
 
   const geometry = new THREE.BufferGeometry()
 
@@ -114,7 +116,9 @@ export function buildUvMesh(mesh: THREE.Mesh): THREE.Mesh {
         t.crossVectors(up, n).normalize()
       } else {
         const r = 1 / det
-        t.copy(e1).multiplyScalar(dv2 * r).addScaledVector(e2, -dv1 * r)
+        t.copy(e1)
+          .multiplyScalar(dv2 * r)
+          .addScaledVector(e2, -dv1 * r)
         // Gram-Schmidt against the face normal, then normalize.
         t.addScaledVector(n, -n.dot(t))
         if (t.lengthSq() < 1e-18) {
@@ -143,7 +147,9 @@ export function buildUvMesh(mesh: THREE.Mesh): THREE.Mesh {
   // shader restrict a stroke or fill to a single picked face (spec: face
   // selection / paint-within-face).
   const faceId = new Float32Array(vertexCount)
-  for (let i = 0; i < vertexCount; i++) faceId[i] = Math.floor(i / 3)
+  for (let i = 0; i < vertexCount; i++) {
+    faceId[i] = Math.floor(i / 3)
+  }
   geometry.setAttribute('aFaceId', new THREE.BufferAttribute(faceId, 1))
 
   // 1.0 on every vertex of a selected triangle, 0.0 elsewhere — PaintEngine
@@ -156,7 +162,10 @@ export function buildUvMesh(mesh: THREE.Mesh): THREE.Mesh {
   geometry.setAttribute('aWorldNormal', new THREE.BufferAttribute(worldNormal, 3))
 
   const triangleCount = Math.floor(vertexCount / 3)
-  const { edgeDistances, edgeCurvatures, edgeConcavities } = computeEdgeCurvature(worldPos, triangleCount)
+  const { edgeDistances, edgeCurvatures, edgeConcavities } = computeEdgeCurvature(
+    worldPos,
+    triangleCount
+  )
   geometry.setAttribute('aEdgeDist', new THREE.BufferAttribute(edgeDistances, 3))
   geometry.setAttribute('aEdgeCurvature', new THREE.BufferAttribute(edgeCurvatures, 3))
   geometry.setAttribute('aEdgeConcavity', new THREE.BufferAttribute(edgeConcavities, 3))
@@ -170,12 +179,19 @@ export function buildUvMesh(mesh: THREE.Mesh): THREE.Mesh {
  * Computes all face indices belonging to the same contiguous UV island as startFaceIndex.
  * Connects triangles that share vertex UV coordinates within a precision tolerance.
  */
-export function findUvIslandFaces(geometry: THREE.BufferGeometry, startFaceIndex: number): number[] {
+export function findUvIslandFaces(
+  geometry: THREE.BufferGeometry,
+  startFaceIndex: number
+): number[] {
   const uvAttr = geometry.getAttribute('uv') as THREE.BufferAttribute | undefined
-  if (!uvAttr) return [startFaceIndex]
+  if (!uvAttr) {
+    return [startFaceIndex]
+  }
 
   const totalFaces = Math.floor(uvAttr.count / 3)
-  if (startFaceIndex < 0 || startFaceIndex >= totalFaces) return [startFaceIndex]
+  if (startFaceIndex < 0 || startFaceIndex >= totalFaces) {
+    return [startFaceIndex]
+  }
 
   // Map each quantized UV coordinate to face indices containing it
   const uvToFaces = new Map<string, number[]>()
@@ -198,22 +214,26 @@ export function findUvIslandFaces(geometry: THREE.BufferGeometry, startFaceIndex
   const island = new Set<number>([startFaceIndex])
   const queue: number[] = [startFaceIndex]
 
+  const visitNeighbor = (n: number): void => {
+    if (island.has(n)) {
+      return
+    }
+    island.add(n)
+    queue.push(n)
+  }
+
   while (queue.length > 0) {
     const curr = queue.pop()!
     const base = curr * 3
     for (let k = 0; k < 3; k++) {
       const key = uvKey(uvAttr.getX(base + k), uvAttr.getY(base + k))
       const neighbors = uvToFaces.get(key)
-      if (!neighbors) continue
-      for (const n of neighbors) {
-        if (!island.has(n)) {
-          island.add(n)
-          queue.push(n)
-        }
+      if (!neighbors) {
+        continue
       }
+      neighbors.forEach(visitNeighbor)
     }
   }
 
   return Array.from(island)
 }
-

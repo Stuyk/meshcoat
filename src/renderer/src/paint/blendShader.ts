@@ -75,7 +75,9 @@ export interface BlendCompositeUniforms {
  * composited "over" the backdrop as usual. Both textures are expected in the
  * premultiplied-alpha storage convention used throughout paintShader.ts.
  */
-export function createBlendCompositeMaterial(): THREE.ShaderMaterial & { uniforms: BlendCompositeUniforms } {
+export function createBlendCompositeMaterial(): THREE.ShaderMaterial & {
+  uniforms: BlendCompositeUniforms
+} {
   const uniforms: BlendCompositeUniforms = {
     tBackdrop: { value: null },
     tSource: { value: null },

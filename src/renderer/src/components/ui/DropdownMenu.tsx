@@ -44,7 +44,9 @@ function MenuList(props: { items: MenuItem[]; onClose: () => void }) {
               type="button"
               disabled={item.disabled}
               onClick={() => {
-                if (hasSubmenu()) return
+                if (hasSubmenu()) {
+                  return
+                }
                 props.onClose()
                 item.onClick?.()
               }}

@@ -15,7 +15,9 @@ function storePath(): string {
 
 function load(): RecentEntry[] {
   const p = storePath()
-  if (!existsSync(p)) return []
+  if (!existsSync(p)) {
+    return []
+  }
   try {
     return JSON.parse(readFileSync(p, 'utf-8'))
   } catch {
@@ -31,7 +33,11 @@ export function getRecentProjects(): RecentEntry[] {
   return load().sort((a, b) => b.openedAt - a.openedAt)
 }
 
-export function addRecentProject(projectPath: string, name?: string, type?: 'project' | 'model'): void {
+export function addRecentProject(
+  projectPath: string,
+  name?: string,
+  type?: 'project' | 'model'
+): void {
   const entries = load().filter((e) => e.projectPath !== projectPath)
   const resolvedName = name || projectPath.split(/[/\\]/).pop() || 'Untitled'
   const resolvedType = type || (projectPath.endsWith('.meshcoat') ? 'project' : 'model')

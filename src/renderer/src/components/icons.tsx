@@ -129,5 +129,3 @@ export function LineIcon(props: { size?: number | string; class?: string; [key: 
     </svg>
   )
 }
-
-

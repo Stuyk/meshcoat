@@ -9,12 +9,16 @@ export interface LoadedModel {
 function collectMeshes(root: THREE.Object3D): THREE.Mesh[] {
   const meshes: THREE.Mesh[] = []
   root.traverse((obj) => {
-    if ((obj as THREE.Mesh).isMesh) meshes.push(obj as THREE.Mesh)
+    if ((obj as THREE.Mesh).isMesh) {
+      meshes.push(obj as THREE.Mesh)
+    }
   })
   // Every piece becomes its own texture set, and the UI addresses them by name —
   // an unnamed mesh (common in OBJ exports) still needs something to point at.
   meshes.forEach((mesh, i) => {
-    if (!mesh.name) mesh.name = `Piece ${i + 1}`
+    if (!mesh.name) {
+      mesh.name = `Piece ${i + 1}`
+    }
   })
   return meshes
 }
@@ -101,10 +105,13 @@ export function createDefaultTestModel(primitive: 'sphere' | 'cube' = 'sphere'):
   const geometry =
     primitive === 'cube' ? createUnwrappedBoxGeometry(1) : new THREE.SphereGeometry(0.6, 48, 32)
   geometry.computeTangents()
-  const material = new THREE.MeshStandardMaterial({ color: 0x8888aa, roughness: 0.6, metalness: 0.1 })
+  const material = new THREE.MeshStandardMaterial({
+    color: 0x8888aa,
+    roughness: 0.6,
+    metalness: 0.1
+  })
   const mesh = new THREE.Mesh(geometry, material)
   mesh.position.y = primitive === 'cube' ? 0.5 : 0.6
   mesh.name = primitive === 'cube' ? 'TestCube' : 'TestSphere'
   return { root: mesh, meshes: [mesh], missingUv: [] }
 }
-

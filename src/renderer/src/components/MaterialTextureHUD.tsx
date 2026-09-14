@@ -62,7 +62,10 @@ export default function MaterialTextureHUD(props: MaterialTextureHUDProps): JSX.
                   <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider leading-none">
                     Material Texture
                   </span>
-                  <span class="text-xs font-semibold text-zinc-100 truncate mt-0.5" title={filename()}>
+                  <span
+                    class="text-xs font-semibold text-zinc-100 truncate mt-0.5"
+                    title={filename()}
+                  >
                     {filename()}
                   </span>
                 </div>
@@ -79,7 +82,12 @@ export default function MaterialTextureHUD(props: MaterialTextureHUDProps): JSX.
                 </IconButton>
                 {/* Distinct from removing the texture: this only hides the panel,
                     and the header's Panels menu brings it back. */}
-                <IconButton size="xs" variant="ghost" onClick={props.onClose} title="Hide this panel">
+                <IconButton
+                  size="xs"
+                  variant="ghost"
+                  onClick={props.onClose}
+                  title="Hide this panel"
+                >
                   <XIcon size={13} />
                 </IconButton>
               </div>
@@ -118,7 +126,11 @@ export default function MaterialTextureHUD(props: MaterialTextureHUDProps): JSX.
             <SegmentedControl
               size="xs"
               options={[
-                { value: 'whole', label: 'Fill', title: 'Fill the whole model (or the active face selection)' },
+                {
+                  value: 'whole',
+                  label: 'Fill',
+                  title: 'Fill the whole model (or the active face selection)'
+                },
                 { value: 'face', label: 'Fill Face', title: 'Fill only the single face clicked' }
               ]}
               value={brush.fillMode()}
@@ -140,9 +152,24 @@ export default function MaterialTextureHUD(props: MaterialTextureHUDProps): JSX.
             <SegmentedControl
               size="xs"
               options={[
-                { value: 'uv', label: 'Surface', title: 'Texture follows the model surface (UV). Predictable, matches the exported map.' },
-                { value: 'triplanar', label: 'World', title: 'Pattern fixed in world space. For dressing a whole model in a seamless material.' },
-                { value: 'tip', label: 'Cursor', title: 'One copy of the region per dab, centred on the cursor and rotated with the brush.' }
+                {
+                  value: 'uv',
+                  label: 'Surface',
+                  title:
+                    'Texture follows the model surface (UV). Predictable, matches the exported map.'
+                },
+                {
+                  value: 'triplanar',
+                  label: 'World',
+                  title:
+                    'Pattern fixed in world space. For dressing a whole model in a seamless material.'
+                },
+                {
+                  value: 'tip',
+                  label: 'Cursor',
+                  title:
+                    'One copy of the region per dab, centred on the cursor and rotated with the brush.'
+                }
               ]}
               value={brush.textureMapping()}
               onChange={(m) => setTextureMapping(m as BrushTextureMapping)}
@@ -156,8 +183,16 @@ export default function MaterialTextureHUD(props: MaterialTextureHUDProps): JSX.
               size="xs"
               options={[
                 { value: 'tile', label: 'Tile', title: 'The selected region repeats edge to edge' },
-                { value: 'mirror', label: 'Mirror', title: 'Every other copy flips, so a non-tiling region has no visible seam' },
-                { value: 'once', label: 'Once', title: 'A single copy, nothing outside it — brush to reveal a decal' }
+                {
+                  value: 'mirror',
+                  label: 'Mirror',
+                  title: 'Every other copy flips, so a non-tiling region has no visible seam'
+                },
+                {
+                  value: 'once',
+                  label: 'Once',
+                  title: 'A single copy, nothing outside it — brush to reveal a decal'
+                }
               ]}
               value={brush.textureRepeat()}
               onChange={(m) => setTextureRepeat(m as BrushTextureRepeat)}

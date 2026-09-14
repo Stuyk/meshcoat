@@ -29,7 +29,10 @@ export function loadPaintTexture(
 
 /** Asynchronously loads a texture by file path or asset URL, handling TGA and standard image formats. */
 export async function asyncLoadTexture(pathOrUrl: string): Promise<THREE.Texture> {
-  const isDirectUrl = pathOrUrl.startsWith('asset-file://') || pathOrUrl.startsWith('data:') || pathOrUrl.startsWith('blob:')
+  const isDirectUrl =
+    pathOrUrl.startsWith('asset-file://') ||
+    pathOrUrl.startsWith('data:') ||
+    pathOrUrl.startsWith('blob:')
   const url = isDirectUrl ? pathOrUrl : toAssetUrl(pathOrUrl)
   if (/\.tga$/i.test(pathOrUrl)) {
     const { TGALoader } = await import('three/examples/jsm/loaders/TGALoader.js')

@@ -36,6 +36,48 @@ export async function testBlenderExecutable(
   }
 }
 
+/** `blender.exe` under each version subdirectory of `blenderFoundDir` (Blender's own versioned install layout). Empty if it doesn't exist or can't be read. */
+function findVersionedWindowsBlenders(blenderFoundDir: string): string[] {
+  if (!existsSync(blenderFoundDir)) {
+    return []
+  }
+  try {
+    const entries = readdirSync(blenderFoundDir, { withFileTypes: true })
+    return entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => join(blenderFoundDir, entry.name, 'blender.exe'))
+  } catch {
+    return []
+  }
+}
+
+/** Direct- and Windows-style Blender binaries under each "blender"-named subdirectory of `programsDir`. Empty if it doesn't exist or can't be read. */
+function findBlenderBinariesInPrograms(programsDir: string): string[] {
+  if (!existsSync(programsDir)) {
+    return []
+  }
+  try {
+    const entries = readdirSync(programsDir, { withFileTypes: true })
+    const found: string[] = []
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !entry.name.toLowerCase().includes('blender')) {
+        continue
+      }
+      const directBin = join(programsDir, entry.name, 'blender')
+      const winBin = join(programsDir, entry.name, 'blender.exe')
+      if (existsSync(directBin)) {
+        found.push(directBin)
+      }
+      if (existsSync(winBin)) {
+        found.push(winBin)
+      }
+    }
+    return found
+  } catch {
+    return []
+  }
+}
+
 /**
  * Scans standard OS and user directories for Blender installations.
  */
@@ -45,19 +87,7 @@ export async function findSystemBlender(): Promise<string | null> {
 
   // 1. Check user programs directory (e.g. ~/programs/blender-5.2.0-linux-x64/blender)
   const userProgramsDir = join(home, 'programs')
-  if (existsSync(userProgramsDir)) {
-    try {
-      const entries = readdirSync(userProgramsDir, { withFileTypes: true })
-      for (const entry of entries) {
-        if (entry.isDirectory() && entry.name.toLowerCase().includes('blender')) {
-          const directBin = join(userProgramsDir, entry.name, 'blender')
-          const winBin = join(userProgramsDir, entry.name, 'blender.exe')
-          if (existsSync(directBin)) candidates.push(directBin)
-          if (existsSync(winBin)) candidates.push(winBin)
-        }
-      }
-    } catch {}
-  }
+  candidates.push(...findBlenderBinariesInPrograms(userProgramsDir))
 
   // 2. Common user directories
   candidates.push(
@@ -81,17 +111,7 @@ export async function findSystemBlender(): Promise<string | null> {
     const progFiles = process.env['ProgramFiles'] || 'C:\\Program Files'
     const progFiles86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)'
     const blenderFoundDir = join(progFiles, 'Blender Foundation')
-
-    if (existsSync(blenderFoundDir)) {
-      try {
-        const entries = readdirSync(blenderFoundDir, { withFileTypes: true })
-        for (const entry of entries) {
-          if (entry.isDirectory()) {
-            candidates.push(join(blenderFoundDir, entry.name, 'blender.exe'))
-          }
-        }
-      } catch {}
-    }
+    candidates.push(...findVersionedWindowsBlenders(blenderFoundDir))
 
     candidates.push(
       join(progFiles, 'Blender Foundation', 'Blender', 'blender.exe'),
@@ -125,7 +145,9 @@ export async function findSystemBlender(): Promise<string | null> {
     const path = stdout.trim().split(/\r?\n/)[0]
     if (path && existsSync(path)) {
       const test = await testBlenderExecutable(path)
-      if (test.valid) return path
+      if (test.valid) {
+        return path
+      }
     }
   } catch {}
 
@@ -182,7 +204,11 @@ export async function convertBlendToGlb(
     mkdirSync(cacheDir, { recursive: true })
   }
 
-  const fileStem = blendPath.split(/[/\\]/).pop()?.replace(/\.blend$/i, '') || 'model'
+  const fileStem =
+    blendPath
+      .split(/[/\\]/)
+      .pop()
+      ?.replace(/\.blend$/i, '') || 'model'
   const outFileName = `${fileStem}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.glb`
   const glbPath = join(cacheDir, outFileName)
   const normalizedGlbPath = glbPath.replace(/\\/g, '/')
@@ -191,14 +217,10 @@ export async function convertBlendToGlb(
   const pythonScript = `import bpy; bpy.ops.export_scene.gltf(filepath=r"${normalizedGlbPath}", export_format="GLB", export_apply=True, export_tangents=True)`
 
   try {
-    await execFileAsync(
-      blenderPath,
-      ['-b', blendPath, '--python-expr', pythonScript],
-      {
-        timeout: 120000, // 2 minutes max
-        maxBuffer: 20 * 1024 * 1024
-      }
-    )
+    await execFileAsync(blenderPath, ['-b', blendPath, '--python-expr', pythonScript], {
+      timeout: 120000, // 2 minutes max
+      maxBuffer: 20 * 1024 * 1024
+    })
   } catch (err) {
     throw new Error(
       `Blender conversion failed: ${err instanceof Error ? err.message : String(err)}`

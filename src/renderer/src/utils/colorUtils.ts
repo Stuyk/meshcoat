@@ -88,7 +88,9 @@ export function rgbToHsv(r: number, g: number, b: number): HSV {
       h = (normR - normG) / delta + 4
     }
     h = Math.round(h * 60)
-    if (h < 0) h += 360
+    if (h < 0) {
+      h += 360
+    }
   }
 
   return { h, s, v }

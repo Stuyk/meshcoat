@@ -30,7 +30,8 @@ const DOT_CLASSES = {
 
 export default function Badge(props: BadgeProps) {
   const variant = () => props.variant ?? 'default'
-  const size = () => (props.size === 'xs' ? 'text-[10px] px-1.5 py-0.2 h-4.5' : 'text-xs px-2 py-0.5 h-5.5')
+  const size = () =>
+    props.size === 'xs' ? 'text-[10px] px-1.5 py-0.2 h-4.5' : 'text-xs px-2 py-0.5 h-5.5'
 
   return (
     <span

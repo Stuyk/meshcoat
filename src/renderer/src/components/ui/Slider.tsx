@@ -22,8 +22,12 @@ export interface SliderProps {
 
 export default function Slider(props: SliderProps) {
   const formattedValue = () => {
-    if (props.displayValue) return props.displayValue(props.value)
-    if (props.unit) return `${props.value}${props.unit}`
+    if (props.displayValue) {
+      return props.displayValue(props.value)
+    }
+    if (props.unit) {
+      return `${props.value}${props.unit}`
+    }
     return String(props.value)
   }
 
@@ -31,11 +35,7 @@ export default function Slider(props: SliderProps) {
     <div class={`flex flex-col gap-1.5 select-none ${props.class ?? ''}`}>
       <div class="flex items-center justify-between text-xs">
         <div class="flex items-center gap-1.5 text-zinc-300 font-medium">
-          {props.icon && (
-            <span class="text-zinc-400">
-              {props.icon({ size: 13 })}
-            </span>
-          )}
+          {props.icon && <span class="text-zinc-400">{props.icon({ size: 13 })}</span>}
           <span>{props.label}</span>
         </div>
         <span class="font-mono text-zinc-400 bg-zinc-800/80 px-1.5 py-0.5 rounded border border-zinc-700/50 text-[11px] tabular-nums">

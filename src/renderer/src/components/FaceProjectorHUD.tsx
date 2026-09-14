@@ -30,8 +30,9 @@ export default function FaceProjectorHUD(props: FaceProjectorHUDProps): JSX.Elem
       onPointerDown={(e) => e.stopPropagation()}
     >
       <p class="text-[10px] text-zinc-500 leading-snug">
-        Applies to the {brush.selectedFaces().size} selected face{brush.selectedFaces().size === 1 ? '' : 's'}.
-        Placement is independent of the model's own UVs.
+        Applies to the {brush.selectedFaces().size} selected face
+        {brush.selectedFaces().size === 1 ? '' : 's'}. Placement is independent of the model's own
+        UVs.
       </p>
 
       {/*
@@ -40,7 +41,14 @@ export default function FaceProjectorHUD(props: FaceProjectorHUDProps): JSX.Elem
         decal. Tile falls back to the shelf's tiling scale across the mesh's raw
         UV, which is what you want for a material rather than a picture.
       */}
-      <Label uppercase description={proj().fit ? 'One copy stretched over the selection' : `Repeats at the shelf tiling scale (${brush.textureScale().toFixed(1)}x)`}>
+      <Label
+        uppercase
+        description={
+          proj().fit
+            ? 'One copy stretched over the selection'
+            : `Repeats at the shelf tiling scale (${brush.textureScale().toFixed(1)}x)`
+        }
+      >
         Placement
       </Label>
       <SegmentedControl
@@ -48,8 +56,16 @@ export default function FaceProjectorHUD(props: FaceProjectorHUDProps): JSX.Elem
         class="w-full"
         value={proj().fit ? 'fit' : 'tile'}
         options={[
-          { value: 'fit', label: 'Fit to selection', title: 'Stretch one copy of the texture across the selected faces' },
-          { value: 'tile', label: 'Tile', title: "Repeat the texture across the mesh's own UVs at the shelf tiling scale" }
+          {
+            value: 'fit',
+            label: 'Fit to selection',
+            title: 'Stretch one copy of the texture across the selected faces'
+          },
+          {
+            value: 'tile',
+            label: 'Tile',
+            title: "Repeat the texture across the mesh's own UVs at the shelf tiling scale"
+          }
         ]}
         onChange={(v) => setFaceProjection({ fit: v === 'fit' })}
       />

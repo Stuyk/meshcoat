@@ -35,7 +35,9 @@ export default function LayersTab(props: {
 
   function run(fn: (stack: LayerStack) => void): void {
     const stack = props.getStack()
-    if (!stack) return
+    if (!stack) {
+      return
+    }
     fn(stack)
     props.onChange()
   }
@@ -45,7 +47,9 @@ export default function LayersTab(props: {
     const layers = props.getStack()?.layers ?? []
     const liveIds = new Set(layers.map((l) => l.id))
     for (const id of thumbCache.keys()) {
-      if (!liveIds.has(id)) thumbCache.delete(id)
+      if (!liveIds.has(id)) {
+        thumbCache.delete(id)
+      }
     }
     return [...layers].reverse()
   }
@@ -129,10 +133,14 @@ export default function LayersTab(props: {
             }
             const preview = () => {
               const st = stack()
-              if (!st) return ''
+              if (!st) {
+                return ''
+              }
               const v = layer.engine.contentVersion
               const cached = thumbCache.get(layer.id)
-              if (cached && cached.version === v) return cached.url
+              if (cached && cached.version === v) {
+                return cached.url
+              }
               const url = st.previewFor(layer)
               thumbCache.set(layer.id, { version: v, url })
               return url
@@ -140,7 +148,9 @@ export default function LayersTab(props: {
 
             const maskOwner = () => {
               void props.version
-              if (layer.isMask) return undefined
+              if (layer.isMask) {
+                return undefined
+              }
               if (layer.clippedToMaskId && layer.clippedToMaskId > 0) {
                 return layers().find((l) => l.id === layer.clippedToMaskId)
               }
@@ -186,14 +196,21 @@ export default function LayersTab(props: {
                       class="p-1 rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors cursor-pointer"
                       title={visible() ? 'Hide layer' : 'Show layer'}
                     >
-                      {visible() ? <EyeIcon size={14} /> : <EyeOffIcon size={14} class="text-zinc-600" />}
+                      {visible() ? (
+                        <EyeIcon size={14} />
+                      ) : (
+                        <EyeOffIcon size={14} class="text-zinc-600" />
+                      )}
                     </button>
 
                     {/* Thumbnail */}
                     <div class="relative w-8 h-8 rounded-lg overflow-hidden checkerboard-bg border border-zinc-750 flex-shrink-0">
                       <img src={preview()} alt="" class="w-full h-full object-cover" />
                       <Show when={isMaskFlag()}>
-                        <span class="absolute bottom-0 right-0 p-0.5 bg-blue-600 text-white rounded-tl text-[8px]" title="Mask Layer">
+                        <span
+                          class="absolute bottom-0 right-0 p-0.5 bg-blue-600 text-white rounded-tl text-[8px]"
+                          title="Mask Layer"
+                        >
                           <DramaIcon size={8} />
                         </span>
                       </Show>
@@ -234,8 +251,12 @@ export default function LayersTab(props: {
                             value={editName()}
                             onInput={(val) => setEditName(val)}
                             onKeyDown={(e) => {
-                              if (e.key === 'Enter') commitEditing(layer.id)
-                              if (e.key === 'Escape') setEditingId(null)
+                              if (e.key === 'Enter') {
+                                commitEditing(layer.id)
+                              }
+                              if (e.key === 'Escape') {
+                                setEditingId(null)
+                              }
                             }}
                             autofocus
                             class="w-full"
@@ -266,10 +287,15 @@ export default function LayersTab(props: {
                   </div>
 
                   {/* Row 2: Blend Mode & Opacity Slider */}
-                  <div class="flex items-center gap-2 mt-2 pt-1.5 border-t border-zinc-800/60" onClick={(e) => e.stopPropagation()}>
+                  <div
+                    class="flex items-center gap-2 mt-2 pt-1.5 border-t border-zinc-800/60"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <Show
                       when={!isMaskFlag()}
-                      fallback={<span class="text-[10px] font-medium text-zinc-500 w-16">Strength</span>}
+                      fallback={
+                        <span class="text-[10px] font-medium text-zinc-500 w-16">Strength</span>
+                      }
                     >
                       <Select
                         size="xs"
@@ -291,7 +317,9 @@ export default function LayersTab(props: {
                       step="0.01"
                       value={opacity()}
                       onPointerDown={() => run((s) => s.history.record())}
-                      onInput={(e) => run((s) => s.setOpacity(layer.id, parseFloat(e.currentTarget.value), false))}
+                      onInput={(e) =>
+                        run((s) => s.setOpacity(layer.id, parseFloat(e.currentTarget.value), false))
+                      }
                       class="flex-1 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
                     />
                     <span class="font-mono text-[10px] text-zinc-400 tabular-nums w-8 text-right">
@@ -308,7 +336,11 @@ export default function LayersTab(props: {
                       {/* Mask Toggle */}
                       <button
                         type="button"
-                        onClick={() => run((s) => (layer.isMask ? s.unmaskLayer(layer.id) : s.convertToMask(layer.id)))}
+                        onClick={() =>
+                          run((s) =>
+                            layer.isMask ? s.unmaskLayer(layer.id) : s.convertToMask(layer.id)
+                          )
+                        }
                         class={`p-1.5 rounded transition-colors cursor-pointer ${
                           isMaskFlag()
                             ? 'bg-blue-600/30 text-blue-300 border border-blue-500/50'

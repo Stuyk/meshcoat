@@ -42,7 +42,9 @@ export class HistoryManager {
 
   /** Call immediately before a mutation commits, to snapshot the pre-mutation state. */
   record(): void {
-    for (const snap of this.redoStack) this.layerStack.disposeSnapshot(snap)
+    for (const snap of this.redoStack) {
+      this.layerStack.disposeSnapshot(snap)
+    }
     this.redoStack = []
     this.undoStack.push(this.layerStack.captureState())
 
@@ -51,7 +53,9 @@ export class HistoryManager {
     const entryCap = Math.min(MAX_HISTORY, byteCap)
     while (this.undoStack.length > entryCap) {
       const dropped = this.undoStack.shift()
-      if (dropped) this.layerStack.disposeSnapshot(dropped)
+      if (dropped) {
+        this.layerStack.disposeSnapshot(dropped)
+      }
     }
     this.bump()
   }
@@ -66,7 +70,9 @@ export class HistoryManager {
 
   undo(): void {
     const prev = this.undoStack.pop()
-    if (!prev) return
+    if (!prev) {
+      return
+    }
     this.redoStack.push(this.layerStack.captureState())
     this.layerStack.restoreState(prev)
     this.layerStack.disposeSnapshot(prev)
@@ -75,7 +81,9 @@ export class HistoryManager {
 
   redo(): void {
     const next = this.redoStack.pop()
-    if (!next) return
+    if (!next) {
+      return
+    }
     this.undoStack.push(this.layerStack.captureState())
     this.layerStack.restoreState(next)
     this.layerStack.disposeSnapshot(next)
@@ -84,8 +92,12 @@ export class HistoryManager {
 
   /** Drops all history (e.g. on loading a new model/project). */
   reset(): void {
-    for (const snap of this.undoStack) this.layerStack.disposeSnapshot(snap)
-    for (const snap of this.redoStack) this.layerStack.disposeSnapshot(snap)
+    for (const snap of this.undoStack) {
+      this.layerStack.disposeSnapshot(snap)
+    }
+    for (const snap of this.redoStack) {
+      this.layerStack.disposeSnapshot(snap)
+    }
     this.undoStack = []
     this.redoStack = []
     this.bump()

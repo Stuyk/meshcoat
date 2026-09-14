@@ -16,7 +16,9 @@ function storePath(): string {
 
 function load(): Prefs {
   const p = storePath()
-  if (!existsSync(p)) return {}
+  if (!existsSync(p)) {
+    return {}
+  }
   try {
     return JSON.parse(readFileSync(p, 'utf-8'))
   } catch {

@@ -101,7 +101,10 @@ export function payloadChannels(payload: ChannelPayload): PaintChannel[] {
   return PAINT_CHANNELS.filter((c) => payload[c] !== undefined)
 }
 
-export function createChannelRenderTarget(size: number, channel: PaintChannel): THREE.WebGLRenderTarget {
+export function createChannelRenderTarget(
+  size: number,
+  channel: PaintChannel
+): THREE.WebGLRenderTarget {
   return new THREE.WebGLRenderTarget(size, size, {
     format: THREE.RGBAFormat,
     type: THREE.UnsignedByteType,

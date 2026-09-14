@@ -11,8 +11,13 @@ let thumbCanvas: HTMLCanvasElement | undefined
 let thumbCtx: CanvasRenderingContext2D | undefined
 
 function ensureSetup(): void {
-  if (thumbTarget) return
-  thumbTarget = new THREE.WebGLRenderTarget(THUMB_SIZE, THUMB_SIZE, { format: THREE.RGBAFormat, type: THREE.UnsignedByteType })
+  if (thumbTarget) {
+    return
+  }
+  thumbTarget = new THREE.WebGLRenderTarget(THUMB_SIZE, THUMB_SIZE, {
+    format: THREE.RGBAFormat,
+    type: THREE.UnsignedByteType
+  })
   thumbScene = new THREE.Scene()
   thumbCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
   // The source texture is stored premultiplied (see paintShader.ts); telling
@@ -30,7 +35,9 @@ function ensureSetup(): void {
 /** Cheap low-res readback used for layer-stack thumbnails, refreshed on every stroke. */
 export function renderThumbnail(renderer: THREE.WebGLRenderer, texture: THREE.Texture): string {
   ensureSetup()
-  if (!thumbTarget || !thumbScene || !thumbCamera || !thumbMaterial || !thumbCanvas || !thumbCtx) return ''
+  if (!thumbTarget || !thumbScene || !thumbCamera || !thumbMaterial || !thumbCanvas || !thumbCtx) {
+    return ''
+  }
 
   thumbMaterial.map = texture
   const prevTarget = renderer.getRenderTarget()

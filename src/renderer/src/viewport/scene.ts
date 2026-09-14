@@ -100,7 +100,9 @@ export class OrbitPanZoomControls {
   }
 
   private onPointerMove(e: PointerEvent): void {
-    if (!this.dragging) return
+    if (!this.dragging) {
+      return
+    }
     const dx = e.clientX - this.lastX
     const dy = e.clientY - this.lastY
     this.lastX = e.clientX
@@ -416,16 +418,22 @@ export function createScene(canvas: HTMLCanvasElement): SceneHandle {
 
   function resize(): void {
     const parent = canvas.parentElement
-    if (!parent) return
+    if (!parent) {
+      return
+    }
     const { clientWidth: w, clientHeight: h } = parent
-    if (w === 0 || h === 0) return
+    if (w === 0 || h === 0) {
+      return
+    }
     renderer.setSize(w, h, false)
     camera.aspect = w / h
     camera.updateProjectionMatrix()
   }
 
   const resizeObserver = new ResizeObserver(resize)
-  if (canvas.parentElement) resizeObserver.observe(canvas.parentElement)
+  if (canvas.parentElement) {
+    resizeObserver.observe(canvas.parentElement)
+  }
   resize()
 
   function dispose(): void {

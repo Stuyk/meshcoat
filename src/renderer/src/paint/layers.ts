@@ -70,7 +70,9 @@ function createChannelFlattenMaterial(): THREE.ShaderMaterial {
  */
 function nextLayerId(layers: readonly Layer[]): number {
   let highest = 0
-  for (const layer of layers) highest = Math.max(highest, layer.id)
+  for (const layer of layers) {
+    highest = Math.max(highest, layer.id)
+  }
   return highest + 1
 }
 
@@ -151,7 +153,11 @@ export class LayerStack {
   /** Undo/redo history for this layer stack. Assigned once construction finishes. */
   history!: HistoryManager
 
-  constructor(renderer: THREE.WebGLRenderer, mesh: THREE.Mesh, textureSize: number = DEFAULT_TEXTURE_SIZE) {
+  constructor(
+    renderer: THREE.WebGLRenderer,
+    mesh: THREE.Mesh,
+    textureSize: number = DEFAULT_TEXTURE_SIZE
+  ) {
     this.renderer = renderer
     this.mesh = mesh
     this.textureSize = textureSize
@@ -166,7 +172,10 @@ export class LayerStack {
     this.scratchA = new THREE.WebGLRenderTarget(textureSize, textureSize, targetOpts)
     this.scratchB = new THREE.WebGLRenderTarget(textureSize, textureSize, targetOpts)
     this.blendMaterial = createBlendCompositeMaterial()
-    this.recompositeQuad = new THREE.Mesh(this.recompositeQuadGeometry, this.recompositePlainMaterial)
+    this.recompositeQuad = new THREE.Mesh(
+      this.recompositeQuadGeometry,
+      this.recompositePlainMaterial
+    )
     this.recompositeScene.add(this.recompositeQuad)
 
     this.addLayer('Background')
@@ -190,7 +199,9 @@ export class LayerStack {
   activeChannels(): PaintChannel[] {
     const present = new Set<PaintChannel>(['baseColor'])
     for (const layer of this.layers) {
-      for (const channel of layer.engine.allocatedChannels) present.add(channel)
+      for (const channel of layer.engine.allocatedChannels) {
+        present.add(channel)
+      }
     }
     return PAINT_CHANNELS.filter((c) => present.has(c))
   }
@@ -210,7 +221,9 @@ export class LayerStack {
 
   /** The render target behind channelTexture — what the exporters read back. */
   channelTarget(channel: PaintChannel): THREE.WebGLRenderTarget | null {
-    if (channel === 'baseColor') return this.compositeTarget
+    if (channel === 'baseColor') {
+      return this.compositeTarget
+    }
     return this.pbrTargets.get(channel) ?? null
   }
 
@@ -245,18 +258,26 @@ export class LayerStack {
 
   private syncMaterialMaps(): void {
     const material = this.boundMaterial
-    if (!material) return
+    if (!material) {
+      return
+    }
     const active = this.activeChannels()
     const key = active.join(',')
-    if (key === this.boundChannelKey) return
+    if (key === this.boundChannelKey) {
+      return
+    }
     this.boundChannelKey = key
 
     material.map = this.compositeTarget.texture
     material.roughnessMap = this.channelTexture('roughness')
     material.metalnessMap = this.channelTexture('metalness')
     material.normalMap = this.channelTexture('normal')
-    if (material.roughnessMap) material.roughness = 1
-    if (material.metalnessMap) material.metalness = 1
+    if (material.roughnessMap) {
+      material.roughness = 1
+    }
+    if (material.metalnessMap) {
+      material.metalness = 1
+    }
     material.needsUpdate = true
   }
 
@@ -287,7 +308,9 @@ export class LayerStack {
   /** Sets or unsets the clipping mask target for a layer. Pass 0 to explicitly unclip. */
   setClipToMask(layerId: number, maskId?: number): void {
     const layer = this.layers.find((l) => l.id === layerId)
-    if (!layer || layer.isMask) return
+    if (!layer || layer.isMask) {
+      return
+    }
     this.history?.record()
     layer.clippedToMaskId = maskId
     this.recomposite()
@@ -296,7 +319,9 @@ export class LayerStack {
   /** Converts an existing layer into a Mask Layer. */
   convertToMask(layerId: number, fillWhite?: boolean): void {
     const index = this.layers.findIndex((l) => l.id === layerId)
-    if (index === -1) return
+    if (index === -1) {
+      return
+    }
     this.history?.record()
     const layer = this.layers[index]
     layer.isMask = true
@@ -311,7 +336,9 @@ export class LayerStack {
   /** Converts a mask layer back into a normal color layer. */
   unmaskLayer(layerId: number): void {
     const layer = this.layers.find((l) => l.id === layerId)
-    if (!layer || !layer.isMask) return
+    if (!layer || !layer.isMask) {
+      return
+    }
     this.history?.record()
     layer.isMask = false
     // Unclip any layers clipped to this mask
@@ -326,7 +353,9 @@ export class LayerStack {
   /** Creates a new paint layer directly underneath a mask layer, clipped to it. */
   addLayerBelow(maskLayerId: number, name?: string): Layer {
     const index = this.layers.findIndex((l) => l.id === maskLayerId)
-    if (index === -1) return this.addLayer(name)
+    if (index === -1) {
+      return this.addLayer(name)
+    }
     this.history?.record()
     const engine = new PaintEngine(this.renderer, this.mesh, null, this.textureSize)
     const mask = this.layers[index]
@@ -344,36 +373,55 @@ export class LayerStack {
     return newLayer
   }
 
+  /**
+   * Runs `mutate` on the layer with id `layerId` (no-op if it doesn't exist),
+   * recording history first and recompositing after — the shape shared by
+   * every simple per-layer property setter below. Pass `record: false` for a
+   * property that shouldn't create its own undo step (e.g. a UI-only toggle).
+   */
+  private withLayer(
+    layerId: number,
+    mutate: (layer: Layer) => void,
+    opts: { record?: boolean } = {}
+  ): void {
+    const layer = this.layers.find((l) => l.id === layerId)
+    if (!layer) {
+      return
+    }
+    if (opts.record !== false) {
+      this.history?.record()
+    }
+    mutate(layer)
+    this.recomposite()
+  }
+
   /** Inverts the mask buffer of a layer (swaps black and white). */
   invertMask(layerId: number): void {
-    const layer = this.layers.find((l) => l.id === layerId)
-    if (!layer) return
-    this.history?.record()
-    layer.engine.invert()
-    this.recomposite()
+    this.withLayer(layerId, (layer) => layer.engine.invert())
   }
 
   /** Fills a mask layer with pure white (reveal all) or black (hide all). */
   fillMask(layerId: number, fillWhite = true): void {
-    const layer = this.layers.find((l) => l.id === layerId)
-    if (!layer) return
-    this.history?.record()
-    layer.engine.fill({ color: new THREE.Color(fillWhite ? 0xffffff : 0x000000), alpha: 1 })
-    this.recomposite()
+    this.withLayer(layerId, (layer) =>
+      layer.engine.fill({ color: new THREE.Color(fillWhite ? 0xffffff : 0x000000), alpha: 1 })
+    )
   }
 
   /** Toggles viewing the raw grayscale mask on the 3D model surface. */
   toggleMaskPreviewOnModel(layerId: number): void {
-    const layer = this.layers.find((l) => l.id === layerId)
-    if (!layer) return
-    layer.previewMaskOnModel = !layer.previewMaskOnModel
-    this.recomposite()
+    this.withLayer(layerId, (layer) => (layer.previewMaskOnModel = !layer.previewMaskOnModel), {
+      record: false
+    })
   }
 
   removeLayer(id: number): void {
-    if (this.layers.length <= 1) return
+    if (this.layers.length <= 1) {
+      return
+    }
     const index = this.layers.findIndex((l) => l.id === id)
-    if (index === -1) return
+    if (index === -1) {
+      return
+    }
     this.history?.record()
     const [removed] = this.layers.splice(index, 1)
     removed.engine.dispose()
@@ -390,12 +438,7 @@ export class LayerStack {
   }
 
   setVisible(id: number, visible: boolean): void {
-    const layer = this.layers.find((l) => l.id === id)
-    if (layer) {
-      this.history?.record()
-      layer.visible = visible
-      this.recomposite()
-    }
+    this.withLayer(id, (layer) => (layer.visible = visible))
   }
 
   /**
@@ -405,28 +448,23 @@ export class LayerStack {
    * snapshot (and the CPU-readback cost that comes with it — see history.ts).
    */
   setOpacity(id: number, opacity: number, record = true): void {
-    const layer = this.layers.find((l) => l.id === id)
-    if (layer) {
-      if (record) this.history?.record()
-      layer.opacity = opacity
-      this.recomposite()
-    }
+    this.withLayer(id, (layer) => (layer.opacity = opacity), { record })
   }
 
   /** Sets how a (non-mask) layer's color composites onto the layers below it. */
   setBlendMode(id: number, mode: BlendMode): void {
     const layer = this.layers.find((l) => l.id === id)
     if (layer && layer.blendMode !== mode) {
-      this.history?.record()
-      layer.blendMode = mode
-      this.recomposite()
+      this.withLayer(id, (l) => (l.blendMode = mode))
     }
   }
 
   /** Merges the given layer onto the one below it in the stack (spec: Merge Down). */
   mergeDown(id: number): void {
     const index = this.layers.findIndex((l) => l.id === id)
-    if (index <= 0) return
+    if (index <= 0) {
+      return
+    }
     this.history?.record()
     const top = this.layers[index]
     const below = this.layers[index - 1]
@@ -441,9 +479,13 @@ export class LayerStack {
    * directly below a mask clips it to that mask, landing anywhere else clears it. */
   moveLayer(id: number, direction: 'up' | 'down'): void {
     const index = this.layers.findIndex((l) => l.id === id)
-    if (index === -1) return
+    if (index === -1) {
+      return
+    }
     const targetIndex = direction === 'up' ? index + 1 : index - 1
-    if (targetIndex < 0 || targetIndex >= this.layers.length) return
+    if (targetIndex < 0 || targetIndex >= this.layers.length) {
+      return
+    }
     this.history?.record()
     const [layer] = this.layers.splice(index, 1)
     this.layers.splice(targetIndex, 0, layer)
@@ -463,7 +505,9 @@ export class LayerStack {
 
   duplicateLayer(id: number): Layer | undefined {
     const index = this.layers.findIndex((l) => l.id === id)
-    if (index === -1) return undefined
+    if (index === -1) {
+      return undefined
+    }
     this.history?.record()
     const source = this.layers[index]
     const engine = new PaintEngine(this.renderer, this.mesh, null, this.textureSize)
@@ -492,30 +536,28 @@ export class LayerStack {
     /** False while continuing a drag, so the whole drag is one undo step. */
     recordHistory = true
   ): void {
-    if (faces.size === 0 || !this.activePaintEngine) return
-    if (recordHistory) this.history?.record()
+    if (faces.size === 0 || !this.activePaintEngine) {
+      return
+    }
+    if (recordHistory) {
+      this.history?.record()
+    }
     this.activePaintEngine.fillFaces(faces, options, alpha)
     this.recomposite()
   }
 
   /** Bucket-fills the active layer across the whole model (spec: bucket tool with texture/color). */
-  fillActiveLayer(
-    options?: FillOptions | THREE.Color,
-    alpha = 1
-  ): void {
-    if (!this.activePaintEngine) return
+  fillActiveLayer(options?: FillOptions | THREE.Color, alpha = 1): void {
+    if (!this.activePaintEngine) {
+      return
+    }
     this.history?.record()
     this.activePaintEngine.fill(options, alpha)
     this.recomposite()
   }
 
   clearLayer(id: number): void {
-    const layer = this.layers.find((l) => l.id === id)
-    if (layer) {
-      this.history?.record()
-      layer.engine.clear()
-      this.recomposite()
-    }
+    this.withLayer(id, (layer) => layer.engine.clear())
   }
 
   /**
@@ -580,7 +622,12 @@ export class LayerStack {
     this.recompositeQuad.material = this.blendMaterial
     const u = this.blendMaterial.uniforms
 
-    const drawLayer = (sourceTexture: THREE.Texture, opacity: number, blendMode: BlendMode | undefined, mask?: Layer): void => {
+    const drawLayer = (
+      sourceTexture: THREE.Texture,
+      opacity: number,
+      blendMode: BlendMode | undefined,
+      mask?: Layer
+    ): void => {
       u.tBackdrop.value = backdrop.texture
       u.tSource.value = sourceTexture
       u.uOpacity.value = opacity
@@ -602,11 +649,15 @@ export class LayerStack {
 
     for (let i = 0; i < this.layers.length; i++) {
       const layer = this.layers[i]
-      if (!layer.visible) continue
+      if (!layer.visible) {
+        continue
+      }
       // A layer that never painted this channel contributes nothing to it,
       // rather than contributing an empty sheet.
       const source = layer.engine.textureFor(channel)
-      if (!source) continue
+      if (!source) {
+        continue
+      }
 
       // If this is a Mask Layer:
       if (layer.isMask) {
@@ -663,7 +714,9 @@ export class LayerStack {
     this.flattenMaterial ??= createChannelFlattenMaterial()
     const spec = CHANNEL_SPECS[channel]
     this.flattenMaterial.uniforms.tSrc.value = backdrop.texture
-    this.flattenMaterial.uniforms.uDefault.value.copy(spec.flattenDefault ?? new THREE.Vector4(0, 0, 0, 1))
+    this.flattenMaterial.uniforms.uDefault.value.copy(
+      spec.flattenDefault ?? new THREE.Vector4(0, 0, 0, 1)
+    )
     this.flattenMaterial.uniforms.uIsVector.value = spec.vector ? 1 : 0
     this.recompositeQuad.material = this.flattenMaterial
     this.renderer.setRenderTarget(output)
@@ -683,7 +736,9 @@ export class LayerStack {
     this.renderer.readRenderTargetPixels(this.compositeTarget, x, y, 1, 1, buffer)
     // Stored premultiplied (see paintShader.ts) — undo it to get the true color.
     const a = buffer[3]
-    if (a === 0) return new THREE.Color(0, 0, 0)
+    if (a === 0) {
+      return new THREE.Color(0, 0, 0)
+    }
     return new THREE.Color(buffer[0] / a, buffer[1] / a, buffer[2] / a)
   }
 
@@ -697,7 +752,11 @@ export class LayerStack {
 
   /** Previews edge wear in real time — either on the active layer (merge mode) or via a
    * transient ghost layer that mirrors "bake to new layer" mode's chosen background. */
-  previewEdgeWear(options: EdgeWearParams, asNewLayer = false, newLayerBackground: 'transparent' | 'black' = 'transparent'): void {
+  previewEdgeWear(
+    options: EdgeWearParams,
+    asNewLayer = false,
+    newLayerBackground: 'transparent' | 'black' = 'transparent'
+  ): void {
     if (asNewLayer) {
       // If a "merge into active layer" preview was in progress, revert it first.
       if (this.previewSnapshot && this.previewLayerId !== null) {
@@ -728,7 +787,9 @@ export class LayerStack {
     }
 
     const active = this.active
-    if (!active) return
+    if (!active) {
+      return
+    }
 
     if (!this.previewSnapshot || this.previewLayerId !== active.id) {
       this.previewSnapshot?.dispose()
@@ -763,7 +824,11 @@ export class LayerStack {
   }
 
   /** Commits edge wear, either onto the active layer or as a new dedicated layer. */
-  commitEdgeWear(options: EdgeWearParams, asNewLayer = false, newLayerBackground: 'transparent' | 'black' = 'transparent'): void {
+  commitEdgeWear(
+    options: EdgeWearParams,
+    asNewLayer = false,
+    newLayerBackground: 'transparent' | 'black' = 'transparent'
+  ): void {
     if (asNewLayer) {
       // Revert active layer to snapshot / drop the preview ghost if either was active
       this.cancelEdgeWearPreview()
@@ -864,7 +929,9 @@ export class LayerStack {
     this.dataScratchA?.dispose()
     this.dataScratchB?.dispose()
     this.flattenMaterial?.dispose()
-    for (const target of this.pbrTargets.values()) target.dispose()
+    for (const target of this.pbrTargets.values()) {
+      target.dispose()
+    }
     this.pbrTargets.clear()
     for (const layer of this.layers) {
       layer.engine.dispose()

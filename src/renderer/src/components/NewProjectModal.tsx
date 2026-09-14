@@ -31,13 +31,17 @@ export default function NewProjectModal(props: {
   }
 
   function close(): void {
-    if (importing()) return
+    if (importing()) {
+      return
+    }
     reset()
     props.onClose()
   }
 
   async function browse(): Promise<void> {
-    const paths = await window.api.openFileDialog({ filters: [{ name: 'Models', extensions: MODEL_EXTENSIONS }] })
+    const paths = await window.api.openFileDialog({
+      filters: [{ name: 'Models', extensions: MODEL_EXTENSIONS }]
+    })
     const path = paths?.[0]
     if (path) {
       setModelPath(path)
@@ -47,7 +51,9 @@ export default function NewProjectModal(props: {
 
   async function runImport(): Promise<void> {
     const path = modelPath()
-    if (!path) return
+    if (!path) {
+      return
+    }
     setImporting(true)
     setError(null)
     try {
@@ -74,11 +80,7 @@ export default function NewProjectModal(props: {
           <Button variant="ghost" onClick={close} disabled={importing()}>
             Cancel
           </Button>
-          <Button
-            variant="primary"
-            disabled={!modelPath() || importing()}
-            onClick={runImport}
-          >
+          <Button variant="primary" disabled={!modelPath() || importing()} onClick={runImport}>
             {importing() ? 'Loading Model...' : 'Create Project'}
           </Button>
         </>
@@ -103,9 +105,7 @@ export default function NewProjectModal(props: {
               <div class="p-3 rounded-md bg-zinc-800/80 text-zinc-400 group-hover:text-blue-400 group-hover:scale-105 transition-all mb-3">
                 <FolderOpenIcon size={24} />
               </div>
-              <span class="text-xs font-semibold text-zinc-200 mb-1">
-                Choose a 3D model file
-              </span>
+              <span class="text-xs font-semibold text-zinc-200 mb-1">Choose a 3D model file</span>
               <span class="text-[11px] text-zinc-500 mb-3">
                 Supports .glb, .gltf, .obj, and .blend formats with UVs
               </span>
@@ -121,9 +121,7 @@ export default function NewProjectModal(props: {
                 <CubeIcon size={20} />
               </div>
               <div class="flex flex-col min-w-0">
-                <span class="text-xs font-semibold text-zinc-100 truncate">
-                  {filename()}
-                </span>
+                <span class="text-xs font-semibold text-zinc-100 truncate">{filename()}</span>
                 <span class="text-[11px] text-zinc-500 font-mono truncate" title={modelPath()!}>
                   {modelPath()}
                 </span>
@@ -146,7 +144,8 @@ export default function NewProjectModal(props: {
             Canvas Resolution
           </label>
           <span class="text-[11px] text-zinc-500 ml-7">
-            Choose the paintable texture resolution. Higher resolutions provide more detail but use more VRAM.
+            Choose the paintable texture resolution. Higher resolutions provide more detail but use
+            more VRAM.
           </span>
         </div>
 
@@ -166,16 +165,16 @@ export default function NewProjectModal(props: {
                 >
                   <div class="flex flex-col">
                     <div class="flex items-center gap-2 font-mono text-xs font-semibold text-zinc-200">
-                      <span>{size} × {size}</span>
+                      <span>
+                        {size} × {size}
+                      </span>
                       {size === 2048 && (
                         <span class="px-1.5 py-0.2 rounded bg-blue-950 border border-blue-800/80 text-[10px] text-blue-300 font-sans font-normal">
                           Recommended
                         </span>
                       )}
                     </div>
-                    <span class="text-[11px] text-zinc-500 mt-0.5">
-                      {info?.desc ?? ''}
-                    </span>
+                    <span class="text-[11px] text-zinc-500 mt-0.5">{info?.desc ?? ''}</span>
                   </div>
                   <Show when={isSelected()}>
                     <div class="w-5 h-5 rounded-md bg-blue-600 text-white flex items-center justify-center">

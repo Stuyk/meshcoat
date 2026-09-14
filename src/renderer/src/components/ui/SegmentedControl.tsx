@@ -27,7 +27,9 @@ const ITEM_SIZE_CLASSES = {
   md: 'h-8 px-3 gap-2 text-xs'
 }
 
-export default function SegmentedControl<T extends string | number>(props: SegmentedControlProps<T>) {
+export default function SegmentedControl<T extends string | number>(
+  props: SegmentedControlProps<T>
+) {
   const size = () => props.size ?? 'sm'
 
   return (

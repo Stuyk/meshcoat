@@ -107,7 +107,9 @@ export class OcclusionDepthPass {
     const key = `${camera.matrixWorld.elements.join(',')}|${camera.projectionMatrix.elements.join(
       ','
     )}|${this.target.width}x${this.target.height}|${meshKey}`
-    if (key === this.cacheKey) return
+    if (key === this.cacheKey) {
+      return
+    }
     this.cacheKey = key
 
     this.overrideMaterial.uniforms.uFar.value = camera.far
@@ -140,7 +142,10 @@ export class OcclusionDepthPass {
    * the depth pass rendered nothing — the whole occlusion test is then a
    * no-op (everything reads as `far`, so nothing is ever rejected).
    */
-  debugStats(renderer: THREE.WebGLRenderer, far: number): {
+  debugStats(
+    renderer: THREE.WebGLRenderer,
+    far: number
+  ): {
     width: number
     height: number
     coverage: number
@@ -158,11 +163,17 @@ export class OcclusionDepthPass {
     let max = -Infinity
     for (let i = 0; i < buf.length; i += 4) {
       const v = THREE.DataUtils.fromHalfFloat(buf[i])
-      if (v >= 0.999) continue
+      if (v >= 0.999) {
+        continue
+      }
       covered++
       const d = v * far
-      if (d < min) min = d
-      if (d > max) max = d
+      if (d < min) {
+        min = d
+      }
+      if (d > max) {
+        max = d
+      }
     }
     return {
       width,
@@ -191,20 +202,26 @@ export class OcclusionDepthPass {
 
   private hideEverythingElse(scene: THREE.Scene, keep: Set<THREE.Object3D>): void {
     scene.traverse((obj) => {
-      if (!obj.visible || keep.has(obj)) return
+      if (!obj.visible || keep.has(obj)) {
+        return
+      }
       const renderable =
         (obj as THREE.Mesh).isMesh ||
         (obj as THREE.Line).isLine ||
         (obj as THREE.Points).isPoints ||
         (obj as THREE.Sprite).isSprite
-      if (!renderable) return
+      if (!renderable) {
+        return
+      }
       obj.visible = false
       this.hidden.push(obj)
     })
   }
 
   private restoreHidden(): void {
-    for (const obj of this.hidden) obj.visible = true
+    for (const obj of this.hidden) {
+      obj.visible = true
+    }
     this.hidden.length = 0
   }
 

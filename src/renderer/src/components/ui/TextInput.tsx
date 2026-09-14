@@ -84,9 +84,7 @@ export default function TextInput(props: TextInputProps) {
       </Show>
 
       <Show when={props.suffix}>
-        <div class="pr-2 shrink-0 flex items-center">
-          {props.suffix}
-        </div>
+        <div class="pr-2 shrink-0 flex items-center">{props.suffix}</div>
       </Show>
     </div>
   )

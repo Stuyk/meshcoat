@@ -1,21 +1,9 @@
 import { createSignal, createMemo, Show, For } from 'solid-js'
 import { Modal, Button, SearchInput, Label } from './ui'
-import {
-  brushPresets,
-  type AbrBrushPreset
-} from '../paint/brushPresets'
-import {
-  TrashIcon,
-  UploadIcon,
-  FolderOpenIcon,
-  SparklesIcon,
-  LayersPlusIcon
-} from './icons'
+import { brushPresets, type AbrBrushPreset } from '../paint/brushPresets'
+import { TrashIcon, UploadIcon, FolderOpenIcon, SparklesIcon, LayersPlusIcon } from './icons'
 
-export default function BrushManagerModal(props: {
-  isOpen: boolean
-  onClose: () => void
-}) {
+export default function BrushManagerModal(props: { isOpen: boolean; onClose: () => void }) {
   let fileInputRef: HTMLInputElement | undefined
   const [selectedPackName, setSelectedPackName] = createSignal<string>('All')
   const [searchQuery, setSearchQuery] = createSignal<string>('')
@@ -23,7 +11,6 @@ export default function BrushManagerModal(props: {
   const [isImporting, setIsImporting] = createSignal(false)
   const [importStatus, setImportStatus] = createSignal<string | null>(null)
 
-  // Filtered packs
   const packs = () => brushPresets.packs()
 
   // All brushes combined
@@ -41,9 +28,8 @@ export default function BrushManagerModal(props: {
     const q = searchQuery().trim().toLowerCase()
     const pack = selectedPackName()
 
-    let list = pack === 'All'
-      ? allBrushes()
-      : packs().find((p) => p.packName === pack)?.brushes ?? []
+    let list =
+      pack === 'All' ? allBrushes() : (packs().find((p) => p.packName === pack)?.brushes ?? [])
 
     if (q) {
       list = list.filter((b) => b.name.toLowerCase().includes(q))
@@ -52,7 +38,9 @@ export default function BrushManagerModal(props: {
   })
 
   async function handleFileInput(files: FileList | null): Promise<void> {
-    if (!files || files.length === 0) return
+    if (!files || files.length === 0) {
+      return
+    }
     setIsImporting(true)
     setImportStatus(`Loading ${files.length} brush file(s)...`)
     try {
@@ -71,7 +59,9 @@ export default function BrushManagerModal(props: {
       setTimeout(() => setImportStatus(null), 3000)
     } finally {
       setIsImporting(false)
-      if (fileInputRef) fileInputRef.value = ''
+      if (fileInputRef) {
+        fileInputRef.value = ''
+      }
     }
   }
 
@@ -81,7 +71,9 @@ export default function BrushManagerModal(props: {
         filters: [{ name: 'Photoshop Brushes (*.abr)', extensions: ['abr'] }],
         multi: true
       })
-      if (!paths || paths.length === 0) return
+      if (!paths || paths.length === 0) {
+        return
+      }
       setIsImporting(true)
       setImportStatus(`Importing ${paths.length} file(s)...`)
       for (const p of paths) {
@@ -125,11 +117,7 @@ export default function BrushManagerModal(props: {
             Reset Round Tip
           </Button>
           <div class="flex items-center gap-2">
-            <Button
-              variant="primary"
-              onClick={handleNativePick}
-              disabled={isImporting()}
-            >
+            <Button variant="primary" onClick={handleNativePick} disabled={isImporting()}>
               <UploadIcon size={14} />
               <span>Import .ABR</span>
             </Button>
@@ -172,7 +160,9 @@ export default function BrushManagerModal(props: {
         {/* Left Sidebar: Packs List */}
         <div class="w-56 flex flex-col bg-zinc-950/50 border border-zinc-800/80 rounded-xl overflow-hidden flex-shrink-0">
           <div class="flex items-center justify-between px-3 py-2 border-b border-zinc-800/80 bg-zinc-900/40">
-            <Label uppercase badge={packs().length}>Packs</Label>
+            <Label uppercase badge={packs().length}>
+              Packs
+            </Label>
           </div>
 
           <div class="flex-1 overflow-y-auto p-1.5 space-y-1">
@@ -186,9 +176,7 @@ export default function BrushManagerModal(props: {
               onClick={() => setSelectedPackName('All')}
             >
               <span>All Brushes</span>
-              <span class="font-mono text-[10px] text-zinc-500">
-                {allBrushes().length}
-              </span>
+              <span class="font-mono text-[10px] text-zinc-500">{allBrushes().length}</span>
             </button>
 
             <For each={packs()}>
@@ -243,9 +231,7 @@ export default function BrushManagerModal(props: {
             onClick={() => fileInputRef?.click()}
           >
             <FolderOpenIcon size={16} class="mx-auto text-zinc-500 mb-1" />
-            <span class="text-[10px] text-zinc-400 block font-medium">
-              Drop .ABR file here
-            </span>
+            <span class="text-[10px] text-zinc-400 block font-medium">Drop .ABR file here</span>
             <span class="text-[9px] text-zinc-600 block">or click to browse</span>
           </div>
         </div>
@@ -266,9 +252,7 @@ export default function BrushManagerModal(props: {
                   <div class="p-3 rounded-md bg-zinc-900 text-zinc-500 mb-3">
                     <LayersPlusIcon size={28} />
                   </div>
-                  <span class="text-xs font-semibold text-zinc-300 mb-1">
-                    No brushes found
-                  </span>
+                  <span class="text-xs font-semibold text-zinc-300 mb-1">No brushes found</span>
                   <span class="text-[11px] text-zinc-500 max-w-xs">
                     {searchQuery()
                       ? `No brushes match "${searchQuery()}".`

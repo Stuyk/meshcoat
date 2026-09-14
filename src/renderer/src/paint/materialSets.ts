@@ -14,18 +14,22 @@ import type { PaintChannel } from './channels'
  * `_BaseColor` is matched before `_Base` would be. Deliberately generous:
  * Substance, Quixel, Poliigon, ambientCG and Blender exports all disagree.
  */
-const CHANNEL_SUFFIXES: { channel: PaintChannel | 'ao' | 'height' | 'orm'; patterns: string[] }[] = [
-  {
-    channel: 'baseColor',
-    patterns: ['basecolor', 'base_color', 'albedo', 'diffuse', 'color', 'col', 'diff', 'bc']
-  },
-  { channel: 'roughness', patterns: ['roughness', 'rough', 'rgh'] },
-  { channel: 'metalness', patterns: ['metallic', 'metalness', 'metal', 'mtl'] },
-  { channel: 'normal', patterns: ['normalgl', 'normal_gl', 'normaldx', 'normal_dx', 'normal', 'nrm', 'nor'] },
-  { channel: 'ao', patterns: ['ambientocclusion', 'ambient_occlusion', 'occlusion', 'ao'] },
-  { channel: 'height', patterns: ['displacement', 'height', 'disp', 'bump'] },
-  { channel: 'orm', patterns: ['orm', 'arm', 'occlusionroughnessmetallic', 'mro'] }
-]
+const CHANNEL_SUFFIXES: { channel: PaintChannel | 'ao' | 'height' | 'orm'; patterns: string[] }[] =
+  [
+    {
+      channel: 'baseColor',
+      patterns: ['basecolor', 'base_color', 'albedo', 'diffuse', 'color', 'col', 'diff', 'bc']
+    },
+    { channel: 'roughness', patterns: ['roughness', 'rough', 'rgh'] },
+    { channel: 'metalness', patterns: ['metallic', 'metalness', 'metal', 'mtl'] },
+    {
+      channel: 'normal',
+      patterns: ['normalgl', 'normal_gl', 'normaldx', 'normal_dx', 'normal', 'nrm', 'nor']
+    },
+    { channel: 'ao', patterns: ['ambientocclusion', 'ambient_occlusion', 'occlusion', 'ao'] },
+    { channel: 'height', patterns: ['displacement', 'height', 'disp', 'bump'] },
+    { channel: 'orm', patterns: ['orm', 'arm', 'occlusionroughnessmetallic', 'mro'] }
+  ]
 
 /** A map slot a set can carry. AO, height, and ORM are recognised. */
 export type MaterialMapSlot = PaintChannel | 'ao' | 'height' | 'orm'
@@ -61,20 +65,28 @@ function stripExtension(name: string): string {
  * with no suffix is a texture named "metal plate", not a metalness map, and
  * matching anywhere in the name would get that wrong constantly.
  */
-export function parseChannelSuffix(path: string): { stem: string; channel: MaterialMapSlot } | null {
+export function parseChannelSuffix(
+  path: string
+): { stem: string; channel: MaterialMapSlot } | null {
   const base = stripExtension(fileName(path))
   // Separator before the suffix: _ - . or a space, or camelCase (RockBaseColor).
   const match = /^(.*?)[\s._-]*([A-Za-z]+)$/.exec(base)
-  if (!match) return null
+  if (!match) {
+    return null
+  }
 
   const [, head, tail] = match
   const tailKey = tail.toLowerCase()
   for (const entry of CHANNEL_SUFFIXES) {
     for (const pattern of entry.patterns) {
-      if (tailKey !== pattern.replace(/[_\s-]/g, '')) continue
+      if (tailKey !== pattern.replace(/[_\s-]/g, '')) {
+        continue
+      }
       const stem = head.replace(/[\s._-]+$/, '')
       // A suffix with nothing in front of it ("normal.png") names no material.
-      if (!stem) return null
+      if (!stem) {
+        return null
+      }
       return { stem, channel: entry.channel }
     }
   }
@@ -98,7 +110,10 @@ function tidyName(stem: string): string {
  * therefore need at least two recognised maps.
  */
 export function groupMaterialSets(paths: string[]): { sets: MaterialSet[]; loose: string[] } {
-  const grouped = new Map<string, { stem: string; maps: Partial<Record<MaterialMapSlot, string>>; paths: string[] }>()
+  const grouped = new Map<
+    string,
+    { stem: string; maps: Partial<Record<MaterialMapSlot, string>>; paths: string[] }
+  >()
   const loose: string[] = []
 
   for (const path of paths) {

@@ -16,11 +16,109 @@ import {
   ChevronDownIcon
 } from './icons'
 import { DEFAULT_TEXTURE_SIZE, type TextureSize } from '../paint/paintEngine'
-import { parseChannelSuffix } from '../paint/materialSets'
+import { parseChannelSuffix, type MaterialMapSlot } from '../paint/materialSets'
 import { loadModel } from '../viewport/modelLoader'
 import type { InitialPbrTextures, InitialTexturePayload } from '../viewport/Viewport'
 
 type RecentEntry = Awaited<ReturnType<typeof window.api.getRecentProjects>>[number]
+
+/** The only channels an InitialPbrTextures map actually holds — parseChannelSuffix also reports 'ao'/'height', which this wizard doesn't collect. */
+const PBR_SLOT_KEYS: readonly (keyof InitialPbrTextures)[] = [
+  'baseColor',
+  'roughness',
+  'metalness',
+  'normal',
+  'orm'
+]
+
+function hasAnyChannel(textures: InitialPbrTextures): boolean {
+  return PBR_SLOT_KEYS.some((key) => !!textures[key])
+}
+
+/** Fills `targets[parsed.channel]` with `filePath` if that's a slot this wizard collects and it isn't already filled. */
+function assignChannelIfEmpty(
+  parsed: { channel: MaterialMapSlot },
+  filePath: string,
+  targets: InitialPbrTextures
+): void {
+  const key = parsed.channel as keyof InitialPbrTextures
+  if (!PBR_SLOT_KEYS.includes(key) || targets[key]) {
+    return
+  }
+  targets[key] = filePath
+}
+
+/** Every channel among `files` whose stem satisfies `matchesStem`, first match per channel wins. */
+function detectMatchingTextures(
+  files: string[],
+  matchesStem: (stem: string) => boolean
+): InitialPbrTextures {
+  const detected: InitialPbrTextures = {}
+  for (const filePath of files) {
+    const parsed = parseChannelSuffix(filePath)
+    if (!parsed || !matchesStem(parsed.stem.toLowerCase())) {
+      continue
+    }
+    assignChannelIfEmpty(parsed, filePath, detected)
+  }
+  return detected
+}
+
+function matchesModelStem(stem: string, modelStem: string): boolean {
+  return (
+    stem === modelStem ||
+    modelStem.startsWith(stem) ||
+    stem.startsWith(modelStem) ||
+    stem.replace(/[-_]/g, '') === modelStem.replace(/[-_]/g, '')
+  )
+}
+
+function matchesPieceStem(stem: string, pieceName: string, cleanPieceName: string): boolean {
+  const cleanStem = stem.replace(/[^a-z0-9]/g, '')
+  return (
+    cleanStem.includes(cleanPieceName) ||
+    cleanPieceName.includes(cleanStem) ||
+    stem === pieceName.toLowerCase()
+  )
+}
+
+/** Per-piece texture detection (Pass 1): each piece name is matched independently against every file's stem. */
+function detectPerPieceTextures(
+  pieceNames: string[],
+  files: string[]
+): { detectedPieces: Record<string, InitialPbrTextures>; perPieceCount: number } {
+  const detectedPieces: Record<string, InitialPbrTextures> = {}
+  let perPieceCount = 0
+
+  for (const pieceName of pieceNames) {
+    const cleanPieceName = pieceName.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const pTextures = detectMatchingTextures(files, (stem) =>
+      matchesPieceStem(stem, pieceName, cleanPieceName)
+    )
+    if (!hasAnyChannel(pTextures)) {
+      continue
+    }
+    detectedPieces[pieceName] = pTextures
+    perPieceCount += PBR_SLOT_KEYS.filter((key) => !!pTextures[key]).length
+  }
+
+  return { detectedPieces, perPieceCount }
+}
+
+/** Fallback (Pass 3): when every texture in the folder shares one stem, they're assumed to belong to this one model regardless of name. */
+function detectSingleStemTextures(files: string[]): InitialPbrTextures {
+  const stems = new Set<string>()
+  for (const filePath of files) {
+    const parsed = parseChannelSuffix(filePath)
+    if (parsed) {
+      stems.add(parsed.stem.toLowerCase())
+    }
+  }
+  if (stems.size !== 1) {
+    return {}
+  }
+  return detectMatchingTextures(files, () => true)
+}
 
 const MODEL_EXTENSIONS = ['glb', 'gltf', 'obj', 'blend']
 const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp', 'tga']
@@ -71,7 +169,6 @@ export default function StartWizardModal(props: StartWizardModalProps) {
   // Texture library folder (optional shelf preload)
   const [textureFolderPath, setTextureFolderPath] = createSignal<string | null>(null)
 
-  // Canvas resolution
   const [textureSize, setTextureSize] = createSignal<TextureSize>(DEFAULT_TEXTURE_SIZE)
   const [primitiveSize, setPrimitiveSize] = createSignal<TextureSize>(DEFAULT_TEXTURE_SIZE)
 
@@ -146,7 +243,9 @@ export default function StartWizardModal(props: StartWizardModalProps) {
   }
 
   function handleUserClose(): void {
-    if (isLoading()) return
+    if (isLoading()) {
+      return
+    }
     resetForm()
     props.onClose()
   }
@@ -175,11 +274,17 @@ export default function StartWizardModal(props: StartWizardModalProps) {
 
   function getPieceMapCount(name: string): number {
     const tex = pieceTextures()[name]
-    if (!tex) return 0
+    if (!tex) {
+      return 0
+    }
     return Object.values(tex).filter(Boolean).length
   }
 
-  function setPieceChannel(name: string, channel: keyof InitialPbrTextures, path: string | null): void {
+  function setPieceChannel(
+    name: string,
+    channel: keyof InitialPbrTextures,
+    path: string | null
+  ): void {
     setPieceTextures((prev) => ({
       ...prev,
       [name]: {
@@ -212,8 +317,7 @@ export default function StartWizardModal(props: StartWizardModalProps) {
   const activeNormal = () =>
     isPerPieceMode() ? getPieceTextures(currentPieceName()).normal : normalPath()
 
-  const activeOrm = () =>
-    isPerPieceMode() ? getPieceTextures(currentPieceName()).orm : ormPath()
+  const activeOrm = () => (isPerPieceMode() ? getPieceTextures(currentPieceName()).orm : ormPath())
 
   const activeBaseColorFilename = () => activeBaseColor()?.split(/[/\\]/).pop() ?? ''
   const activeRoughnessFilename = () => activeRoughness()?.split(/[/\\]/).pop() ?? ''
@@ -225,11 +329,17 @@ export default function StartWizardModal(props: StartWizardModalProps) {
     if (isPerPieceMode()) {
       setPieceChannel(currentPieceName(), slot, path)
     } else {
-      if (slot === 'baseColor') setBaseColorPath(path)
-      else if (slot === 'roughness') setRoughnessPath(path)
-      else if (slot === 'metalness') setMetalnessPath(path)
-      else if (slot === 'normal') setNormalPath(path)
-      else if (slot === 'orm') setOrmPath(path)
+      if (slot === 'baseColor') {
+        setBaseColorPath(path)
+      } else if (slot === 'roughness') {
+        setRoughnessPath(path)
+      } else if (slot === 'metalness') {
+        setMetalnessPath(path)
+      } else if (slot === 'normal') {
+        setNormalPath(path)
+      } else if (slot === 'orm') {
+        setOrmPath(path)
+      }
     }
   }
 
@@ -273,7 +383,9 @@ export default function StartWizardModal(props: StartWizardModalProps) {
 
   async function scanFolderForTextures(modelFilePath: string, pieceNames: string[]): Promise<void> {
     const slash = Math.max(modelFilePath.lastIndexOf('/'), modelFilePath.lastIndexOf('\\'))
-    if (slash < 0) return
+    if (slash < 0) {
+      return
+    }
     const folder = modelFilePath.slice(0, slash)
     const fullFileName = modelFilePath.slice(slash + 1)
     const dot = fullFileName.lastIndexOf('.')
@@ -281,137 +393,74 @@ export default function StartWizardModal(props: StartWizardModalProps) {
 
     try {
       const files = await window.api.listTexturesInFolder(folder)
-      if (!files || files.length === 0) return
+      if (!files || files.length === 0) {
+        return
+      }
 
       // Pass 1: Multi-component matching (if model has > 1 piece)
       if (pieceNames.length > 1) {
-        const detectedPieces: Record<string, InitialPbrTextures> = {}
-        let perPieceCount = 0
-
-        for (const pName of pieceNames) {
-          const cleanPName = pName.toLowerCase().replace(/[^a-z0-9]/g, '')
-          const pTextures: InitialPbrTextures = {}
-
-          for (const filePath of files) {
-            const parsed = parseChannelSuffix(filePath)
-            if (!parsed) continue
-
-            const cleanStem = parsed.stem.toLowerCase().replace(/[^a-z0-9]/g, '')
-            const matchesPiece =
-              cleanStem.includes(cleanPName) ||
-              cleanPName.includes(cleanStem) ||
-              parsed.stem.toLowerCase() === pName.toLowerCase()
-
-            if (matchesPiece) {
-              if (parsed.channel === 'baseColor' && !pTextures.baseColor) {
-                pTextures.baseColor = filePath
-                perPieceCount++
-              } else if (parsed.channel === 'roughness' && !pTextures.roughness) {
-                pTextures.roughness = filePath
-                perPieceCount++
-              } else if (parsed.channel === 'metalness' && !pTextures.metalness) {
-                pTextures.metalness = filePath
-                perPieceCount++
-              } else if (parsed.channel === 'normal' && !pTextures.normal) {
-                pTextures.normal = filePath
-                perPieceCount++
-              } else if (parsed.channel === 'orm' && !pTextures.orm) {
-                pTextures.orm = filePath
-                perPieceCount++
-              }
-            }
-          }
-
-          if (Object.keys(pTextures).length > 0) {
-            detectedPieces[pName] = pTextures
-          }
-        }
-
-        if (perPieceCount > 0) {
-          setPieceTextures(detectedPieces)
-          setMappingMode('per-piece')
-          setAutoDetectedCount(perPieceCount)
-          setAutoDetectedPiecesCount(Object.keys(detectedPieces).length)
+        const applied = applyDetectedPieceTextures(detectPerPieceTextures(pieceNames, files))
+        if (applied) {
           return
         }
       }
 
       // Pass 2: Shared texture set matching model stem
-      let detectedBaseColor: string | null = null
-      let detectedRoughness: string | null = null
-      let detectedMetalness: string | null = null
-      let detectedNormal: string | null = null
-      let detectedOrm: string | null = null
-
-      for (const filePath of files) {
-        const parsed = parseChannelSuffix(filePath)
-        if (!parsed) continue
-
-        const pStem = parsed.stem.toLowerCase()
-        const isMatch =
-          pStem === modelStem ||
-          modelStem.startsWith(pStem) ||
-          pStem.startsWith(modelStem) ||
-          pStem.replace(/[-_]/g, '') === modelStem.replace(/[-_]/g, '')
-
-        if (isMatch) {
-          if (parsed.channel === 'baseColor' && !detectedBaseColor) detectedBaseColor = filePath
-          else if (parsed.channel === 'roughness' && !detectedRoughness) detectedRoughness = filePath
-          else if (parsed.channel === 'metalness' && !detectedMetalness) detectedMetalness = filePath
-          else if (parsed.channel === 'normal' && !detectedNormal) detectedNormal = filePath
-          else if (parsed.channel === 'orm' && !detectedOrm) detectedOrm = filePath
-        }
+      let detected = detectMatchingTextures(files, (stem) => matchesModelStem(stem, modelStem))
+      // Pass 3: If nothing matched the model's own name, fall back to
+      // whatever single stem the whole folder agrees on.
+      if (!hasAnyChannel(detected)) {
+        detected = detectSingleStemTextures(files)
       }
 
-      // Pass 3: If single stem in folder
-      if (!detectedBaseColor && !detectedRoughness && !detectedMetalness && !detectedNormal && !detectedOrm) {
-        const stems = new Set<string>()
-        for (const filePath of files) {
-          const parsed = parseChannelSuffix(filePath)
-          if (parsed) stems.add(parsed.stem.toLowerCase())
-        }
-        if (stems.size === 1) {
-          for (const filePath of files) {
-            const parsed = parseChannelSuffix(filePath)
-            if (!parsed) continue
-            if (parsed.channel === 'baseColor' && !detectedBaseColor) detectedBaseColor = filePath
-            else if (parsed.channel === 'roughness' && !detectedRoughness) detectedRoughness = filePath
-            else if (parsed.channel === 'metalness' && !detectedMetalness) detectedMetalness = filePath
-            else if (parsed.channel === 'normal' && !detectedNormal) detectedNormal = filePath
-            else if (parsed.channel === 'orm' && !detectedOrm) detectedOrm = filePath
-          }
-        }
-      }
-
-      let count = 0
-      if (detectedBaseColor && !baseColorPath()) {
-        setBaseColorPath(detectedBaseColor)
-        count++
-      }
-      if (detectedRoughness && !roughnessPath()) {
-        setRoughnessPath(detectedRoughness)
-        count++
-      }
-      if (detectedMetalness && !metalnessPath()) {
-        setMetalnessPath(detectedMetalness)
-        count++
-      }
-      if (detectedNormal && !normalPath()) {
-        setNormalPath(detectedNormal)
-        count++
-      }
-      if (detectedOrm && !ormPath()) {
-        setOrmPath(detectedOrm)
-        count++
-      }
-
-      if (count > 0) {
-        setAutoDetectedCount(count)
-        setAutoDetectedPiecesCount(0)
-        setMappingMode('shared')
-      }
+      applyDetectedSharedTextures(detected)
     } catch (err) {
       console.error('Failed to scan model folder for sibling textures:', err)
+    }
+  }
+
+  /** Publishes a per-piece detection result to the wizard's state; returns whether anything was actually found. */
+  function applyDetectedPieceTextures(result: {
+    detectedPieces: Record<string, InitialPbrTextures>
+    perPieceCount: number
+  }): boolean {
+    if (result.perPieceCount === 0) {
+      return false
+    }
+    setPieceTextures(result.detectedPieces)
+    setMappingMode('per-piece')
+    setAutoDetectedCount(result.perPieceCount)
+    setAutoDetectedPiecesCount(Object.keys(result.detectedPieces).length)
+    return true
+  }
+
+  /** Publishes a shared-map detection result to the wizard's state, skipping slots the artist already filled in by hand. */
+  function applyDetectedSharedTextures(detected: InitialPbrTextures): void {
+    let count = 0
+    if (detected.baseColor && !baseColorPath()) {
+      setBaseColorPath(detected.baseColor)
+      count++
+    }
+    if (detected.roughness && !roughnessPath()) {
+      setRoughnessPath(detected.roughness)
+      count++
+    }
+    if (detected.metalness && !metalnessPath()) {
+      setMetalnessPath(detected.metalness)
+      count++
+    }
+    if (detected.normal && !normalPath()) {
+      setNormalPath(detected.normal)
+      count++
+    }
+    if (detected.orm && !ormPath()) {
+      setOrmPath(detected.orm)
+      count++
+    }
+    if (count > 0) {
+      setAutoDetectedCount(count)
+      setAutoDetectedPiecesCount(0)
+      setMappingMode('shared')
     }
   }
 
@@ -487,7 +536,9 @@ export default function StartWizardModal(props: StartWizardModalProps) {
 
   async function handleOpenModel(): Promise<void> {
     const path = modelPath()
-    if (!path) return
+    if (!path) {
+      return
+    }
     setIsLoading(true)
     setError(null)
     try {
@@ -529,7 +580,9 @@ export default function StartWizardModal(props: StartWizardModalProps) {
 
   async function handleRestoreRecovery(): Promise<void> {
     const rec = recoveryData()
-    if (!rec) return
+    if (!rec) {
+      return
+    }
     setIsLoading(true)
     setError(null)
     try {
@@ -562,16 +615,24 @@ export default function StartWizardModal(props: StartWizardModalProps) {
       }
       return count
     }
-    return [baseColorPath(), roughnessPath(), metalnessPath(), normalPath(), ormPath()].filter(Boolean).length
+    return [baseColorPath(), roughnessPath(), metalnessPath(), normalPath(), ormPath()].filter(
+      Boolean
+    ).length
   }
 
   const formatTimeAgo = (time: number): string => {
     const diff = Math.max(0, Date.now() - time)
     const mins = Math.floor(diff / 60000)
-    if (mins < 1) return 'Just now'
-    if (mins < 60) return `${mins}m ago`
+    if (mins < 1) {
+      return 'Just now'
+    }
+    if (mins < 60) {
+      return `${mins}m ago`
+    }
     const hours = Math.floor(mins / 60)
-    if (hours < 24) return `${hours}h ago`
+    if (hours < 24) {
+      return `${hours}h ago`
+    }
     const days = Math.floor(hours / 24)
     return `${days}d ago`
   }
@@ -585,12 +646,22 @@ export default function StartWizardModal(props: StartWizardModalProps) {
       size="2xl"
       footer={
         <div class="flex items-center justify-between w-full">
-          <Button variant="ghost" onClick={browseProjectFile} disabled={isLoading()} class="text-xs">
+          <Button
+            variant="ghost"
+            onClick={browseProjectFile}
+            disabled={isLoading()}
+            class="text-xs"
+          >
             <FolderOpenIcon size={14} />
             <span>Open .meshcoat File...</span>
           </Button>
           <div class="flex items-center gap-2">
-            <Button variant="ghost" onClick={handleUserClose} disabled={isLoading()} class="text-xs">
+            <Button
+              variant="ghost"
+              onClick={handleUserClose}
+              disabled={isLoading()}
+              class="text-xs"
+            >
               Close
             </Button>
             <Show when={activeTab() === 'model'}>
@@ -619,7 +690,11 @@ export default function StartWizardModal(props: StartWizardModalProps) {
         <Show when={error()}>
           <div class="p-3 bg-red-950/60 border border-red-800 rounded-lg text-xs text-red-300 flex items-center justify-between">
             <span>{error()}</span>
-            <button type="button" onClick={() => setError(null)} class="text-red-400 hover:text-red-200 cursor-pointer">
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              class="text-red-400 hover:text-red-200 cursor-pointer"
+            >
               <XIcon size={14} />
             </button>
           </div>
@@ -642,7 +717,9 @@ export default function StartWizardModal(props: StartWizardModalProps) {
                   </Badge>
                 </div>
                 <span class="text-[11px] text-zinc-400">
-                  {recoveryData()?.layers !== undefined ? `${recoveryData()?.layers} layer(s) • ` : ''}
+                  {recoveryData()?.layers !== undefined
+                    ? `${recoveryData()?.layers} layer(s) • `
+                    : ''}
                   Saved {formatTimeAgo(recoveryData()!.timestamp)}
                 </span>
               </div>
@@ -651,7 +728,12 @@ export default function StartWizardModal(props: StartWizardModalProps) {
               <Button variant="ghost" size="xs" onClick={handleDiscardRecovery}>
                 Discard
               </Button>
-              <Button variant="primary" size="xs" onClick={handleRestoreRecovery} disabled={isLoading()}>
+              <Button
+                variant="primary"
+                size="xs"
+                onClick={handleRestoreRecovery}
+                disabled={isLoading()}
+              >
                 Restore Session
               </Button>
             </div>
@@ -669,7 +751,10 @@ export default function StartWizardModal(props: StartWizardModalProps) {
                 : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/40'
             }`}
           >
-            <CubeIcon size={14} class={activeTab() === 'model' ? 'text-blue-400' : 'text-zinc-500'} />
+            <CubeIcon
+              size={14}
+              class={activeTab() === 'model' ? 'text-blue-400' : 'text-zinc-500'}
+            />
             <span>Import 3D Model & PBR</span>
             <Show when={configuredPbrCount() > 0}>
               <Badge variant="primary" size="xs">
@@ -687,7 +772,10 @@ export default function StartWizardModal(props: StartWizardModalProps) {
                 : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/40'
             }`}
           >
-            <SparklesIcon size={14} class={activeTab() === 'primitives' ? 'text-blue-400' : 'text-zinc-500'} />
+            <SparklesIcon
+              size={14}
+              class={activeTab() === 'primitives' ? 'text-blue-400' : 'text-zinc-500'}
+            />
             <span>Quick Start Primitives</span>
           </button>
 
@@ -700,7 +788,10 @@ export default function StartWizardModal(props: StartWizardModalProps) {
                 : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/40'
             }`}
           >
-            <ClockIcon size={14} class={activeTab() === 'recents' ? 'text-blue-400' : 'text-zinc-500'} />
+            <ClockIcon
+              size={14}
+              class={activeTab() === 'recents' ? 'text-blue-400' : 'text-zinc-500'}
+            />
             <span>Recent Projects</span>
             <Show when={recents().length > 0}>
               <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-800 text-zinc-400 font-mono">
@@ -747,7 +838,9 @@ export default function StartWizardModal(props: StartWizardModalProps) {
                     </div>
                     <div class="flex flex-col min-w-0">
                       <div class="flex items-center gap-2">
-                        <span class="text-xs font-semibold text-zinc-200 truncate">{modelFilename()}</span>
+                        <span class="text-xs font-semibold text-zinc-200 truncate">
+                          {modelFilename()}
+                        </span>
                         <Show when={components().length > 0}>
                           <Badge variant="outline" size="xs">
                             {components().length} component{components().length > 1 ? 's' : ''}
@@ -785,8 +878,14 @@ export default function StartWizardModal(props: StartWizardModalProps) {
                   <div class="flex items-center gap-2">
                     <SparklesIcon size={13} class="text-emerald-400 shrink-0" />
                     <span>
-                      Auto-detected <strong>{autoDetectedCount()} PBR texture map{autoDetectedCount() > 1 ? 's' : ''}</strong>
-                      {autoDetectedPiecesCount() > 0 ? ` across ${autoDetectedPiecesCount()} components` : ' in model directory'}!
+                      Auto-detected{' '}
+                      <strong>
+                        {autoDetectedCount()} PBR texture map{autoDetectedCount() > 1 ? 's' : ''}
+                      </strong>
+                      {autoDetectedPiecesCount() > 0
+                        ? ` across ${autoDetectedPiecesCount()} components`
+                        : ' in model directory'}
+                      !
                     </span>
                   </div>
                   <button
@@ -820,7 +919,9 @@ export default function StartWizardModal(props: StartWizardModalProps) {
                       }`}
                     >
                       <span class="text-xs font-mono">{SIZE_DESCRIPTIONS[sz].label}</span>
-                      <span class="text-[9px] text-zinc-500 truncate">{SIZE_DESCRIPTIONS[sz].desc}</span>
+                      <span class="text-[9px] text-zinc-500 truncate">
+                        {SIZE_DESCRIPTIONS[sz].desc}
+                      </span>
                     </button>
                   )
                 })}
@@ -850,372 +951,464 @@ export default function StartWizardModal(props: StartWizardModalProps) {
               </button>
 
               <Show when={showAdvanced()}>
-            {/* Step 2: PBR Texture Channels & Multi-Component Mapping */}
-            <div class="flex flex-col gap-3 p-3.5 rounded-xl border border-zinc-800 bg-zinc-900/40">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <span class="text-xs font-semibold text-zinc-200">Existing PBR Maps</span>
-                  <span class="text-[10px] text-zinc-500">(Base layer map assignments)</span>
-                </div>
-                <Show when={configuredPbrCount() > 0}>
-                  <button
-                    type="button"
-                    onClick={clearPbrMaps}
-                    class="text-[10px] text-zinc-500 hover:text-zinc-300 cursor-pointer"
-                  >
-                    Clear All Maps
-                  </button>
-                </Show>
-              </div>
-
-              {/* Multi-Component Mode Switcher & Component Selector */}
-              <Show when={components().length > 1}>
-                <div class="flex flex-col gap-2.5 p-3 rounded-lg bg-zinc-950/70 border border-zinc-800">
-                  <div class="flex items-center justify-between gap-3">
-                    <div class="flex items-center gap-2 min-w-0">
-                      <LayersIcon size={14} class="text-blue-400 shrink-0" />
-                      <span class="text-xs font-semibold text-zinc-200 truncate">
-                        Multi-Component Model ({components().length} Pieces)
-                      </span>
-                    </div>
-                    <div class="flex items-center gap-1 bg-zinc-900 p-0.5 rounded-lg border border-zinc-800 text-[11px] shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => setMappingMode('shared')}
-                        class={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
-                          mappingMode() === 'shared'
-                            ? 'bg-blue-600/30 text-blue-300 font-semibold border border-blue-500/40'
-                            : 'text-zinc-400 hover:text-zinc-200'
-                        }`}
-                      >
-                        Shared Texture Map (Atlas)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setMappingMode('per-piece')}
-                        class={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
-                          mappingMode() === 'per-piece'
-                            ? 'bg-blue-600/30 text-blue-300 font-semibold border border-blue-500/40'
-                            : 'text-zinc-400 hover:text-zinc-200'
-                        }`}
-                      >
-                        Per-Component Maps
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Mode explanation */}
-                  <Show when={mappingMode() === 'shared'}>
-                    <p class="text-[11px] text-zinc-400">
-                      The textures below will be mapped across all <strong>{components().length} pieces</strong> simultaneously (ideal when model pieces share a single UV atlas image).
-                    </p>
-                  </Show>
-
-                  {/* Per-piece component selector pills */}
-                  <Show when={mappingMode() === 'per-piece'}>
-                    <div class="flex flex-col gap-1.5 pt-1">
-                      <div class="flex items-center justify-between">
-                        <span class="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">
-                          Select Component to Configure:
-                        </span>
-                        <Show when={getPieceMapCount(currentPieceName()) > 0}>
-                          <button
-                            type="button"
-                            onClick={copyCurrentPieceToAll}
-                            class="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-200 cursor-pointer"
-                            title="Apply this component's textures to all other components"
-                          >
-                            <CopyIcon size={11} />
-                            <span>Copy to all components</span>
-                          </button>
-                        </Show>
-                      </div>
-
-                      <div class="flex items-center gap-1.5 overflow-x-auto pb-1">
-                        <For each={components()}>
-                          {(name, index) => {
-                            const count = getPieceMapCount(name)
-                            const isSelected = () => selectedPieceIndex() === index()
-                            return (
-                              <button
-                                type="button"
-                                onClick={() => setSelectedPieceIndex(index())}
-                                class={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-all shrink-0 cursor-pointer ${
-                                  isSelected()
-                                    ? 'bg-blue-600 text-white font-semibold shadow-sm'
-                                    : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800'
-                                }`}
-                              >
-                                <span class="truncate max-w-[120px]">{name}</span>
-                                <span
-                                  class={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                                    isSelected()
-                                      ? 'bg-blue-800 text-blue-200'
-                                      : count > 0
-                                        ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/60'
-                                        : 'bg-zinc-800 text-zinc-500'
-                                  }`}
-                                >
-                                  {count > 0 ? `${count} map${count > 1 ? 's' : ''}` : 'empty'}
-                                </span>
-                              </button>
-                            )
-                          }}
-                        </For>
-                      </div>
-                    </div>
-                  </Show>
-                </div>
-              </Show>
-
-              {/* Subheader when configuring a specific component */}
-              <Show when={isPerPieceMode()}>
-                <div class="flex items-center justify-between px-1 text-xs">
-                  <span class="text-zinc-300 font-medium">
-                    Configuring maps for component: <strong class="text-blue-300 font-semibold">{currentPieceName()}</strong>
-                  </span>
-                  <span class="text-[11px] text-zinc-500 font-mono">
-                    {getPieceMapCount(currentPieceName())} channel map{getPieceMapCount(currentPieceName()) !== 1 ? 's' : ''} assigned
-                  </span>
-                </div>
-              </Show>
-
-              {/* Texture Channel Grid */}
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {/* 1. Base Color */}
-                <div class="flex flex-col gap-1 p-2 rounded-lg bg-zinc-950/50 border border-zinc-850">
-                  <div class="flex items-center justify-between">
-                    <span class="text-[11px] font-medium text-zinc-300">Base Color / Albedo</span>
-                    <Badge variant={activeBaseColor() ? 'success' : 'default'} size="xs">
-                      {activeBaseColor() ? 'Assigned' : 'Empty'}
-                    </Badge>
-                  </div>
-                  <Show
-                    when={activeBaseColor()}
-                    fallback={
-                      <button
-                        type="button"
-                        onClick={() => browseTextureSlot('baseColor')}
-                        class="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded border border-dashed border-zinc-800 hover:border-zinc-700 bg-zinc-900/30 text-[11px] text-zinc-400 hover:text-zinc-200 cursor-pointer transition-all"
-                      >
-                        <ImagesIcon size={12} class="text-zinc-500" />
-                        <span>Browse Base Color...</span>
-                      </button>
-                    }
-                  >
-                    <div class="flex items-center justify-between gap-2 p-1 rounded bg-zinc-900/60 border border-zinc-800">
-                      <div class="flex items-center gap-2 min-w-0">
-                        <img
-                          src={window.api.assetUrl(activeBaseColor()!)}
-                          alt="Base Color Preview"
-                          class="w-7 h-7 rounded object-cover border border-zinc-750 shrink-0 bg-zinc-950"
-                        />
-                        <span class="text-[11px] text-zinc-200 truncate" title={activeBaseColorFilename()}>
-                          {activeBaseColorFilename()}
-                        </span>
-                      </div>
-                      <div class="flex items-center gap-1 shrink-0">
-                        <Button variant="ghost" size="xs" onClick={() => browseTextureSlot('baseColor')}>
-                          Change
-                        </Button>
-                        <button
-                          type="button"
-                          onClick={() => assignSlot('baseColor', null)}
-                          class="text-zinc-500 hover:text-zinc-300 p-0.5 cursor-pointer"
-                        >
-                          <XIcon size={12} />
-                        </button>
-                      </div>
-                    </div>
-                  </Show>
-                </div>
-
-                {/* 2. Roughness */}
-                <div class="flex flex-col gap-1 p-2 rounded-lg bg-zinc-950/50 border border-zinc-850">
-                  <div class="flex items-center justify-between">
-                    <span class="text-[11px] font-medium text-zinc-300">Roughness Map</span>
-                    <Badge variant={activeRoughness() ? 'success' : 'default'} size="xs">
-                      {activeRoughness() ? 'Assigned' : 'Empty'}
-                    </Badge>
-                  </div>
-                  <Show
-                    when={activeRoughness()}
-                    fallback={
-                      <button
-                        type="button"
-                        onClick={() => browseTextureSlot('roughness')}
-                        class="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded border border-dashed border-zinc-800 hover:border-zinc-700 bg-zinc-900/30 text-[11px] text-zinc-400 hover:text-zinc-200 cursor-pointer transition-all"
-                      >
-                        <ImagesIcon size={12} class="text-zinc-500" />
-                        <span>Browse Roughness...</span>
-                      </button>
-                    }
-                  >
-                    <div class="flex items-center justify-between gap-2 p-1 rounded bg-zinc-900/60 border border-zinc-800">
-                      <div class="flex items-center gap-2 min-w-0">
-                        <img
-                          src={window.api.assetUrl(activeRoughness()!)}
-                          alt="Roughness Preview"
-                          class="w-7 h-7 rounded object-cover border border-zinc-750 shrink-0 bg-zinc-950"
-                        />
-                        <span class="text-[11px] text-zinc-200 truncate" title={activeRoughnessFilename()}>
-                          {activeRoughnessFilename()}
-                        </span>
-                      </div>
-                      <div class="flex items-center gap-1 shrink-0">
-                        <Button variant="ghost" size="xs" onClick={() => browseTextureSlot('roughness')}>
-                          Change
-                        </Button>
-                        <button
-                          type="button"
-                          onClick={() => assignSlot('roughness', null)}
-                          class="text-zinc-500 hover:text-zinc-300 p-0.5 cursor-pointer"
-                        >
-                          <XIcon size={12} />
-                        </button>
-                      </div>
-                    </div>
-                  </Show>
-                </div>
-
-                {/* 3. Metalness */}
-                <div class="flex flex-col gap-1 p-2 rounded-lg bg-zinc-950/50 border border-zinc-850">
-                  <div class="flex items-center justify-between">
-                    <span class="text-[11px] font-medium text-zinc-300">Metalness Map</span>
-                    <Badge variant={activeMetalness() ? 'success' : 'default'} size="xs">
-                      {activeMetalness() ? 'Assigned' : 'Empty'}
-                    </Badge>
-                  </div>
-                  <Show
-                    when={activeMetalness()}
-                    fallback={
-                      <button
-                        type="button"
-                        onClick={() => browseTextureSlot('metalness')}
-                        class="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded border border-dashed border-zinc-800 hover:border-zinc-700 bg-zinc-900/30 text-[11px] text-zinc-400 hover:text-zinc-200 cursor-pointer transition-all"
-                      >
-                        <ImagesIcon size={12} class="text-zinc-500" />
-                        <span>Browse Metalness...</span>
-                      </button>
-                    }
-                  >
-                    <div class="flex items-center justify-between gap-2 p-1 rounded bg-zinc-900/60 border border-zinc-800">
-                      <div class="flex items-center gap-2 min-w-0">
-                        <img
-                          src={window.api.assetUrl(activeMetalness()!)}
-                          alt="Metalness Preview"
-                          class="w-7 h-7 rounded object-cover border border-zinc-750 shrink-0 bg-zinc-950"
-                        />
-                        <span class="text-[11px] text-zinc-200 truncate" title={activeMetalnessFilename()}>
-                          {activeMetalnessFilename()}
-                        </span>
-                      </div>
-                      <div class="flex items-center gap-1 shrink-0">
-                        <Button variant="ghost" size="xs" onClick={() => browseTextureSlot('metalness')}>
-                          Change
-                        </Button>
-                        <button
-                          type="button"
-                          onClick={() => assignSlot('metalness', null)}
-                          class="text-zinc-500 hover:text-zinc-300 p-0.5 cursor-pointer"
-                        >
-                          <XIcon size={12} />
-                        </button>
-                      </div>
-                    </div>
-                  </Show>
-                </div>
-
-                {/* 4. Normal Map */}
-                <div class="flex flex-col gap-1 p-2 rounded-lg bg-zinc-950/50 border border-zinc-850">
-                  <div class="flex items-center justify-between">
-                    <span class="text-[11px] font-medium text-zinc-300">Normal Map</span>
-                    <Badge variant={activeNormal() ? 'success' : 'default'} size="xs">
-                      {activeNormal() ? 'Assigned' : 'Empty'}
-                    </Badge>
-                  </div>
-                  <Show
-                    when={activeNormal()}
-                    fallback={
-                      <button
-                        type="button"
-                        onClick={() => browseTextureSlot('normal')}
-                        class="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded border border-dashed border-zinc-800 hover:border-zinc-700 bg-zinc-900/30 text-[11px] text-zinc-400 hover:text-zinc-200 cursor-pointer transition-all"
-                      >
-                        <ImagesIcon size={12} class="text-zinc-500" />
-                        <span>Browse Normal Map...</span>
-                      </button>
-                    }
-                  >
-                    <div class="flex items-center justify-between gap-2 p-1 rounded bg-zinc-900/60 border border-zinc-800">
-                      <div class="flex items-center gap-2 min-w-0">
-                        <img
-                          src={window.api.assetUrl(activeNormal()!)}
-                          alt="Normal Map Preview"
-                          class="w-7 h-7 rounded object-cover border border-zinc-750 shrink-0 bg-zinc-950"
-                        />
-                        <span class="text-[11px] text-zinc-200 truncate" title={activeNormalFilename()}>
-                          {activeNormalFilename()}
-                        </span>
-                      </div>
-                      <div class="flex items-center gap-1 shrink-0">
-                        <Button variant="ghost" size="xs" onClick={() => browseTextureSlot('normal')}>
-                          Change
-                        </Button>
-                        <button
-                          type="button"
-                          onClick={() => assignSlot('normal', null)}
-                          class="text-zinc-500 hover:text-zinc-300 p-0.5 cursor-pointer"
-                        >
-                          <XIcon size={12} />
-                        </button>
-                      </div>
-                    </div>
-                  </Show>
-                </div>
-
-                {/* 5. Packed ORM Map (Full width) */}
-                <div class="md:col-span-2 flex flex-col gap-1 p-2 rounded-lg bg-zinc-950/50 border border-zinc-850">
+                {/* Step 2: PBR Texture Channels & Multi-Component Mapping */}
+                <div class="flex flex-col gap-3 p-3.5 rounded-xl border border-zinc-800 bg-zinc-900/40">
                   <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2">
-                      <span class="text-[11px] font-medium text-zinc-300">Packed ORM Map (Occlusion / Roughness / Metallic)</span>
-                      <span class="text-[10px] text-zinc-500">Unpacks Green & Blue channels</span>
+                      <span class="text-xs font-semibold text-zinc-200">Existing PBR Maps</span>
+                      <span class="text-[10px] text-zinc-500">(Base layer map assignments)</span>
                     </div>
-                    <Badge variant={activeOrm() ? 'purple' : 'default'} size="xs">
-                      {activeOrm() ? 'Packed ORM' : 'Optional'}
-                    </Badge>
+                    <Show when={configuredPbrCount() > 0}>
+                      <button
+                        type="button"
+                        onClick={clearPbrMaps}
+                        class="text-[10px] text-zinc-500 hover:text-zinc-300 cursor-pointer"
+                      >
+                        Clear All Maps
+                      </button>
+                    </Show>
+                  </div>
+
+                  {/* Multi-Component Mode Switcher & Component Selector */}
+                  <Show when={components().length > 1}>
+                    <div class="flex flex-col gap-2.5 p-3 rounded-lg bg-zinc-950/70 border border-zinc-800">
+                      <div class="flex items-center justify-between gap-3">
+                        <div class="flex items-center gap-2 min-w-0">
+                          <LayersIcon size={14} class="text-blue-400 shrink-0" />
+                          <span class="text-xs font-semibold text-zinc-200 truncate">
+                            Multi-Component Model ({components().length} Pieces)
+                          </span>
+                        </div>
+                        <div class="flex items-center gap-1 bg-zinc-900 p-0.5 rounded-lg border border-zinc-800 text-[11px] shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setMappingMode('shared')}
+                            class={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                              mappingMode() === 'shared'
+                                ? 'bg-blue-600/30 text-blue-300 font-semibold border border-blue-500/40'
+                                : 'text-zinc-400 hover:text-zinc-200'
+                            }`}
+                          >
+                            Shared Texture Map (Atlas)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMappingMode('per-piece')}
+                            class={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                              mappingMode() === 'per-piece'
+                                ? 'bg-blue-600/30 text-blue-300 font-semibold border border-blue-500/40'
+                                : 'text-zinc-400 hover:text-zinc-200'
+                            }`}
+                          >
+                            Per-Component Maps
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Mode explanation */}
+                      <Show when={mappingMode() === 'shared'}>
+                        <p class="text-[11px] text-zinc-400">
+                          The textures below will be mapped across all{' '}
+                          <strong>{components().length} pieces</strong> simultaneously (ideal when
+                          model pieces share a single UV atlas image).
+                        </p>
+                      </Show>
+
+                      {/* Per-piece component selector pills */}
+                      <Show when={mappingMode() === 'per-piece'}>
+                        <div class="flex flex-col gap-1.5 pt-1">
+                          <div class="flex items-center justify-between">
+                            <span class="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">
+                              Select Component to Configure:
+                            </span>
+                            <Show when={getPieceMapCount(currentPieceName()) > 0}>
+                              <button
+                                type="button"
+                                onClick={copyCurrentPieceToAll}
+                                class="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-200 cursor-pointer"
+                                title="Apply this component's textures to all other components"
+                              >
+                                <CopyIcon size={11} />
+                                <span>Copy to all components</span>
+                              </button>
+                            </Show>
+                          </div>
+
+                          <div class="flex items-center gap-1.5 overflow-x-auto pb-1">
+                            <For each={components()}>
+                              {(name, index) => {
+                                const count = getPieceMapCount(name)
+                                const isSelected = () => selectedPieceIndex() === index()
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedPieceIndex(index())}
+                                    class={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-all shrink-0 cursor-pointer ${
+                                      isSelected()
+                                        ? 'bg-blue-600 text-white font-semibold shadow-sm'
+                                        : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800'
+                                    }`}
+                                  >
+                                    <span class="truncate max-w-[120px]">{name}</span>
+                                    <span
+                                      class={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                                        isSelected()
+                                          ? 'bg-blue-800 text-blue-200'
+                                          : count > 0
+                                            ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/60'
+                                            : 'bg-zinc-800 text-zinc-500'
+                                      }`}
+                                    >
+                                      {count > 0 ? `${count} map${count > 1 ? 's' : ''}` : 'empty'}
+                                    </span>
+                                  </button>
+                                )
+                              }}
+                            </For>
+                          </div>
+                        </div>
+                      </Show>
+                    </div>
+                  </Show>
+
+                  {/* Subheader when configuring a specific component */}
+                  <Show when={isPerPieceMode()}>
+                    <div class="flex items-center justify-between px-1 text-xs">
+                      <span class="text-zinc-300 font-medium">
+                        Configuring maps for component:{' '}
+                        <strong class="text-blue-300 font-semibold">{currentPieceName()}</strong>
+                      </span>
+                      <span class="text-[11px] text-zinc-500 font-mono">
+                        {getPieceMapCount(currentPieceName())} channel map
+                        {getPieceMapCount(currentPieceName()) !== 1 ? 's' : ''} assigned
+                      </span>
+                    </div>
+                  </Show>
+
+                  {/* Texture Channel Grid */}
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {/* 1. Base Color */}
+                    <div class="flex flex-col gap-1 p-2 rounded-lg bg-zinc-950/50 border border-zinc-850">
+                      <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-medium text-zinc-300">
+                          Base Color / Albedo
+                        </span>
+                        <Badge variant={activeBaseColor() ? 'success' : 'default'} size="xs">
+                          {activeBaseColor() ? 'Assigned' : 'Empty'}
+                        </Badge>
+                      </div>
+                      <Show
+                        when={activeBaseColor()}
+                        fallback={
+                          <button
+                            type="button"
+                            onClick={() => browseTextureSlot('baseColor')}
+                            class="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded border border-dashed border-zinc-800 hover:border-zinc-700 bg-zinc-900/30 text-[11px] text-zinc-400 hover:text-zinc-200 cursor-pointer transition-all"
+                          >
+                            <ImagesIcon size={12} class="text-zinc-500" />
+                            <span>Browse Base Color...</span>
+                          </button>
+                        }
+                      >
+                        <div class="flex items-center justify-between gap-2 p-1 rounded bg-zinc-900/60 border border-zinc-800">
+                          <div class="flex items-center gap-2 min-w-0">
+                            <img
+                              src={window.api.assetUrl(activeBaseColor()!)}
+                              alt="Base Color Preview"
+                              class="w-7 h-7 rounded object-cover border border-zinc-750 shrink-0 bg-zinc-950"
+                            />
+                            <span
+                              class="text-[11px] text-zinc-200 truncate"
+                              title={activeBaseColorFilename()}
+                            >
+                              {activeBaseColorFilename()}
+                            </span>
+                          </div>
+                          <div class="flex items-center gap-1 shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              onClick={() => browseTextureSlot('baseColor')}
+                            >
+                              Change
+                            </Button>
+                            <button
+                              type="button"
+                              onClick={() => assignSlot('baseColor', null)}
+                              class="text-zinc-500 hover:text-zinc-300 p-0.5 cursor-pointer"
+                            >
+                              <XIcon size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      </Show>
+                    </div>
+
+                    {/* 2. Roughness */}
+                    <div class="flex flex-col gap-1 p-2 rounded-lg bg-zinc-950/50 border border-zinc-850">
+                      <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-medium text-zinc-300">Roughness Map</span>
+                        <Badge variant={activeRoughness() ? 'success' : 'default'} size="xs">
+                          {activeRoughness() ? 'Assigned' : 'Empty'}
+                        </Badge>
+                      </div>
+                      <Show
+                        when={activeRoughness()}
+                        fallback={
+                          <button
+                            type="button"
+                            onClick={() => browseTextureSlot('roughness')}
+                            class="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded border border-dashed border-zinc-800 hover:border-zinc-700 bg-zinc-900/30 text-[11px] text-zinc-400 hover:text-zinc-200 cursor-pointer transition-all"
+                          >
+                            <ImagesIcon size={12} class="text-zinc-500" />
+                            <span>Browse Roughness...</span>
+                          </button>
+                        }
+                      >
+                        <div class="flex items-center justify-between gap-2 p-1 rounded bg-zinc-900/60 border border-zinc-800">
+                          <div class="flex items-center gap-2 min-w-0">
+                            <img
+                              src={window.api.assetUrl(activeRoughness()!)}
+                              alt="Roughness Preview"
+                              class="w-7 h-7 rounded object-cover border border-zinc-750 shrink-0 bg-zinc-950"
+                            />
+                            <span
+                              class="text-[11px] text-zinc-200 truncate"
+                              title={activeRoughnessFilename()}
+                            >
+                              {activeRoughnessFilename()}
+                            </span>
+                          </div>
+                          <div class="flex items-center gap-1 shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              onClick={() => browseTextureSlot('roughness')}
+                            >
+                              Change
+                            </Button>
+                            <button
+                              type="button"
+                              onClick={() => assignSlot('roughness', null)}
+                              class="text-zinc-500 hover:text-zinc-300 p-0.5 cursor-pointer"
+                            >
+                              <XIcon size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      </Show>
+                    </div>
+
+                    {/* 3. Metalness */}
+                    <div class="flex flex-col gap-1 p-2 rounded-lg bg-zinc-950/50 border border-zinc-850">
+                      <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-medium text-zinc-300">Metalness Map</span>
+                        <Badge variant={activeMetalness() ? 'success' : 'default'} size="xs">
+                          {activeMetalness() ? 'Assigned' : 'Empty'}
+                        </Badge>
+                      </div>
+                      <Show
+                        when={activeMetalness()}
+                        fallback={
+                          <button
+                            type="button"
+                            onClick={() => browseTextureSlot('metalness')}
+                            class="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded border border-dashed border-zinc-800 hover:border-zinc-700 bg-zinc-900/30 text-[11px] text-zinc-400 hover:text-zinc-200 cursor-pointer transition-all"
+                          >
+                            <ImagesIcon size={12} class="text-zinc-500" />
+                            <span>Browse Metalness...</span>
+                          </button>
+                        }
+                      >
+                        <div class="flex items-center justify-between gap-2 p-1 rounded bg-zinc-900/60 border border-zinc-800">
+                          <div class="flex items-center gap-2 min-w-0">
+                            <img
+                              src={window.api.assetUrl(activeMetalness()!)}
+                              alt="Metalness Preview"
+                              class="w-7 h-7 rounded object-cover border border-zinc-750 shrink-0 bg-zinc-950"
+                            />
+                            <span
+                              class="text-[11px] text-zinc-200 truncate"
+                              title={activeMetalnessFilename()}
+                            >
+                              {activeMetalnessFilename()}
+                            </span>
+                          </div>
+                          <div class="flex items-center gap-1 shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              onClick={() => browseTextureSlot('metalness')}
+                            >
+                              Change
+                            </Button>
+                            <button
+                              type="button"
+                              onClick={() => assignSlot('metalness', null)}
+                              class="text-zinc-500 hover:text-zinc-300 p-0.5 cursor-pointer"
+                            >
+                              <XIcon size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      </Show>
+                    </div>
+
+                    {/* 4. Normal Map */}
+                    <div class="flex flex-col gap-1 p-2 rounded-lg bg-zinc-950/50 border border-zinc-850">
+                      <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-medium text-zinc-300">Normal Map</span>
+                        <Badge variant={activeNormal() ? 'success' : 'default'} size="xs">
+                          {activeNormal() ? 'Assigned' : 'Empty'}
+                        </Badge>
+                      </div>
+                      <Show
+                        when={activeNormal()}
+                        fallback={
+                          <button
+                            type="button"
+                            onClick={() => browseTextureSlot('normal')}
+                            class="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded border border-dashed border-zinc-800 hover:border-zinc-700 bg-zinc-900/30 text-[11px] text-zinc-400 hover:text-zinc-200 cursor-pointer transition-all"
+                          >
+                            <ImagesIcon size={12} class="text-zinc-500" />
+                            <span>Browse Normal Map...</span>
+                          </button>
+                        }
+                      >
+                        <div class="flex items-center justify-between gap-2 p-1 rounded bg-zinc-900/60 border border-zinc-800">
+                          <div class="flex items-center gap-2 min-w-0">
+                            <img
+                              src={window.api.assetUrl(activeNormal()!)}
+                              alt="Normal Map Preview"
+                              class="w-7 h-7 rounded object-cover border border-zinc-750 shrink-0 bg-zinc-950"
+                            />
+                            <span
+                              class="text-[11px] text-zinc-200 truncate"
+                              title={activeNormalFilename()}
+                            >
+                              {activeNormalFilename()}
+                            </span>
+                          </div>
+                          <div class="flex items-center gap-1 shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              onClick={() => browseTextureSlot('normal')}
+                            >
+                              Change
+                            </Button>
+                            <button
+                              type="button"
+                              onClick={() => assignSlot('normal', null)}
+                              class="text-zinc-500 hover:text-zinc-300 p-0.5 cursor-pointer"
+                            >
+                              <XIcon size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      </Show>
+                    </div>
+
+                    {/* 5. Packed ORM Map (Full width) */}
+                    <div class="md:col-span-2 flex flex-col gap-1 p-2 rounded-lg bg-zinc-950/50 border border-zinc-850">
+                      <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                          <span class="text-[11px] font-medium text-zinc-300">
+                            Packed ORM Map (Occlusion / Roughness / Metallic)
+                          </span>
+                          <span class="text-[10px] text-zinc-500">
+                            Unpacks Green & Blue channels
+                          </span>
+                        </div>
+                        <Badge variant={activeOrm() ? 'purple' : 'default'} size="xs">
+                          {activeOrm() ? 'Packed ORM' : 'Optional'}
+                        </Badge>
+                      </div>
+                      <Show
+                        when={activeOrm()}
+                        fallback={
+                          <button
+                            type="button"
+                            onClick={() => browseTextureSlot('orm')}
+                            class="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded border border-dashed border-zinc-800 hover:border-zinc-700 bg-zinc-900/30 text-[11px] text-zinc-400 hover:text-zinc-200 cursor-pointer transition-all"
+                          >
+                            <ImagesIcon size={12} class="text-purple-400" />
+                            <span>Browse Packed ORM / ARM Texture...</span>
+                          </button>
+                        }
+                      >
+                        <div class="flex items-center justify-between gap-2 p-1 rounded bg-zinc-900/60 border border-zinc-800">
+                          <div class="flex items-center gap-2 min-w-0">
+                            <img
+                              src={window.api.assetUrl(activeOrm()!)}
+                              alt="ORM Map Preview"
+                              class="w-7 h-7 rounded object-cover border border-zinc-750 shrink-0 bg-zinc-950"
+                            />
+                            <span
+                              class="text-[11px] text-zinc-200 truncate"
+                              title={activeOrmFilename()}
+                            >
+                              {activeOrmFilename()}
+                            </span>
+                          </div>
+                          <div class="flex items-center gap-1 shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              onClick={() => browseTextureSlot('orm')}
+                            >
+                              Change
+                            </Button>
+                            <button
+                              type="button"
+                              onClick={() => assignSlot('orm', null)}
+                              class="text-zinc-500 hover:text-zinc-300 p-0.5 cursor-pointer"
+                            >
+                              <XIcon size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      </Show>
+                    </div>
+                  </div>
+                </div>
+                {/* Step 3: Texture Library Folder (Optional Preload) */}
+                <div class="flex flex-col gap-1.5 p-3 rounded-xl border border-zinc-800 bg-zinc-900/40">
+                  <div class="flex items-center justify-between">
+                    <span class="text-xs font-semibold text-zinc-200">
+                      Preload Texture Shelf Folder
+                    </span>
+                    <span class="text-[10px] text-zinc-500">Optional brush texture stamps</span>
                   </div>
                   <Show
-                    when={activeOrm()}
+                    when={textureFolderPath()}
                     fallback={
                       <button
                         type="button"
-                        onClick={() => browseTextureSlot('orm')}
-                        class="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded border border-dashed border-zinc-800 hover:border-zinc-700 bg-zinc-900/30 text-[11px] text-zinc-400 hover:text-zinc-200 cursor-pointer transition-all"
+                        onClick={browseTextureFolder}
+                        class="flex items-center justify-center gap-2 p-2 rounded-lg border border-dashed border-zinc-800 hover:border-zinc-700 bg-zinc-950/30 text-[11px] text-zinc-400 hover:text-zinc-200 cursor-pointer transition-all"
                       >
-                        <ImagesIcon size={12} class="text-purple-400" />
-                        <span>Browse Packed ORM / ARM Texture...</span>
+                        <FolderIcon size={13} class="text-zinc-500" />
+                        <span>Choose Texture Stamps / Materials Folder...</span>
                       </button>
                     }
                   >
-                    <div class="flex items-center justify-between gap-2 p-1 rounded bg-zinc-900/60 border border-zinc-800">
+                    <div class="flex items-center justify-between p-2 rounded-lg bg-zinc-950/60 border border-zinc-800">
                       <div class="flex items-center gap-2 min-w-0">
-                        <img
-                          src={window.api.assetUrl(activeOrm()!)}
-                          alt="ORM Map Preview"
-                          class="w-7 h-7 rounded object-cover border border-zinc-750 shrink-0 bg-zinc-950"
-                        />
-                        <span class="text-[11px] text-zinc-200 truncate" title={activeOrmFilename()}>
-                          {activeOrmFilename()}
+                        <FolderIcon size={14} class="text-amber-400 shrink-0" />
+                        {/* Folder name only: the full path is long, wraps the row
+                        and tells the artist nothing they don't already know. */}
+                        <span class="text-xs font-medium text-zinc-200 truncate">
+                          {folderDisplayName()}
                         </span>
                       </div>
                       <div class="flex items-center gap-1 shrink-0">
-                        <Button variant="ghost" size="xs" onClick={() => browseTextureSlot('orm')}>
+                        <Button variant="ghost" size="xs" onClick={browseTextureFolder}>
                           Change
                         </Button>
                         <button
                           type="button"
-                          onClick={() => assignSlot('orm', null)}
+                          onClick={() => setTextureFolderPath(null)}
                           class="text-zinc-500 hover:text-zinc-300 p-0.5 cursor-pointer"
                         >
                           <XIcon size={12} />
@@ -1224,52 +1417,8 @@ export default function StartWizardModal(props: StartWizardModalProps) {
                     </div>
                   </Show>
                 </div>
-              </div>
-            </div>
-            {/* Step 3: Texture Library Folder (Optional Preload) */}
-            <div class="flex flex-col gap-1.5 p-3 rounded-xl border border-zinc-800 bg-zinc-900/40">
-              <div class="flex items-center justify-between">
-                <span class="text-xs font-semibold text-zinc-200">Preload Texture Shelf Folder</span>
-                <span class="text-[10px] text-zinc-500">Optional brush texture stamps</span>
-              </div>
-              <Show
-                when={textureFolderPath()}
-                fallback={
-                  <button
-                    type="button"
-                    onClick={browseTextureFolder}
-                    class="flex items-center justify-center gap-2 p-2 rounded-lg border border-dashed border-zinc-800 hover:border-zinc-700 bg-zinc-950/30 text-[11px] text-zinc-400 hover:text-zinc-200 cursor-pointer transition-all"
-                  >
-                    <FolderIcon size={13} class="text-zinc-500" />
-                    <span>Choose Texture Stamps / Materials Folder...</span>
-                  </button>
-                }
-              >
-                <div class="flex items-center justify-between p-2 rounded-lg bg-zinc-950/60 border border-zinc-800">
-                  <div class="flex items-center gap-2 min-w-0">
-                    <FolderIcon size={14} class="text-amber-400 shrink-0" />
-                    {/* Folder name only: the full path is long, wraps the row
-                        and tells the artist nothing they don't already know. */}
-                    <span class="text-xs font-medium text-zinc-200 truncate">{folderDisplayName()}</span>
-                  </div>
-                  <div class="flex items-center gap-1 shrink-0">
-                    <Button variant="ghost" size="xs" onClick={browseTextureFolder}>
-                      Change
-                    </Button>
-                    <button
-                      type="button"
-                      onClick={() => setTextureFolderPath(null)}
-                      class="text-zinc-500 hover:text-zinc-300 p-0.5 cursor-pointer"
-                    >
-                      <XIcon size={12} />
-                    </button>
-                  </div>
-                </div>
               </Show>
             </div>
-              </Show>
-            </div>
-
           </div>
         </Show>
 
@@ -1278,7 +1427,8 @@ export default function StartWizardModal(props: StartWizardModalProps) {
           <div class="flex flex-col gap-4 max-h-[62vh] overflow-y-auto pr-1">
             <div class="flex items-center justify-between px-1">
               <span class="text-xs text-zinc-400">
-                Choose a pre-unwrapped testing primitive to start painting immediately with zero setup:
+                Choose a pre-unwrapped testing primitive to start painting immediately with zero
+                setup:
               </span>
               {/* Resolution selector for primitives */}
               <div class="flex items-center gap-1">
@@ -1319,7 +1469,8 @@ export default function StartWizardModal(props: StartWizardModalProps) {
                       </Badge>
                     </div>
                     <p class="text-xs text-zinc-400 leading-relaxed">
-                      Continuous smooth geometry with no seam overlap. Best for organic painting, characters, skin, soft gradients, and brush testing.
+                      Continuous smooth geometry with no seam overlap. Best for organic painting,
+                      characters, skin, soft gradients, and brush testing.
                     </p>
                   </div>
                 </div>
@@ -1359,7 +1510,8 @@ export default function StartWizardModal(props: StartWizardModalProps) {
                       </Badge>
                     </div>
                     <p class="text-xs text-zinc-400 leading-relaxed">
-                      Custom 3×2 non-overlapping UV island layout for each face. Perfect for hard-surface painting, crates, stamps, decals, and geometric props.
+                      Custom 3×2 non-overlapping UV island layout for each face. Perfect for
+                      hard-surface painting, crates, stamps, decals, and geometric props.
                     </p>
                   </div>
                 </div>
@@ -1432,8 +1584,10 @@ export default function StartWizardModal(props: StartWizardModalProps) {
               >
                 <For each={recents()}>
                   {(item) => {
-                    const filename = item.name || item.projectPath.split(/[/\\]/).pop() || 'Untitled'
-                    const isProject = item.type === 'project' || item.projectPath.endsWith('.meshcoat')
+                    const filename =
+                      item.name || item.projectPath.split(/[/\\]/).pop() || 'Untitled'
+                    const isProject =
+                      item.type === 'project' || item.projectPath.endsWith('.meshcoat')
                     return (
                       <button
                         type="button"
@@ -1472,7 +1626,10 @@ export default function StartWizardModal(props: StartWizardModalProps) {
                                 {isProject ? 'Project' : 'Model'}
                               </Badge>
                             </div>
-                            <span class="text-[10px] text-zinc-500 truncate" title={item.projectPath}>
+                            <span
+                              class="text-[10px] text-zinc-500 truncate"
+                              title={item.projectPath}
+                            >
                               {item.projectPath}
                             </span>
                           </div>

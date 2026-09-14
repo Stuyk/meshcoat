@@ -162,10 +162,14 @@ const DEFAULT_SAVED_SWATCHES = [
 export function loadSavedSwatches(): string[] {
   try {
     const raw = localStorage.getItem(SAVED_SWATCHES_KEY)
-    if (!raw) return [...DEFAULT_SAVED_SWATCHES]
+    if (!raw) {
+      return [...DEFAULT_SAVED_SWATCHES]
+    }
     const parsed = JSON.parse(raw)
     if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed.filter((c) => typeof c === 'string' && isValidHex(c)).map((c) => normalizeHex(c))
+      return parsed
+        .filter((c) => typeof c === 'string' && isValidHex(c))
+        .map((c) => normalizeHex(c))
     }
   } catch {}
   return [...DEFAULT_SAVED_SWATCHES]
@@ -184,30 +188,47 @@ export function saveSavedSwatches(swatches: string[]): void {
 /**
  * Parses a raw text file string (e.g. .hex, .gpl, or .json) into an array of normalized hex colors.
  */
+/** Parses `trimmed` as a JSON color list, returning the deduped hex colors, or null if it isn't valid JSON or has none. */
+function parsePaletteJson(trimmed: string): string[] | null {
+  try {
+    const data = JSON.parse(trimmed)
+    const list = Array.isArray(data) ? data : data.colors || data.palette || []
+    const result: string[] = []
+    for (const item of list) {
+      const hex = typeof item === 'string' ? item : item?.hex || item?.color
+      if (typeof hex !== 'string' || !isValidHex(hex)) {
+        continue
+      }
+      result.push(normalizeHex(hex))
+    }
+    return result.length > 0 ? Array.from(new Set(result)) : null
+  } catch {
+    return null
+  }
+}
+
 export function parsePaletteText(text: string): string[] {
   const result: string[] = []
   const trimmed = text.trim()
 
   // 1. Try parsing as JSON first
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-    try {
-      const data = JSON.parse(trimmed)
-      const list = Array.isArray(data) ? data : data.colors || data.palette || []
-      for (const item of list) {
-        const hex = typeof item === 'string' ? item : item?.hex || item?.color
-        if (typeof hex === 'string' && isValidHex(hex)) {
-          result.push(normalizeHex(hex))
-        }
-      }
-      if (result.length > 0) return Array.from(new Set(result))
-    } catch {}
+    const jsonResult = parsePaletteJson(trimmed)
+    if (jsonResult) {
+      return jsonResult
+    }
   }
 
   // 2. Line by line parsing (.hex, GIMP .gpl, raw list)
   const lines = trimmed.split(/[\r\n]+/)
   for (const line of lines) {
     const cleanLine = line.trim()
-    if (!cleanLine || cleanLine.startsWith('# ') || cleanLine.startsWith('GIMP') || cleanLine.startsWith('Name:')) {
+    if (
+      !cleanLine ||
+      cleanLine.startsWith('# ') ||
+      cleanLine.startsWith('GIMP') ||
+      cleanLine.startsWith('Name:')
+    ) {
       continue
     }
 
@@ -249,7 +270,11 @@ export function exportPaletteAsHex(colors: string[], filename = 'meshcoat-palett
 /**
  * Initiates browser download of color array as a JSON file.
  */
-export function exportPaletteAsJson(colors: string[], name = 'Custom Palette', filename = 'meshcoat-palette.json'): void {
+export function exportPaletteAsJson(
+  colors: string[],
+  name = 'Custom Palette',
+  filename = 'meshcoat-palette.json'
+): void {
   const data = {
     name,
     exportedAt: new Date().toISOString(),

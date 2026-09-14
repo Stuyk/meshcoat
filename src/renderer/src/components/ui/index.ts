@@ -2,7 +2,11 @@ export { default as Modal, type ModalProps } from './Modal'
 export { default as Button, type ButtonProps } from './Button'
 export { default as IconButton, type IconButtonProps } from './IconButton'
 export { default as Slider, type SliderProps, type SliderPreset } from './Slider'
-export { default as SegmentedControl, type SegmentedControlProps, type SegmentOption } from './SegmentedControl'
+export {
+  default as SegmentedControl,
+  type SegmentedControlProps,
+  type SegmentOption
+} from './SegmentedControl'
 export { default as SearchInput, type SearchInputProps } from './SearchInput'
 export { default as PanelSection, type PanelSectionProps } from './PanelSection'
 export { default as DropdownMenu, type DropdownMenuProps, type MenuItem } from './DropdownMenu'

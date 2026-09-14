@@ -7,7 +7,8 @@ export interface KbdProps {
 }
 
 export default function Kbd(props: KbdProps) {
-  const sizeClass = () => (props.size === 'xs' ? 'text-[9px] px-1 py-0' : 'text-[10px] px-1.5 py-0.5')
+  const sizeClass = () =>
+    props.size === 'xs' ? 'text-[9px] px-1 py-0' : 'text-[10px] px-1.5 py-0.5'
 
   return (
     <kbd

@@ -1,11 +1,32 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, protocol, nativeImage, net, clipboard } from 'electron'
+import {
+  app,
+  shell,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  protocol,
+  nativeImage,
+  net,
+  clipboard
+} from 'electron'
 import { join, extname } from 'path'
 import { pathToFileURL } from 'url'
 import { readdir, writeFile, readFile } from 'fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { getRecentProjects, addRecentProject, removeRecentProject, clearRecentProjects } from './recent'
-import { getLastTextureFolder, setLastTextureFolder, isBlenderPromptDismissed, setBlenderPromptDismissed, setBlenderPath } from './prefs'
+import {
+  getRecentProjects,
+  addRecentProject,
+  removeRecentProject,
+  clearRecentProjects
+} from './recent'
+import {
+  getLastTextureFolder,
+  setLastTextureFolder,
+  isBlenderPromptDismissed,
+  setBlenderPromptDismissed,
+  setBlenderPath
+} from './prefs'
 import { saveAutosave, loadAutosave, clearAutosave } from './recovery'
 import { existsSync } from 'fs'
 import { getEffectiveBlender, convertBlendToGlb, testBlenderExecutable } from './blenderBridge'
@@ -20,7 +41,13 @@ const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.tga'])
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'asset-file',
-    privileges: { standard: true, stream: true, bypassCSP: true, supportFetchAPI: true, corsEnabled: true }
+    privileges: {
+      standard: true,
+      stream: true,
+      bypassCSP: true,
+      supportFetchAPI: true,
+      corsEnabled: true
+    }
   }
 ])
 
@@ -84,25 +111,45 @@ app.whenReady().then(() => {
     return net.fetch(pathToFileURL(filePath).toString())
   })
 
-  ipcMain.handle('file:open-dialog', async (_event, options: { filters?: { name: string; extensions: string[] }[]; multi?: boolean }) => {
-    if (!mainWindow) return null
-    const result = await dialog.showOpenDialog(mainWindow, {
-      properties: options?.multi ? ['openFile', 'multiSelections'] : ['openFile'],
-      filters: options?.filters
-    })
-    if (result.canceled || result.filePaths.length === 0) return null
-    return result.filePaths
-  })
+  ipcMain.handle(
+    'file:open-dialog',
+    async (
+      _event,
+      options: { filters?: { name: string; extensions: string[] }[]; multi?: boolean }
+    ) => {
+      if (!mainWindow) {
+        return null
+      }
+      const result = await dialog.showOpenDialog(mainWindow, {
+        properties: options?.multi ? ['openFile', 'multiSelections'] : ['openFile'],
+        filters: options?.filters
+      })
+      if (result.canceled || result.filePaths.length === 0) {
+        return null
+      }
+      return result.filePaths
+    }
+  )
 
-  ipcMain.handle('file:save-dialog', async (_event, options: { defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => {
-    if (!mainWindow) return null
-    const result = await dialog.showSaveDialog(mainWindow, {
-      defaultPath: options?.defaultPath,
-      filters: options?.filters
-    })
-    if (result.canceled || !result.filePath) return null
-    return result.filePath
-  })
+  ipcMain.handle(
+    'file:save-dialog',
+    async (
+      _event,
+      options: { defaultPath?: string; filters?: { name: string; extensions: string[] }[] }
+    ) => {
+      if (!mainWindow) {
+        return null
+      }
+      const result = await dialog.showSaveDialog(mainWindow, {
+        defaultPath: options?.defaultPath,
+        filters: options?.filters
+      })
+      if (result.canceled || !result.filePath) {
+        return null
+      }
+      return result.filePath
+    }
+  )
 
   async function listTextures(dir: string): Promise<string[]> {
     const entries = await readdir(dir, { withFileTypes: true })
@@ -112,13 +159,17 @@ app.whenReady().then(() => {
   }
 
   ipcMain.handle('folder:pick-textures', async () => {
-    if (!mainWindow) return null
+    if (!mainWindow) {
+      return null
+    }
     const lastFolder = getLastTextureFolder()
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ['openDirectory'],
       ...(lastFolder && existsSync(lastFolder) ? { defaultPath: lastFolder } : {})
     })
-    if (result.canceled || result.filePaths.length === 0) return null
+    if (result.canceled || result.filePaths.length === 0) {
+      return null
+    }
     const dir = result.filePaths[0]
     setLastTextureFolder(dir)
     return listTextures(dir)
@@ -126,12 +177,16 @@ app.whenReady().then(() => {
 
   ipcMain.handle('folder:load-last-textures', async () => {
     const dir = getLastTextureFolder()
-    if (!dir || !existsSync(dir)) return null
+    if (!dir || !existsSync(dir)) {
+      return null
+    }
     return listTextures(dir)
   })
 
   ipcMain.handle('folder:list-textures-in', async (_e, dir: string) => {
-    if (!dir || !existsSync(dir)) return null
+    if (!dir || !existsSync(dir)) {
+      return null
+    }
     return listTextures(dir)
   })
 
@@ -154,7 +209,9 @@ app.whenReady().then(() => {
   ipcMain.handle('brushes:load', async () => {
     try {
       const p = join(app.getPath('userData'), 'brush-packs.json')
-      if (!existsSync(p)) return null
+      if (!existsSync(p)) {
+        return null
+      }
       const data = await readFile(p, 'utf-8')
       return JSON.parse(data)
     } catch (err) {
@@ -209,10 +266,13 @@ app.whenReady().then(() => {
     return getRecentProjects()
   })
 
-  ipcMain.handle('project:add-recent', (_e, projectPath: string, name?: string, type?: 'project' | 'model') => {
-    addRecentProject(projectPath, name, type)
-    return getRecentProjects()
-  })
+  ipcMain.handle(
+    'project:add-recent',
+    (_e, projectPath: string, name?: string, type?: 'project' | 'model') => {
+      addRecentProject(projectPath, name, type)
+      return getRecentProjects()
+    }
+  )
 
   ipcMain.handle('project:remove-recent', (_e, projectPath: string) => {
     removeRecentProject(projectPath)
@@ -232,7 +292,9 @@ app.whenReady().then(() => {
    */
   ipcMain.handle('clipboard:read-image', () => {
     const image = clipboard.readImage()
-    if (!image || image.isEmpty()) return null
+    if (!image || image.isEmpty()) {
+      return null
+    }
     const { width, height } = image.getSize()
     return { dataUrl: image.toDataURL(), width, height }
   })
@@ -255,7 +317,9 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('blender:browse-executable', async () => {
-    if (!mainWindow) return null
+    if (!mainWindow) {
+      return null
+    }
     const isWin = process.platform === 'win32'
     const result = await dialog.showOpenDialog(mainWindow, {
       title: 'Select Blender Executable',
@@ -264,20 +328,30 @@ app.whenReady().then(() => {
         ? [{ name: 'Blender Executable', extensions: ['exe'] }]
         : [{ name: 'All Files', extensions: ['*'] }]
     })
-    if (result.canceled || result.filePaths.length === 0) return null
+    if (result.canceled || result.filePaths.length === 0) {
+      return null
+    }
     const chosen = result.filePaths[0]
     const test = await testBlenderExecutable(chosen)
     if (test.valid) {
       setBlenderPath(chosen)
       return { success: true, path: chosen, version: test.version }
     }
-    return { success: false, error: test.error || 'Selected file is not a valid Blender executable.' }
+    return {
+      success: false,
+      error: test.error || 'Selected file is not a valid Blender executable.'
+    }
   })
 
   ipcMain.handle('blend:convert', async (_e, blendPath: string) => {
     try {
       const res = await convertBlendToGlb(blendPath)
-      return { success: true, glbPath: res.glbPath, durationMs: res.durationMs, version: res.version }
+      return {
+        success: true,
+        glbPath: res.glbPath,
+        durationMs: res.durationMs,
+        version: res.version
+      }
     } catch (err) {
       console.error('Failed to convert .blend file:', err)
       return { success: false, error: err instanceof Error ? err.message : String(err) }
@@ -298,7 +372,9 @@ app.whenReady().then(() => {
   })
 
   ipcMain.on('drag:start', (event, filePaths: string[]) => {
-    if (filePaths.length === 0) return
+    if (filePaths.length === 0) {
+      return
+    }
     event.sender.startDrag({
       file: filePaths[0],
       files: filePaths,
@@ -309,7 +385,9 @@ app.whenReady().then(() => {
   createWindow()
 
   app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow()
+    }
   })
 })
 

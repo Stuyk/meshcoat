@@ -50,7 +50,9 @@ export function setSceneScale(modelRadius: number): void {
   const next = Math.max(modelRadius, 0.0001)
   const previous = untrack(sceneScale)
   setSceneScaleRaw(next)
-  if (previous > 0) setRadius(untrack(radius) * (next / previous))
+  if (previous > 0) {
+    setRadius(untrack(radius) * (next / previous))
+  }
 }
 
 const [radius, setRadiusRaw] = createSignal(0.2)
@@ -165,7 +167,9 @@ export function setMaterialSet(set: MaterialSet | null): void {
   const supplied = paintableChannels(set)
   setChannelEnabledRaw((prev) => {
     const next = { ...prev }
-    for (const channel of PAINT_CHANNELS_ALL) next[channel] = supplied.includes(channel)
+    for (const channel of PAINT_CHANNELS_ALL) {
+      next[channel] = supplied.includes(channel)
+    }
     // Base color always stays on. Some packs ship a format the app can't decode
     // (a .tga albedo alongside .png data maps) or no albedo at all; with the
     // channel switched off, a stroke would write only roughness and normal and
@@ -178,12 +182,25 @@ export function setMaterialSet(set: MaterialSet | null): void {
   // With a set, the sliders are multipliers over what the map says, so they
   // reset to neutral — a leftover 0.5 would silently halve the material's
   // roughness the moment it is picked.
-  if (set.maps.roughness) setRoughnessValueRaw(1)
-  if (set.maps.metalness) setMetalnessValueRaw(1)
-  if (set.maps.normal) setNormalStrengthRaw(1)
+  if (set.maps.roughness) {
+    setRoughnessValueRaw(1)
+  }
+  if (set.maps.metalness) {
+    setMetalnessValueRaw(1)
+  }
+  if (set.maps.normal) {
+    setNormalStrengthRaw(1)
+  }
   setTexturePathRaw(set.maps.baseColor ?? null)
   setTextureRegionRaw({ x: 0, y: 0, w: 1, h: 1, rotation: 0 })
-  setFaceProjectionRaw({ offsetX: 0, offsetY: 0, scaleX: 1, scaleY: 1, rotation: 0, fit: faceProjection().fit })
+  setFaceProjectionRaw({
+    offsetX: 0,
+    offsetY: 0,
+    scaleX: 1,
+    scaleY: 1,
+    rotation: 0,
+    fit: faceProjection().fit
+  })
   // A set carries its own color; a stale tint would recolour every map.
   setColor('#ffffff')
 }
@@ -202,7 +219,9 @@ export function setChannelEnabled(channel: PaintChannel, enabled: boolean): void
     const next = { ...prev, [channel]: enabled }
     // Something has to be painted. Turning off the last enabled channel would
     // leave a brush that silently does nothing on every stroke.
-    if (!next.baseColor && !next.roughness && !next.metalness && !next.normal) return prev
+    if (!next.baseColor && !next.roughness && !next.metalness && !next.normal) {
+      return prev
+    }
     return next
   })
 }
@@ -248,12 +267,17 @@ export function buildChannelPayload(options?: {
   if (enabled.baseColor || options?.baseColor) {
     payload.baseColor = options?.baseColor ?? { color: new THREE.Color(color()), alpha: 1 }
   }
-  if (enabled.roughness) payload.roughness = roughnessValue()
-  if (enabled.metalness) payload.metalness = metalnessValue()
-  if (enabled.normal) payload.normal = normalStrength()
+  if (enabled.roughness) {
+    payload.roughness = roughnessValue()
+  }
+  if (enabled.metalness) {
+    payload.metalness = metalnessValue()
+  }
+  if (enabled.normal) {
+    payload.normal = normalStrength()
+  }
   return payload
 }
-
 
 export type SymmetryAxis = 'off' | 'x' | 'y' | 'z'
 
@@ -287,7 +311,9 @@ export function recordRecentTexture(path: string): void {
   // Pasted textures are data URLs — a handful of them is megabytes of base64,
   // which blows localStorage's quota and would take the whole recents list
   // down with it. They live in pastedTextures (session-only) instead.
-  if (path.startsWith('data:') || path.startsWith('blob:')) return
+  if (path.startsWith('data:') || path.startsWith('blob:')) {
+    return
+  }
   setRecentTextures((prev) => {
     const next = [path, ...prev.filter((p) => p !== path)].slice(0, 5)
     try {
@@ -327,7 +353,11 @@ const [pastedTextures, setPastedTexturesRaw] = createSignal<PastedTexture[]>([])
  * paste (same bytes) is moved back to the front rather than duplicated — the
  * usual cause is pasting twice because the first one wasn't noticed.
  */
-export function addPastedTexture(image: { dataUrl: string; width: number; height: number }): PastedTexture {
+export function addPastedTexture(image: {
+  dataUrl: string
+  width: number
+  height: number
+}): PastedTexture {
   const existing = untrack(pastedTextures).find((t) => t.url === image.dataUrl)
   if (existing) {
     setPastedTexturesRaw((prev) => [existing, ...prev.filter((t) => t !== existing)])
@@ -337,7 +367,9 @@ export function addPastedTexture(image: { dataUrl: string; width: number; height
   // Numbered by how many have been pasted this session, not by list position,
   // so removing one doesn't renumber the others out from under the artist.
   let n = used.length + 1
-  while (used.some((t) => t.name === `Pasted ${n}`)) n++
+  while (used.some((t) => t.name === `Pasted ${n}`)) {
+    n++
+  }
   const entry: PastedTexture = {
     url: image.dataUrl,
     name: `Pasted ${n}`,
@@ -350,13 +382,17 @@ export function addPastedTexture(image: { dataUrl: string; width: number; height
 
 /** Drops one pasted texture, deselecting it first if the brush is holding it. */
 export function removePastedTexture(url: string): void {
-  if (untrack(texturePath) === url) setTexturePath(null)
+  if (untrack(texturePath) === url) {
+    setTexturePath(null)
+  }
   setPastedTexturesRaw((prev) => prev.filter((t) => t.url !== url))
 }
 
 export function clearPastedTextures(): void {
   const current = untrack(texturePath)
-  if (current && untrack(pastedTextures).some((t) => t.url === current)) setTexturePath(null)
+  if (current && untrack(pastedTextures).some((t) => t.url === current)) {
+    setTexturePath(null)
+  }
   setPastedTexturesRaw([])
 }
 
@@ -459,8 +495,14 @@ export function setPressureMin(v: number): void {
  * stroke came out at full size and opacity. `pointerType === 'pen'` is the
  * device's own answer to that question and needs no guessing.
  */
-export function applyPressure(value: number, event: PointerEvent | undefined, enabled: boolean): number {
-  if (!enabled || !hasPressure(event)) return value
+export function applyPressure(
+  value: number,
+  event: PointerEvent | undefined,
+  enabled: boolean
+): number {
+  if (!enabled || !hasPressure(event)) {
+    return value
+  }
   const floor = pressureMin()
   return value * (floor + (1 - floor) * clamp(event!.pressure, 0, 1))
 }
@@ -480,7 +522,6 @@ export function setTextureMapping(mode: BrushTextureMapping): void {
   }
   setTextureMappingRaw(mode)
 }
-
 
 export function setFillMode(mode: FillMode): void {
   setFillModeRaw(mode)
@@ -514,11 +555,20 @@ export function setTexturePath(path: string | null, resetColor = true): void {
   setTextureRegionRaw({ x: 0, y: 0, w: 1, h: 1, rotation: 0 })
   // Same reasoning for the face projector's placement — a stale offset/scale
   // dialled in for one texture shouldn't silently apply to the next.
-  setFaceProjectionRaw({ offsetX: 0, offsetY: 0, scaleX: 1, scaleY: 1, rotation: 0, fit: faceProjection().fit })
+  setFaceProjectionRaw({
+    offsetX: 0,
+    offsetY: 0,
+    scaleX: 1,
+    scaleY: 1,
+    rotation: 0,
+    fit: faceProjection().fit
+  })
   // Note: recordRecentTexture() is deliberately NOT called here — the "Used"
   // shelf tab tracks textures actually applied by a stroke/fill, not merely
   // browsed/selected. See applyToolAt/fillActive in Viewport.tsx.
-  if (path && resetColor) setColor('#ffffff')
+  if (path && resetColor) {
+    setColor('#ffffff')
+  }
 }
 
 function clamp(v: number, min: number, max: number): number {
@@ -599,7 +649,14 @@ export function setFaceProjection(next: {
 
 /** Back to identity: no offset, unit scale, no rotation. */
 export function resetFaceProjection(): void {
-  setFaceProjectionRaw({ offsetX: 0, offsetY: 0, scaleX: 1, scaleY: 1, rotation: 0, fit: faceProjection().fit })
+  setFaceProjectionRaw({
+    offsetX: 0,
+    offsetY: 0,
+    scaleX: 1,
+    scaleY: 1,
+    rotation: 0,
+    fit: faceProjection().fit
+  })
 }
 
 /** True when only part of the source texture is in use. */
@@ -654,7 +711,9 @@ export function selectOnlyFace(faceIndex: number): void {
 /** Adds a face to the selection. */
 export function addFaceToSelection(faceIndex: number): void {
   const current = selectedFaces()
-  if (current.has(faceIndex)) return
+  if (current.has(faceIndex)) {
+    return
+  }
   const next = new Set<number>(current)
   next.add(faceIndex)
   setSelectedFacesRaw(next)
@@ -663,7 +722,9 @@ export function addFaceToSelection(faceIndex: number): void {
 /** Removes a face from the selection. */
 export function removeFaceFromSelection(faceIndex: number): void {
   const current = selectedFaces()
-  if (!current.has(faceIndex)) return
+  if (!current.has(faceIndex)) {
+    return
+  }
   const next = new Set<number>(current)
   next.delete(faceIndex)
   setSelectedFacesRaw(next)
@@ -672,14 +733,19 @@ export function removeFaceFromSelection(faceIndex: number): void {
 /** Adds/removes this face from the selection (spec: multi-select via shift+click). */
 export function toggleFaceSelection(faceIndex: number): void {
   const next = new Set<number>(selectedFaces())
-  if (next.has(faceIndex)) next.delete(faceIndex)
-  else next.add(faceIndex)
+  if (next.has(faceIndex)) {
+    next.delete(faceIndex)
+  } else {
+    next.add(faceIndex)
+  }
   setSelectedFacesRaw(next)
 }
 
 export function selectAllFaces(totalFaces: number): void {
   const next = new Set<number>()
-  for (let i = 0; i < totalFaces; i++) next.add(i)
+  for (let i = 0; i < totalFaces; i++) {
+    next.add(i)
+  }
   setSelectedFacesRaw(next)
 }
 
@@ -687,7 +753,9 @@ export function invertFaceSelection(totalFaces: number): void {
   const current = selectedFaces()
   const next = new Set<number>()
   for (let i = 0; i < totalFaces; i++) {
-    if (!current.has(i)) next.add(i)
+    if (!current.has(i)) {
+      next.add(i)
+    }
   }
   setSelectedFacesRaw(next)
 }

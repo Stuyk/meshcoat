@@ -19,9 +19,17 @@ export interface EdgeWearWizardProps {
   initialColor?: string
   textures: string[]
   onClose: () => void
-  onPreview: (params: EdgeWearParams, asNewLayer: boolean, newLayerBackground: 'transparent' | 'black') => void
+  onPreview: (
+    params: EdgeWearParams,
+    asNewLayer: boolean,
+    newLayerBackground: 'transparent' | 'black'
+  ) => void
   onCancel: () => void
-  onCommit: (params: EdgeWearParams, asNewLayer: boolean, newLayerBackground: 'transparent' | 'black') => void
+  onCommit: (
+    params: EdgeWearParams,
+    asNewLayer: boolean,
+    newLayerBackground: 'transparent' | 'black'
+  ) => void
 }
 
 interface Preset {
@@ -188,7 +196,9 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
   const [color, setColor] = createSignal(props.initialColor ?? '#f3f4f6')
   const [opacity, setOpacity] = createSignal(1.0)
   const [asNewLayer, setAsNewLayer] = createSignal(true)
-  const [newLayerBackground, setNewLayerBackground] = createSignal<'transparent' | 'black'>('transparent')
+  const [newLayerBackground, setNewLayerBackground] = createSignal<'transparent' | 'black'>(
+    'transparent'
+  )
   const [livePreview, setLivePreview] = createSignal(true)
   const [activePreset, setActivePreset] = createSignal<string>('Chipped Paint')
   /** Convex ridges (wear/chipping) vs concave folds (cavity dirt / ambient shadow). */
@@ -232,15 +242,22 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
    * current preset's tuning no longer means the same thing — land on that
    * mode's default preset rather than carrying stale wear values into dirt. */
   function switchMode(next: EdgeWearMode): void {
-    if (next === mode()) return
+    if (next === mode()) {
+      return
+    }
     setMode(next)
     const first = PRESETS.find((p) => p.mode === next)
-    if (first) applyPreset(first)
-    else triggerPreview()
+    if (first) {
+      applyPreset(first)
+    } else {
+      triggerPreview()
+    }
   }
 
   function triggerPreview(): void {
-    if (!props.isOpen) return
+    if (!props.isOpen) {
+      return
+    }
     if (livePreview()) {
       props.onPreview(getParams(), asNewLayer(), newLayerBackground())
     } else {
@@ -252,7 +269,9 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
     const path = selectedTexturePath()
     if (!path || materialMode() !== 'texture') {
       loadedTexture = null
-      if (props.isOpen) triggerPreview()
+      if (props.isOpen) {
+        triggerPreview()
+      }
       return
     }
 
@@ -263,7 +282,9 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
       tex.wrapT = THREE.RepeatWrapping
       tex.needsUpdate = true
       loadedTexture = tex
-      if (props.isOpen) triggerPreview()
+      if (props.isOpen) {
+        triggerPreview()
+      }
     })
   })
 
@@ -330,7 +351,9 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
   }
 
   function onKeyDown(e: KeyboardEvent): void {
-    if (!props.isOpen) return
+    if (!props.isOpen) {
+      return
+    }
     if (e.key === 'Escape') {
       e.preventDefault()
       handleClose()
@@ -403,8 +426,16 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
         <SegmentedControl
           size="xs"
           options={[
-            { value: 'wear', label: 'Edge Wear', title: 'Chips and highlights on convex ridges and exposed corners' },
-            { value: 'cavity', label: 'Crevice Dirt', title: 'Dirt, grime and ambient shadow in concave folds and interior corners' }
+            {
+              value: 'wear',
+              label: 'Edge Wear',
+              title: 'Chips and highlights on convex ridges and exposed corners'
+            },
+            {
+              value: 'cavity',
+              label: 'Crevice Dirt',
+              title: 'Dirt, grime and ambient shadow in concave folds and interior corners'
+            }
           ]}
           value={mode()}
           onChange={(v) => switchMode(v as EdgeWearMode)}
@@ -459,7 +490,11 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
               <SegmentedControl
                 size="xs"
                 options={[
-                  { value: 'color', label: 'Solid Color', icon: (p) => <PaletteIcon size={p.size} /> },
+                  {
+                    value: 'color',
+                    label: 'Solid Color',
+                    icon: (p) => <PaletteIcon size={p.size} />
+                  },
                   { value: 'texture', label: 'Texture', icon: (p) => <ImagesIcon size={p.size} /> }
                 ]}
                 value={materialMode()}
@@ -519,7 +554,10 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
                               : 'bg-zinc-950/40 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 border-zinc-800'
                           }`}
                         >
-                          <span class="w-3.5 h-3.5 rounded-full border border-white/20 flex-shrink-0" style={{ background: item.hex }} />
+                          <span
+                            class="w-3.5 h-3.5 rounded-full border border-white/20 flex-shrink-0"
+                            style={{ background: item.hex }}
+                          />
                           <span class="text-[11px] font-medium truncate">{item.name}</span>
                         </button>
                       )
@@ -548,7 +586,10 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
                               : 'bg-zinc-950/40 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 border-zinc-800'
                           }`}
                         >
-                          <span class="w-3.5 h-3.5 rounded-full border border-white/20 flex-shrink-0" style={{ background: item.hex }} />
+                          <span
+                            class="w-3.5 h-3.5 rounded-full border border-white/20 flex-shrink-0"
+                            style={{ background: item.hex }}
+                          />
                           <span class="text-[11px] font-medium truncate">{item.name}</span>
                         </button>
                       )
@@ -564,7 +605,10 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
                   onClick={() => colorPickerRef?.click()}
                   class="flex items-center gap-2 flex-1 cursor-pointer"
                 >
-                  <span class="w-5 h-5 rounded-md border border-white/20" style={{ background: color() }} />
+                  <span
+                    class="w-5 h-5 rounded-md border border-white/20"
+                    style={{ background: color() }}
+                  />
                   <span class="font-mono text-xs text-zinc-200">{color().toUpperCase()}</span>
                 </button>
                 <input
@@ -642,9 +686,16 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
                           }`}
                         >
                           <div class="w-8 h-8 rounded checkerboard-bg overflow-hidden flex-shrink-0">
-                            <img src={window.api.assetUrl(path)} alt="" class="w-full h-full object-cover" />
+                            <img
+                              src={window.api.assetUrl(path)}
+                              alt=""
+                              class="w-full h-full object-cover"
+                            />
                           </div>
-                          <span class="text-[11px] font-medium text-zinc-300 truncate" title={filename}>
+                          <span
+                            class="text-[11px] font-medium text-zinc-300 truncate"
+                            title={filename}
+                          >
                             {filename}
                           </span>
                         </button>
@@ -906,9 +957,7 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
                   </Show>
                 </div>
                 <div class="flex flex-col min-w-0">
-                  <span class="text-xs font-semibold text-zinc-200">
-                    Merge into Active Layer
-                  </span>
+                  <span class="text-xs font-semibold text-zinc-200">Merge into Active Layer</span>
                   <span class="text-[10px] text-zinc-500">
                     Permanently bakes the wear into the currently active layer.
                   </span>
@@ -921,11 +970,7 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
 
       {/* Sticky Bottom Action Bar */}
       <footer class="h-12 px-3.5 flex items-center justify-between border-t border-zinc-800 bg-zinc-950/80 flex-shrink-0">
-        <Checkbox
-          checked={livePreview()}
-          onChange={toggleLivePreview}
-          label="Live 3D Preview"
-        />
+        <Checkbox checked={livePreview()} onChange={toggleLivePreview} label="Live 3D Preview" />
 
         <div class="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={handleClose}>

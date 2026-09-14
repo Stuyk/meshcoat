@@ -3,7 +3,9 @@
  * Preserves data: and blob: URLs without running them through asset-file:// protocol.
  */
 export function toAssetUrl(path: string | null | undefined): string {
-  if (!path) return ''
+  if (!path) {
+    return ''
+  }
   if (
     path.startsWith('data:') ||
     path.startsWith('blob:') ||

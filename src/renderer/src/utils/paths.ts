@@ -8,8 +8,12 @@
  * generic one rather than a screenful of base64.
  */
 export function fileName(path: string | null | undefined, fallback = 'Texture'): string {
-  if (!path) return fallback
-  if (path.startsWith('data:') || path.startsWith('blob:')) return fallback
+  if (!path) {
+    return fallback
+  }
+  if (path.startsWith('data:') || path.startsWith('blob:')) {
+    return fallback
+  }
   return path.split(/[/\\]/).pop() || fallback
 }
 

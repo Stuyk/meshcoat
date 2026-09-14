@@ -14,9 +14,11 @@ export interface ButtonProps {
 }
 
 const VARIANT_CLASSES = {
-  primary: 'bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white border-blue-500/80 shadow-xs',
+  primary:
+    'bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white border-blue-500/80 shadow-xs',
   secondary: 'bg-zinc-850 hover:bg-zinc-800 active:bg-zinc-750 text-zinc-100 border-zinc-700/80',
-  ghost: 'bg-transparent hover:bg-zinc-850 active:bg-zinc-800 text-zinc-400 hover:text-zinc-100 border-transparent hover:border-zinc-800',
+  ghost:
+    'bg-transparent hover:bg-zinc-850 active:bg-zinc-800 text-zinc-400 hover:text-zinc-100 border-transparent hover:border-zinc-800',
   danger: 'bg-red-600/90 hover:bg-red-600 active:bg-red-700 text-white border-red-500/40',
   outline: 'bg-transparent hover:bg-zinc-850 text-zinc-300 border-zinc-700'
 }

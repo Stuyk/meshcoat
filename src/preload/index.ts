@@ -14,27 +14,31 @@ export interface FileFilter {
 }
 
 const api = {
-  openFileDialog: (options?: { filters?: FileFilter[]; multi?: boolean }): Promise<string[] | null> =>
-    ipcRenderer.invoke('file:open-dialog', options),
-  saveFileDialog: (options?: { defaultPath?: string; filters?: FileFilter[] }): Promise<string | null> =>
-    ipcRenderer.invoke('file:save-dialog', options),
+  openFileDialog: (options?: {
+    filters?: FileFilter[]
+    multi?: boolean
+  }): Promise<string[] | null> => ipcRenderer.invoke('file:open-dialog', options),
+  saveFileDialog: (options?: {
+    defaultPath?: string
+    filters?: FileFilter[]
+  }): Promise<string | null> => ipcRenderer.invoke('file:save-dialog', options),
   saveProjectFile: (filePath: string, content: string): Promise<boolean> =>
     ipcRenderer.invoke('project:save-file', filePath, content),
   readProjectFile: (filePath: string): Promise<string | null> =>
     ipcRenderer.invoke('project:read-file', filePath),
-  saveRecovery: (content: string): Promise<boolean> =>
-    ipcRenderer.invoke('recovery:save', content),
+  saveRecovery: (content: string): Promise<boolean> => ipcRenderer.invoke('recovery:save', content),
   loadRecovery: (): Promise<{ data: string; timestamp: number } | null> =>
     ipcRenderer.invoke('recovery:load'),
-  clearRecovery: (): Promise<boolean> =>
-    ipcRenderer.invoke('recovery:clear'),
+  clearRecovery: (): Promise<boolean> => ipcRenderer.invoke('recovery:clear'),
   getRecentProjects: (): Promise<RecentEntry[]> => ipcRenderer.invoke('project:recent'),
-  addRecentProject: (projectPath: string, name?: string, type?: 'project' | 'model'): Promise<RecentEntry[]> =>
-    ipcRenderer.invoke('project:add-recent', projectPath, name, type),
+  addRecentProject: (
+    projectPath: string,
+    name?: string,
+    type?: 'project' | 'model'
+  ): Promise<RecentEntry[]> => ipcRenderer.invoke('project:add-recent', projectPath, name, type),
   removeRecentProject: (projectPath: string): Promise<RecentEntry[]> =>
     ipcRenderer.invoke('project:remove-recent', projectPath),
-  clearRecentProjects: (): Promise<RecentEntry[]> =>
-    ipcRenderer.invoke('project:clear-recent'),
+  clearRecentProjects: (): Promise<RecentEntry[]> => ipcRenderer.invoke('project:clear-recent'),
   revealInFolder: (path: string): void => ipcRenderer.send('shell:reveal', path),
   assetUrl: (filePath: string): string => {
     if (
@@ -55,7 +59,8 @@ const api = {
   },
   startDrag: (filePaths: string[]): void => ipcRenderer.send('drag:start', filePaths),
   pickTextureFolder: (): Promise<string[] | null> => ipcRenderer.invoke('folder:pick-textures'),
-  loadLastTextureFolder: (): Promise<string[] | null> => ipcRenderer.invoke('folder:load-last-textures'),
+  loadLastTextureFolder: (): Promise<string[] | null> =>
+    ipcRenderer.invoke('folder:load-last-textures'),
   listTexturesInFolder: (dir: string): Promise<string[] | null> =>
     ipcRenderer.invoke('folder:list-textures-in', dir),
   savePng: (filePath: string, dataUrl: string): Promise<boolean> =>

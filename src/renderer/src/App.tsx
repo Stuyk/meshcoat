@@ -1,4 +1,13 @@
-import { createSignal, createEffect, onMount, onCleanup, Show, Suspense, lazy, type JSX } from 'solid-js'
+import {
+  createSignal,
+  createEffect,
+  onMount,
+  onCleanup,
+  Show,
+  Suspense,
+  lazy,
+  type JSX
+} from 'solid-js'
 import * as THREE from 'three'
 import Viewport, {
   type ViewportHandle,
@@ -14,7 +23,15 @@ import LayersTab from './components/LayersTab'
 import type { LayerStack } from './paint/layers'
 import BrushSettingsTab from './components/BrushSettingsTab'
 import type { LightingMode } from './viewport/scene'
-import { DropdownMenu, IconButton, SegmentedControl, Toast, Label, type MenuItem, type ToastData } from './components/ui'
+import {
+  DropdownMenu,
+  IconButton,
+  SegmentedControl,
+  Toast,
+  Label,
+  type MenuItem,
+  type ToastData
+} from './components/ui'
 
 // Lazy-loaded modals
 const HelpModal = lazy(() => import('./components/HelpModal'))
@@ -78,7 +95,11 @@ import {
 } from './paint/brush'
 import { DEFAULT_TEXTURE_SIZE, type TextureSize } from './paint/paintEngine'
 
-const LIGHTING_MODES: { value: LightingMode; label: string; icon: (props: { size?: number }) => JSX.Element }[] = [
+const LIGHTING_MODES: {
+  value: LightingMode
+  label: string
+  icon: (props: { size?: number }) => JSX.Element
+}[] = [
   { value: 'studio', label: 'Studio', icon: (p) => <StudioLightIcon size={p.size ?? 14} /> },
   { value: 'flat', label: 'Flat', icon: (p) => <FlatLightIcon size={p.size ?? 14} /> },
   { value: 'outdoor', label: 'Outdoor', icon: (p) => <OutdoorLightIcon size={p.size ?? 14} /> },
@@ -119,7 +140,9 @@ export default function App(): JSX.Element {
   createEffect(() => {
     // Picking a texture makes the material and crop panels relevant, so make
     // sure the dock they live in is actually on screen.
-    if (brush.texturePath()) setShowPanelDock(true)
+    if (brush.texturePath()) {
+      setShowPanelDock(true)
+    }
   })
 
   createEffect(() => {
@@ -174,7 +197,9 @@ export default function App(): JSX.Element {
   let sessionRestoreStarted = false
 
   async function ensureLastTextureFolderLoaded(): Promise<void> {
-    if (lastFolderLoaded || textures().length > 0) return
+    if (lastFolderLoaded || textures().length > 0) {
+      return
+    }
     lastFolderLoaded = true
     const paths = await window.api.loadLastTextureFolder()
     if (paths && paths.length > 0) {
@@ -183,7 +208,9 @@ export default function App(): JSX.Element {
   }
 
   async function restoreSessionInBackground(): Promise<void> {
-    if (sessionRestoreStarted) return
+    if (sessionRestoreStarted) {
+      return
+    }
     sessionRestoreStarted = true
     setIsRestoringSession(true)
     try {
@@ -193,8 +220,14 @@ export default function App(): JSX.Element {
     }
   }
 
-  function showToast(text: string, type: 'info' | 'success' | 'warning' | 'error' = 'info', durationMs = 3500): void {
-    if (toastTimer) clearTimeout(toastTimer)
+  function showToast(
+    text: string,
+    type: 'info' | 'success' | 'warning' | 'error' = 'info',
+    durationMs = 3500
+  ): void {
+    if (toastTimer) {
+      clearTimeout(toastTimer)
+    }
     const id = Date.now()
     setToast({ id, text, type })
     toastTimer = window.setTimeout(() => {
@@ -218,11 +251,15 @@ export default function App(): JSX.Element {
    */
   function projectPieces(): { name: string; layerStack: LayerStack }[] {
     const handle = viewportHandle
-    if (!handle) return []
+    if (!handle) {
+      return []
+    }
     const out: { name: string; layerStack: LayerStack }[] = []
     for (const info of handle.pieces()) {
       const stack = handle.getLayerStack(info.index)
-      if (stack) out.push({ name: info.name, layerStack: stack })
+      if (stack) {
+        out.push({ name: info.name, layerStack: stack })
+      }
     }
     return out
   }
@@ -230,7 +267,9 @@ export default function App(): JSX.Element {
   async function handleSaveProject(): Promise<boolean> {
     setShowFileMenu(false)
     const savePieces = projectPieces()
-    if (savePieces.length === 0) return false
+    if (savePieces.length === 0) {
+      return false
+    }
 
     let targetPath = currentProjectPath()
     if (!targetPath) {
@@ -238,7 +277,9 @@ export default function App(): JSX.Element {
         defaultPath: `${modelName().replace(/\.[^/.]+$/, '')}.meshcoat`,
         filters: [{ name: 'MeshCoat Project', extensions: ['meshcoat'] }]
       })
-      if (!targetPath) return false
+      if (!targetPath) {
+        return false
+      }
       setCurrentProjectPath(targetPath)
     }
 
@@ -256,22 +297,25 @@ export default function App(): JSX.Element {
       await window.api.addRecentProject(targetPath, modelName(), 'project')
       showToast(`Saved project: ${targetPath.split(/[/\\]/).pop()}`, 'success')
       return true
-    } else {
-      showToast('Failed to save project', 'error')
-      return false
     }
+    showToast('Failed to save project', 'error')
+    return false
   }
 
   async function handleSaveAsProject(): Promise<boolean> {
     setShowFileMenu(false)
     const savePieces = projectPieces()
-    if (savePieces.length === 0) return false
+    if (savePieces.length === 0) {
+      return false
+    }
 
     const targetPath = await window.api.saveFileDialog({
       defaultPath: `${modelName().replace(/\.[^/.]+$/, '')}.meshcoat`,
       filters: [{ name: 'MeshCoat Project', extensions: ['meshcoat'] }]
     })
-    if (!targetPath) return false
+    if (!targetPath) {
+      return false
+    }
     setCurrentProjectPath(targetPath)
 
     const content = serializeProject({
@@ -288,14 +332,15 @@ export default function App(): JSX.Element {
       await window.api.addRecentProject(targetPath, modelName(), 'project')
       showToast(`Saved project as: ${targetPath.split(/[/\\]/).pop()}`, 'success')
       return true
-    } else {
-      showToast('Failed to save project', 'error')
-      return false
     }
+    showToast('Failed to save project', 'error')
+    return false
   }
 
   async function getReadyViewport(): Promise<ViewportHandle> {
-    if (viewportHandle) return viewportHandle
+    if (viewportHandle) {
+      return viewportHandle
+    }
     const start = Date.now()
     while (!viewportHandle && Date.now() - start < 8000) {
       await new Promise((r) => setTimeout(r, 50))
@@ -317,7 +362,10 @@ export default function App(): JSX.Element {
     setCurrentModelPath(null)
     setCurrentProjectPath(null)
     setIsDirty(false)
-    showToast(`Started new project from ${primitive === 'cube' ? 'Cube' : 'Sphere'} scratch`, 'info')
+    showToast(
+      `Started new project from ${primitive === 'cube' ? 'Cube' : 'Sphere'} scratch`,
+      'info'
+    )
   }
 
   async function handleBrowseAndOpenModel(): Promise<void> {
@@ -326,11 +374,16 @@ export default function App(): JSX.Element {
       filters: [{ name: '3D Models', extensions: ['glb', 'gltf', 'obj', 'blend'] }]
     })
     const path = paths?.[0]
-    if (!path) return
+    if (!path) {
+      return
+    }
     try {
       await handleOpenModel(path, textureSize())
     } catch (err) {
-      showToast(`Failed to open model: ${err instanceof Error ? err.message : String(err)}`, 'error')
+      showToast(
+        `Failed to open model: ${err instanceof Error ? err.message : String(err)}`,
+        'error'
+      )
     }
   }
 
@@ -340,11 +393,16 @@ export default function App(): JSX.Element {
       filters: [{ name: 'MeshCoat Project', extensions: ['meshcoat', 'json'] }]
     })
     const path = paths?.[0]
-    if (!path) return
+    if (!path) {
+      return
+    }
     try {
       await handleOpenProjectFile(path)
     } catch (err) {
-      showToast(`Failed to open project: ${err instanceof Error ? err.message : String(err)}`, 'error')
+      showToast(
+        `Failed to open project: ${err instanceof Error ? err.message : String(err)}`,
+        'error'
+      )
     }
   }
 
@@ -388,7 +446,9 @@ export default function App(): JSX.Element {
     if (textureFolderPath) {
       try {
         const files = await window.api.listTexturesInFolder(textureFolderPath)
-        if (files && files.length > 0) setTextures(files)
+        if (files && files.length > 0) {
+          setTextures(files)
+        }
       } catch {
         // Texture folder is optional context from the project file — a
         // missing/unreadable one just means the shelf starts empty.
@@ -419,7 +479,9 @@ export default function App(): JSX.Element {
   async function handleOpenProjectFile(path: string): Promise<void> {
     const handle = await getReadyViewport()
     const content = await window.api.readProjectFile(path)
-    if (!content) throw new Error('Could not read project file from disk')
+    if (!content) {
+      throw new Error('Could not read project file from disk')
+    }
     const { project, stackSnapshots } = await deserializeProject(content)
     await handle.loadProject(project, stackSnapshots)
     setTextureSize(project.textureSize as TextureSize)
@@ -473,7 +535,10 @@ export default function App(): JSX.Element {
     const next = !isolatePiece()
     setIsolatePieceSignal(next)
     viewportHandle?.setIsolateActivePiece(next)
-    showToast(next ? 'Isolate piece: ON (others hidden)' : 'Isolate piece: OFF (all visible)', 'info')
+    showToast(
+      next ? 'Isolate piece: ON (others hidden)' : 'Isolate piece: OFF (all visible)',
+      'info'
+    )
   }
 
   function frameCamera(): void {
@@ -548,22 +613,30 @@ export default function App(): JSX.Element {
   }
 
   function handleUndo(): void {
-    if (!viewportHandle?.canUndo()) return
+    if (!viewportHandle?.canUndo()) {
+      return
+    }
     viewportHandle.undo()
     bumpLayers()
     showToast('Undo', 'info', 1200)
   }
 
   function handleRedo(): void {
-    if (!viewportHandle?.canRedo()) return
+    if (!viewportHandle?.canRedo()) {
+      return
+    }
     viewportHandle.redo()
     bumpLayers()
     showToast('Redo', 'info', 1200)
   }
 
   function onKeyDown(e: KeyboardEvent): void {
-    if (showHelp() || showSettings() || showStartWizard() || brushPresets.isManagerOpen()) return
-    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+    if (showHelp() || showSettings() || showStartWizard() || brushPresets.isManagerOpen()) {
+      return
+    }
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      return
+    }
 
     const isCtrl = e.ctrlKey || e.metaKey
 
@@ -627,7 +700,9 @@ export default function App(): JSX.Element {
         e.preventDefault()
         viewportHandle?.selectAllFaces()
         const count = viewportHandle?.getTotalFaces() ?? 0
-        if (count > 0) showToast(`Selected all ${count} faces`, 'info')
+        if (count > 0) {
+          showToast(`Selected all ${count} faces`, 'info')
+        }
         return
       }
       if (e.key.toLowerCase() === 'd') {
@@ -681,7 +756,8 @@ export default function App(): JSX.Element {
       case '7':
       case 'u':
         if (activeTool() === 'effect') {
-          const nextMode = EFFECT_MODES[(EFFECT_MODES.indexOf(brush.effectMode()) + 1) % EFFECT_MODES.length]
+          const nextMode =
+            EFFECT_MODES[(EFFECT_MODES.indexOf(brush.effectMode()) + 1) % EFFECT_MODES.length]
           brush.setEffectMode(nextMode)
           showToast(`Effect: ${EFFECT_MODE_LABELS[nextMode]}`, 'info', 1000)
         } else {
@@ -711,7 +787,10 @@ export default function App(): JSX.Element {
           const axes: ('off' | 'x' | 'y' | 'z')[] = ['off', 'x', 'y', 'z']
           const next = axes[(axes.indexOf(brush.symmetryAxis()) + 1) % axes.length]
           brush.setSymmetryAxis(next)
-          showToast(next !== 'off' ? `Symmetry: ${next.toUpperCase()} Axis` : 'Symmetry: OFF', 'info')
+          showToast(
+            next !== 'off' ? `Symmetry: ${next.toUpperCase()} Axis` : 'Symmetry: OFF',
+            'info'
+          )
           break
         }
         const stack = viewportHandle?.getLayerStack()
@@ -794,7 +873,9 @@ export default function App(): JSX.Element {
     void (async () => {
       try {
         const dismissed = await window.api.isBlenderPromptDismissed()
-        if (dismissed) return
+        if (dismissed) {
+          return
+        }
         const detected = await window.api.detectBlender()
         if (!detected.path) {
           showToast(
@@ -861,11 +942,14 @@ export default function App(): JSX.Element {
     {
       label: showStencilPanel() ? 'Disable Screen Stencil' : 'Enable Screen Stencil',
       shortcut: 'S',
-      icon: (p) => (showStencilPanel() ? <CheckIcon size={p.size} class="text-teal-400" /> : <span />),
+      icon: (p) =>
+        showStencilPanel() ? <CheckIcon size={p.size} class="text-teal-400" /> : <span />,
       onClick: () => {
         const next = !showStencilPanel()
         setShowStencilPanel(next)
-        if (next) setShowPanelDock(true)
+        if (next) {
+          setShowPanelDock(true)
+        }
         setShowPanelMenu(false)
       }
     }
@@ -951,8 +1035,12 @@ export default function App(): JSX.Element {
     },
     {
       label: brush.texturePath()
-        ? brush.selectedFaces().size > 0 ? 'Fill Selection with Texture' : 'Fill Active Layer with Texture'
-        : brush.selectedFaces().size > 0 ? 'Fill Selection with Color' : 'Fill Active Layer with Color',
+        ? brush.selectedFaces().size > 0
+          ? 'Fill Selection with Texture'
+          : 'Fill Active Layer with Texture'
+        : brush.selectedFaces().size > 0
+          ? 'Fill Selection with Color'
+          : 'Fill Active Layer with Color',
       shortcut: 'G',
       onClick: handleFillActiveLayer
     },
@@ -984,13 +1072,22 @@ export default function App(): JSX.Element {
           {/* App Branding & Document Title */}
           <div class="flex items-center gap-2 pr-3 border-r border-zinc-800 min-w-0">
             <AppIcon size={20} class="flex-shrink-0" />
-            <span class="text-xs font-bold tracking-tight text-zinc-100 flex-shrink-0">MeshCoat</span>
+            <span class="text-xs font-bold tracking-tight text-zinc-100 flex-shrink-0">
+              MeshCoat
+            </span>
             <span class="text-zinc-600 text-xs font-normal select-none">/</span>
-            <span class="text-xs font-medium text-zinc-300 max-w-[220px] truncate" title={modelName()}>
-              {modelName()}{isDirty() ? ' *' : ''}
+            <span
+              class="text-xs font-medium text-zinc-300 max-w-[220px] truncate"
+              title={modelName()}
+            >
+              {modelName()}
+              {isDirty() ? ' *' : ''}
             </span>
             <Show when={isRestoringSession()}>
-              <div class="flex items-center gap-1 text-zinc-500 font-mono text-[10px] flex-shrink-0" title="Restoring session textures">
+              <div
+                class="flex items-center gap-1 text-zinc-500 font-mono text-[10px] flex-shrink-0"
+                title="Restoring session textures"
+              >
                 <RefreshCwIcon size={10} class="animate-spin text-zinc-400" />
               </div>
             </Show>
@@ -1143,7 +1240,10 @@ export default function App(): JSX.Element {
                 const axes: ('off' | 'x' | 'y' | 'z')[] = ['off', 'x', 'y', 'z']
                 const next = axes[(axes.indexOf(brush.symmetryAxis()) + 1) % axes.length]
                 brush.setSymmetryAxis(next)
-                showToast(next !== 'off' ? `Symmetry: ${next.toUpperCase()} Axis` : 'Symmetry: OFF', 'info')
+                showToast(
+                  next !== 'off' ? `Symmetry: ${next.toUpperCase()} Axis` : 'Symmetry: OFF',
+                  'info'
+                )
               }}
               title={`Symmetry: ${brush.symmetryAxis() === 'off' ? 'OFF' : brush.symmetryAxis().toUpperCase() + ' Axis'} (Alt+X)`}
             >
@@ -1270,7 +1370,9 @@ export default function App(): JSX.Element {
             onClick={() => {
               const next = !showStencilPanel()
               setShowStencilPanel(next)
-              if (next) setShowPanelDock(true)
+              if (next) {
+                setShowPanelDock(true)
+              }
             }}
             shortcut="S"
             title="Screen Stencil (S)"
@@ -1443,7 +1545,9 @@ export default function App(): JSX.Element {
                     bumpLayers()
                     const label = params.mode === 'cavity' ? 'Crevice Dirt' : 'Edge Wear'
                     showToast(
-                      asNewLayer ? `Created "${label}" layer` : `Applied ${label.toLowerCase()} to active layer`,
+                      asNewLayer
+                        ? `Created "${label}" layer`
+                        : `Applied ${label.toLowerCase()} to active layer`,
                       'success'
                     )
                   }}
@@ -1474,7 +1578,9 @@ export default function App(): JSX.Element {
               <div class="h-9 px-3.5 flex items-center justify-between border-b border-zinc-800 bg-zinc-850/50 flex-shrink-0">
                 <div class="flex items-center gap-2">
                   <LayersIcon size={15} class="text-purple-400" />
-                  <Label uppercase badge={currentLayerCount()}>Layers</Label>
+                  <Label uppercase badge={currentLayerCount()}>
+                    Layers
+                  </Label>
                 </div>
                 <IconButton
                   size="xs"

@@ -50,7 +50,9 @@ export default function ColorPicker(props: ColorPickerProps) {
 
   // Update SV from pointer coordinates
   const updateSVFromPointer = (clientX: number, clientY: number) => {
-    if (!svAreaRef) return
+    if (!svAreaRef) {
+      return
+    }
     const rect = svAreaRef.getBoundingClientRect()
     const x = Math.min(Math.max(0, clientX - rect.left), rect.width)
     const y = Math.min(Math.max(0, clientY - rect.top), rect.height)
@@ -67,7 +69,9 @@ export default function ColorPicker(props: ColorPickerProps) {
 
   // Update Hue from pointer coordinates
   const updateHueFromPointer = (clientX: number) => {
-    if (!hueBarRef) return
+    if (!hueBarRef) {
+      return
+    }
     const rect = hueBarRef.getBoundingClientRect()
     const x = Math.min(Math.max(0, clientX - rect.left), rect.width)
     const ratio = Math.min(1, Math.max(0, x / rect.width))
@@ -88,7 +92,9 @@ export default function ColorPicker(props: ColorPickerProps) {
   }
 
   const handleSvPointerMove = (e: PointerEvent) => {
-    if (!isDraggingSV()) return
+    if (!isDraggingSV()) {
+      return
+    }
     updateSVFromPointer(e.clientX, e.clientY)
   }
 
@@ -109,7 +115,9 @@ export default function ColorPicker(props: ColorPickerProps) {
   }
 
   const handleHuePointerMove = (e: PointerEvent) => {
-    if (!isDraggingHue()) return
+    if (!isDraggingHue()) {
+      return
+    }
     updateHueFromPointer(e.clientX)
   }
 
@@ -125,7 +133,9 @@ export default function ColorPicker(props: ColorPickerProps) {
   // Handle Hex text edit
   const handleHexChange = (val: string) => {
     let clean = val.trim()
-    if (!clean.startsWith('#')) clean = `#${clean}`
+    if (!clean.startsWith('#')) {
+      clean = `#${clean}`
+    }
     setHexInput(clean.toUpperCase())
 
     if (isValidHex(clean)) {
@@ -177,7 +187,9 @@ export default function ColorPicker(props: ColorPickerProps) {
   }
 
   return (
-    <div class={`flex flex-col gap-2.5 p-2.5 bg-zinc-950/80 border border-zinc-800/90 rounded-lg select-none ${props.class ?? ''}`}>
+    <div
+      class={`flex flex-col gap-2.5 p-2.5 bg-zinc-950/80 border border-zinc-800/90 rounded-lg select-none ${props.class ?? ''}`}
+    >
       {/* 1. 2D Saturation / Value Gradient Box */}
       <div
         ref={svAreaRef}

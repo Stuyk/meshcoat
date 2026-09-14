@@ -50,7 +50,9 @@ export default function TextureRegionHUD(props: TextureRegionHUDProps): JSX.Elem
 
   function onPointerMove(e: PointerEvent): void {
     const mode = drag()
-    if (!mode || !frameRef) return
+    if (!mode || !frameRef) {
+      return
+    }
     const rect = frameRef.getBoundingClientRect()
     // Pointer position as a 0-1 coordinate inside the preview, which is the
     // same space the region itself is stored in — no conversion needed.
@@ -128,7 +130,9 @@ export default function TextureRegionHUD(props: TextureRegionHUDProps): JSX.Elem
           onPointerDown={(e) => {
             // Clicking empty space re-centres the crop there, which is quicker
             // than dragging across the sheet to reach a distant detail.
-            if (!frameRef) return
+            if (!frameRef) {
+              return
+            }
             const rect = frameRef.getBoundingClientRect()
             setTextureRegion({
               x: (e.clientX - rect.left) / rect.width - region().w / 2,

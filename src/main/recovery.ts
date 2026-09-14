@@ -15,6 +15,15 @@ async function ensureBackupsDir(): Promise<string> {
   return dir
 }
 
+/** Deletes one pruned rolling backup; a failed delete is harmless — the file just lingers. */
+async function deleteRollingBackup(path: string): Promise<void> {
+  try {
+    await unlink(path)
+  } catch {
+    // Harmless: the file just lingers until the next prune pass.
+  }
+}
+
 export async function saveAutosave(data: string): Promise<boolean> {
   try {
     const dir = await ensureBackupsDir()
@@ -31,11 +40,7 @@ export async function saveAutosave(data: string): Promise<boolean> {
     if (rollingFiles.length > 5) {
       rollingFiles.sort() // Timestamp-based names sort chronologically
       const toDelete = rollingFiles.slice(0, rollingFiles.length - 5)
-      for (const f of toDelete) {
-        try {
-          await unlink(join(dir, f))
-        } catch {}
-      }
+      await Promise.all(toDelete.map((f) => deleteRollingBackup(join(dir, f))))
     }
 
     return true
@@ -49,7 +54,9 @@ export async function loadAutosave(): Promise<{ data: string; timestamp: number 
   try {
     const dir = getBackupsDir()
     const autosavePath = join(dir, 'autosave.json')
-    if (!existsSync(autosavePath)) return null
+    if (!existsSync(autosavePath)) {
+      return null
+    }
 
     const fileStat = await stat(autosavePath)
     const data = await readFile(autosavePath, 'utf-8')

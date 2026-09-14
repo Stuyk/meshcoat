@@ -24,13 +24,225 @@ export interface ExportWizardModalProps {
 type ExportMode = 'individual' | 'combined'
 type ResolutionOption = 'native' | '1024' | '2048' | '4096'
 
+/** File-name stem for one piece: the shared base stem when there's only one piece, otherwise the base stem plus a sanitized piece name. */
+function pieceStem(baseStem: string, pieceName: string, count: number): string {
+  if (count < 2) {
+    return baseStem
+  }
+  const safe = pieceName.replace(/[^A-Za-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '')
+  return `${baseStem}_${safe || 'Piece'}`
+}
+
+/** Writes `url` to `path` if present. Returns whether anything was written, for the running export count. */
+async function writeIfPresent(path: string, url: string | undefined | null): Promise<boolean> {
+  if (!url) {
+    return false
+  }
+  await window.api.savePng(path, url)
+  return true
+}
+
+/**
+ * A combined-mode data channel (roughness/metalness/normal): the single
+ * piece's own map when exporting one piece at native resolution, otherwise
+ * every piece's map merged onto one sheet — skipped (null) when no piece
+ * actually painted that channel, rather than merging an all-neutral sheet.
+ */
+async function resolveCombinedDataChannel(
+  isSingleNative: boolean,
+  directUrl: () => string | undefined,
+  urls: () => (string | undefined)[],
+  merge: (urls: (string | undefined)[], background?: string) => Promise<string>,
+  background: string
+): Promise<string | null> {
+  if (isSingleNative) {
+    return directUrl() ?? null
+  }
+  const resolved = urls()
+  return resolved.some(Boolean) ? await merge(resolved, background) : null
+}
+
+/** One piece's one channel in individual-piece export mode: resizes to `size` unless already native, then writes it. Returns whether anything was written. */
+async function exportPieceChannel(
+  dir: string,
+  pieceStem: string,
+  suffix: string,
+  size: number,
+  isNative: boolean,
+  url: string | undefined
+): Promise<boolean> {
+  if (!url) {
+    return false
+  }
+  const finalUrl = isNative ? url : await combineDataUrls([url], size, size)
+  await window.api.savePng(`${dir}${pieceStem}_${suffix}.png`, finalUrl)
+  return true
+}
+
+interface ExportChannelFlags {
+  baseColor: boolean
+  roughness: boolean
+  metalness: boolean
+  normal: boolean
+  orm: boolean
+}
+
+/**
+ * Merges every piece's maps onto one sheet (or, for a single piece at native
+ * resolution, exports it directly with no resize/merge pass). Each piece's
+ * maps are opaque across the whole square, so merging clips each piece to
+ * its own UV coverage first — otherwise the last piece drawn wipes out every
+ * piece before it.
+ */
+async function exportCombinedMode(
+  handle: ViewportHandle,
+  pieceList: PieceInfo[],
+  isSingleNative: boolean,
+  targetSize: number,
+  dir: string,
+  chosenStem: string,
+  flags: ExportChannelFlags
+): Promise<number> {
+  let writtenCount = 0
+  const primaryPieceIdx = pieceList[0]?.index ?? 0
+  const masks = pieceList.map((p) => handle.exportCoverageMaskPng(p.index))
+  const merge = (urls: (string | undefined)[], background?: string): Promise<string> =>
+    combineMaskedDataUrls(
+      urls.map((url, i) => ({ url, maskUrl: masks[i] })),
+      targetSize,
+      background
+    )
+
+  // BaseColor — every piece always has one, so this always merges (no skip-if-empty check).
+  if (flags.baseColor) {
+    const finalUrl = isSingleNative
+      ? handle.exportBaseColorPng(primaryPieceIdx)
+      : await merge(pieceList.map((p) => handle.exportBaseColorPng(p.index)))
+    if (await writeIfPresent(`${dir}${chosenStem}_BaseColor.png`, finalUrl)) {
+      writtenCount++
+    }
+  }
+
+  // Roughness — neutral for the untouched sheet is fully rough (white).
+  const combinedRoughUrl =
+    flags.roughness || flags.orm
+      ? await resolveCombinedDataChannel(
+          isSingleNative,
+          () => handle.exportChannelPng('roughness', primaryPieceIdx),
+          () => pieceList.map((p) => handle.exportChannelPng('roughness', p.index)),
+          merge,
+          '#ffffff'
+        )
+      : null
+  if (
+    flags.roughness &&
+    (await writeIfPresent(`${dir}${chosenStem}_Roughness.png`, combinedRoughUrl))
+  ) {
+    writtenCount++
+  }
+
+  // Metalness — neutral is fully dielectric (black).
+  const combinedMetalUrl =
+    flags.metalness || flags.orm
+      ? await resolveCombinedDataChannel(
+          isSingleNative,
+          () => handle.exportChannelPng('metalness', primaryPieceIdx),
+          () => pieceList.map((p) => handle.exportChannelPng('metalness', p.index)),
+          merge,
+          '#000000'
+        )
+      : null
+  if (
+    flags.metalness &&
+    (await writeIfPresent(`${dir}${chosenStem}_Metalness.png`, combinedMetalUrl))
+  ) {
+    writtenCount++
+  }
+
+  // Normal — neutral is flat tangent-space (128, 128, 255).
+  if (flags.normal) {
+    const finalUrl = await resolveCombinedDataChannel(
+      isSingleNative,
+      () => handle.exportChannelPng('normal', primaryPieceIdx),
+      () => pieceList.map((p) => handle.exportChannelPng('normal', p.index)),
+      merge,
+      '#8080ff'
+    )
+    if (await writeIfPresent(`${dir}${chosenStem}_Normal.png`, finalUrl)) {
+      writtenCount++
+    }
+  }
+
+  // ORM Map
+  if (flags.orm) {
+    const orm = isSingleNative
+      ? handle.exportOrmPng(primaryPieceIdx)
+      : await packOrmFromDataUrls(combinedRoughUrl, combinedMetalUrl, null, targetSize)
+    if (await writeIfPresent(`${dir}${chosenStem}_ORM.png`, orm)) {
+      writtenCount++
+    }
+  }
+
+  return writtenCount
+}
+
+/** Every enabled channel for one piece, individual-export mode. Returns how many files were written. */
+async function exportPieceAllChannels(
+  handle: ViewportHandle,
+  piece: PieceInfo,
+  pStem: string,
+  size: number,
+  isNative: boolean,
+  flags: ExportChannelFlags,
+  dir: string
+): Promise<number> {
+  const channels: [boolean, string, string | undefined][] = [
+    [flags.baseColor, 'BaseColor', handle.exportBaseColorPng(piece.index)],
+    [flags.roughness, 'Roughness', handle.exportChannelPng('roughness', piece.index)],
+    [flags.metalness, 'Metalness', handle.exportChannelPng('metalness', piece.index)],
+    [flags.normal, 'Normal', handle.exportChannelPng('normal', piece.index)],
+    [flags.orm, 'ORM', handle.exportOrmPng(piece.index)]
+  ]
+  let written = 0
+  for (const [enabled, suffix, url] of channels) {
+    if (!enabled) {
+      continue
+    }
+    if (await exportPieceChannel(dir, pStem, suffix, size, isNative, url)) {
+      written++
+    }
+  }
+  return written
+}
+
+/** Exports every piece to its own set of files (one PNG per enabled channel per piece). */
+async function exportIndividualMode(
+  handle: ViewportHandle,
+  pieceList: PieceInfo[],
+  isNative: boolean,
+  targetSize: number,
+  dir: string,
+  chosenStem: string,
+  flags: ExportChannelFlags
+): Promise<number> {
+  let writtenCount = 0
+  for (const piece of pieceList) {
+    const pStem = pieceStem(chosenStem, piece.name, pieceList.length)
+    const size = isNative ? piece.textureSize || 2048 : targetSize
+    writtenCount += await exportPieceAllChannels(handle, piece, pStem, size, isNative, flags, dir)
+  }
+  return writtenCount
+}
+
 export default function ExportWizardModal(props: ExportWizardModalProps) {
   const getHandle = (): ViewportHandle | undefined => {
     return props.getViewportHandle ? props.getViewportHandle() : props.viewportHandle
   }
 
   const getPieces = (): PieceInfo[] => {
-    if (props.pieces && props.pieces.length > 0) return props.pieces
+    if (props.pieces && props.pieces.length > 0) {
+      return props.pieces
+    }
     const h = getHandle()
     return h?.pieces() ?? []
   }
@@ -39,7 +251,9 @@ export default function ExportWizardModal(props: ExportWizardModalProps) {
   const [stem, setStem] = createSignal(initialStem())
 
   const isMultiPiece = () => getPieces().length > 1
-  const [mode, setMode] = createSignal<ExportMode>(getPieces().length > 1 ? 'individual' : 'combined')
+  const [mode, setMode] = createSignal<ExportMode>(
+    getPieces().length > 1 ? 'individual' : 'combined'
+  )
 
   // Keep mode in sync if piece count changes
   createEffect(() => {
@@ -53,14 +267,12 @@ export default function ExportWizardModal(props: ExportWizardModalProps) {
     setStem(initialStem())
   })
 
-  // Channel toggles
   const [exportBaseColor, setExportBaseColor] = createSignal(true)
   const [exportOrm, setExportOrm] = createSignal(true)
   const [exportRoughness, setExportRoughness] = createSignal(false)
   const [exportMetalness, setExportMetalness] = createSignal(false)
   const [exportNormal, setExportNormal] = createSignal(false)
 
-  // Resolution override
   const [resolution, setResolution] = createSignal<ResolutionOption>('native')
   const [isExporting, setIsExporting] = createSignal(false)
 
@@ -86,31 +298,45 @@ export default function ExportWizardModal(props: ExportWizardModalProps) {
     }
   }
 
-  function pieceStem(baseStem: string, pieceName: string, count: number): string {
-    if (count < 2) return baseStem
-    const safe = pieceName.replace(/[^A-Za-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '')
-    return `${baseStem}_${safe || 'Piece'}`
-  }
-
   const previewFiles = (): string[] => {
     const currentStem = stem().trim() || 'Model'
     const files: string[] = []
     const pieceList = getPieces()
 
     if (mode() === 'combined' || pieceList.length <= 1) {
-      if (exportBaseColor()) files.push(`${currentStem}_BaseColor.png`)
-      if (exportOrm()) files.push(`${currentStem}_ORM.png`)
-      if (exportRoughness()) files.push(`${currentStem}_Roughness.png`)
-      if (exportMetalness()) files.push(`${currentStem}_Metalness.png`)
-      if (exportNormal()) files.push(`${currentStem}_Normal.png`)
+      if (exportBaseColor()) {
+        files.push(`${currentStem}_BaseColor.png`)
+      }
+      if (exportOrm()) {
+        files.push(`${currentStem}_ORM.png`)
+      }
+      if (exportRoughness()) {
+        files.push(`${currentStem}_Roughness.png`)
+      }
+      if (exportMetalness()) {
+        files.push(`${currentStem}_Metalness.png`)
+      }
+      if (exportNormal()) {
+        files.push(`${currentStem}_Normal.png`)
+      }
     } else {
       for (const piece of pieceList) {
         const pStem = pieceStem(currentStem, piece.name, pieceList.length)
-        if (exportBaseColor()) files.push(`${pStem}_BaseColor.png`)
-        if (exportOrm()) files.push(`${pStem}_ORM.png`)
-        if (exportRoughness()) files.push(`${pStem}_Roughness.png`)
-        if (exportMetalness()) files.push(`${pStem}_Metalness.png`)
-        if (exportNormal()) files.push(`${pStem}_Normal.png`)
+        if (exportBaseColor()) {
+          files.push(`${pStem}_BaseColor.png`)
+        }
+        if (exportOrm()) {
+          files.push(`${pStem}_ORM.png`)
+        }
+        if (exportRoughness()) {
+          files.push(`${pStem}_Roughness.png`)
+        }
+        if (exportMetalness()) {
+          files.push(`${pStem}_Metalness.png`)
+        }
+        if (exportNormal()) {
+          files.push(`${pStem}_Normal.png`)
+        }
       }
     }
     return files
@@ -140,170 +366,54 @@ export default function ExportWizardModal(props: ExportWizardModalProps) {
       defaultPath: defaultFileName,
       filters: [{ name: 'PNG Image', extensions: ['png'] }]
     })
-    if (!filePath) return
+    if (!filePath) {
+      return
+    }
 
     setIsExporting(true)
     try {
       const separator = filePath.includes('\\') ? '\\' : '/'
       const dir = filePath.slice(0, filePath.lastIndexOf(separator) + 1)
-      const chosenStem = filePath
-        .slice(dir.length)
-        .replace(/\.png$/i, '')
-        .replace(/_BaseColor$/i, '')
-        .replace(/_ORM$/i, '')
-        .replace(/_Roughness$/i, '')
-        .replace(/_Metalness$/i, '')
-        .replace(/_Normal$/i, '') || currentStem
+      const chosenStem =
+        filePath
+          .slice(dir.length)
+          .replace(/\.png$/i, '')
+          .replace(/_BaseColor$/i, '')
+          .replace(/_ORM$/i, '')
+          .replace(/_Roughness$/i, '')
+          .replace(/_Metalness$/i, '')
+          .replace(/_Normal$/i, '') || currentStem
 
       const maxNativeSize = Math.max(...pieceList.map((p) => p.textureSize || 2048), 2048)
       const targetSize = resolution() === 'native' ? maxNativeSize : parseInt(resolution(), 10)
 
-      let writtenCount = 0
-
-      if (mode() === 'combined' || pieceList.length <= 1) {
-        const isSingleNative = pieceList.length <= 1 && resolution() === 'native'
-        const primaryPieceIdx = pieceList[0]?.index ?? 0
-
-        // Each piece's maps are opaque across the whole square (a flat fill
-        // covers every texel, painted or not), so merging them onto one sheet
-        // has to clip each piece to its own UV coverage — otherwise the last
-        // piece drawn wipes out every piece before it and the file comes out
-        // as that piece's flat background.
-        const masks = pieceList.map((p) => handle.exportCoverageMaskPng(p.index))
-        const merge = (
-          urls: (string | undefined)[],
-          background?: string
-        ): Promise<string> =>
-          combineMaskedDataUrls(
-            urls.map((url, i) => ({ url, maskUrl: masks[i] })),
-            targetSize,
-            background
-          )
-
-        // BaseColor
-        if (exportBaseColor()) {
-          let finalUrl: string | undefined
-          if (isSingleNative) {
-            finalUrl = handle.exportBaseColorPng(primaryPieceIdx)
-          } else {
-            finalUrl = await merge(pieceList.map((p) => handle.exportBaseColorPng(p.index)))
-          }
-          if (finalUrl) {
-            await window.api.savePng(`${dir}${chosenStem}_BaseColor.png`, finalUrl)
-            writtenCount++
-          }
-        }
-
-        // Roughness — neutral for the untouched sheet is fully rough (white).
-        let combinedRoughUrl: string | null = null
-        if (exportRoughness() || exportOrm()) {
-          if (isSingleNative) {
-            combinedRoughUrl = handle.exportChannelPng('roughness', primaryPieceIdx) ?? null
-          } else {
-            const urls = pieceList.map((p) => handle.exportChannelPng('roughness', p.index))
-            combinedRoughUrl = urls.some(Boolean) ? await merge(urls, '#ffffff') : null
-          }
-          if (exportRoughness() && combinedRoughUrl) {
-            await window.api.savePng(`${dir}${chosenStem}_Roughness.png`, combinedRoughUrl)
-            writtenCount++
-          }
-        }
-
-        // Metalness — neutral is fully dielectric (black).
-        let combinedMetalUrl: string | null = null
-        if (exportMetalness() || exportOrm()) {
-          if (isSingleNative) {
-            combinedMetalUrl = handle.exportChannelPng('metalness', primaryPieceIdx) ?? null
-          } else {
-            const urls = pieceList.map((p) => handle.exportChannelPng('metalness', p.index))
-            combinedMetalUrl = urls.some(Boolean) ? await merge(urls, '#000000') : null
-          }
-          if (exportMetalness() && combinedMetalUrl) {
-            await window.api.savePng(`${dir}${chosenStem}_Metalness.png`, combinedMetalUrl)
-            writtenCount++
-          }
-        }
-
-        // Normal — neutral is flat tangent-space (128, 128, 255).
-        if (exportNormal()) {
-          let finalUrl: string | undefined
-          if (isSingleNative) {
-            finalUrl = handle.exportChannelPng('normal', primaryPieceIdx)
-          } else {
-            const urls = pieceList.map((p) => handle.exportChannelPng('normal', p.index))
-            finalUrl = urls.some(Boolean) ? await merge(urls, '#8080ff') : undefined
-          }
-          if (finalUrl) {
-            await window.api.savePng(`${dir}${chosenStem}_Normal.png`, finalUrl)
-            writtenCount++
-          }
-        }
-
-        // ORM Map
-        if (exportOrm()) {
-          let orm: string | undefined
-          if (isSingleNative) {
-            orm = handle.exportOrmPng(primaryPieceIdx)
-          } else {
-            orm = await packOrmFromDataUrls(combinedRoughUrl, combinedMetalUrl, null, targetSize)
-          }
-          if (orm) {
-            await window.api.savePng(`${dir}${chosenStem}_ORM.png`, orm)
-            writtenCount++
-          }
-        }
-      } else {
-        // Individual pieces mode
-        for (const piece of pieceList) {
-          const pStem = pieceStem(chosenStem, piece.name, pieceList.length)
-          const size = resolution() === 'native' ? (piece.textureSize || 2048) : targetSize
-
-          if (exportBaseColor()) {
-            const url = handle.exportBaseColorPng(piece.index)
-            if (url) {
-              const finalUrl = resolution() === 'native' ? url : await combineDataUrls([url], size, size)
-              await window.api.savePng(`${dir}${pStem}_BaseColor.png`, finalUrl)
-              writtenCount++
-            }
-          }
-
-          if (exportRoughness()) {
-            const url = handle.exportChannelPng('roughness', piece.index)
-            if (url) {
-              const finalUrl = resolution() === 'native' ? url : await combineDataUrls([url], size, size)
-              await window.api.savePng(`${dir}${pStem}_Roughness.png`, finalUrl)
-              writtenCount++
-            }
-          }
-
-          if (exportMetalness()) {
-            const url = handle.exportChannelPng('metalness', piece.index)
-            if (url) {
-              const finalUrl = resolution() === 'native' ? url : await combineDataUrls([url], size, size)
-              await window.api.savePng(`${dir}${pStem}_Metalness.png`, finalUrl)
-              writtenCount++
-            }
-          }
-
-          if (exportNormal()) {
-            const url = handle.exportChannelPng('normal', piece.index)
-            if (url) {
-              const finalUrl = resolution() === 'native' ? url : await combineDataUrls([url], size, size)
-              await window.api.savePng(`${dir}${pStem}_Normal.png`, finalUrl)
-              writtenCount++
-            }
-          }
-
-          if (exportOrm()) {
-            const orm = handle.exportOrmPng(piece.index)
-            if (orm) {
-              const finalUrl = resolution() === 'native' ? orm : await combineDataUrls([orm], size, size)
-              await window.api.savePng(`${dir}${pStem}_ORM.png`, finalUrl)
-              writtenCount++
-            }
-          }
-        }
+      const flags: ExportChannelFlags = {
+        baseColor: exportBaseColor(),
+        roughness: exportRoughness(),
+        metalness: exportMetalness(),
+        normal: exportNormal(),
+        orm: exportOrm()
       }
+      const writtenCount =
+        mode() === 'combined' || pieceList.length <= 1
+          ? await exportCombinedMode(
+              handle,
+              pieceList,
+              pieceList.length <= 1 && resolution() === 'native',
+              targetSize,
+              dir,
+              chosenStem,
+              flags
+            )
+          : await exportIndividualMode(
+              handle,
+              pieceList,
+              resolution() === 'native',
+              targetSize,
+              dir,
+              chosenStem,
+              flags
+            )
 
       props.onToast?.(
         writtenCount === 1
@@ -338,7 +448,11 @@ export default function ExportWizardModal(props: ExportWizardModalProps) {
             disabled={isExporting() || previewFiles().length === 0}
           >
             <DownloadIcon size={15} />
-            <span>{isExporting() ? 'Exporting...' : `Export ${previewFiles().length} File${previewFiles().length === 1 ? '' : 's'}`}</span>
+            <span>
+              {isExporting()
+                ? 'Exporting...'
+                : `Export ${previewFiles().length} File${previewFiles().length === 1 ? '' : 's'}`}
+            </span>
           </Button>
         </div>
       }
@@ -368,7 +482,10 @@ export default function ExportWizardModal(props: ExportWizardModalProps) {
               >
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-2 font-semibold text-zinc-100">
-                    <LayersIcon size={15} class={mode() === 'individual' ? 'text-blue-400' : 'text-zinc-400'} />
+                    <LayersIcon
+                      size={15}
+                      class={mode() === 'individual' ? 'text-blue-400' : 'text-zinc-400'}
+                    />
                     <span>Individual Pieces</span>
                   </div>
                   <Show when={mode() === 'individual'}>
@@ -376,7 +493,9 @@ export default function ExportWizardModal(props: ExportWizardModalProps) {
                   </Show>
                 </div>
                 <p class="text-[11px] text-zinc-400 leading-snug">
-                  Each piece gets its own set of textures (e.g. <code class="text-zinc-300">Head_BaseColor</code>, <code class="text-zinc-300">Body_BaseColor</code>).
+                  Each piece gets its own set of textures (e.g.{' '}
+                  <code class="text-zinc-300">Head_BaseColor</code>,{' '}
+                  <code class="text-zinc-300">Body_BaseColor</code>).
                 </p>
               </button>
 
@@ -391,7 +510,10 @@ export default function ExportWizardModal(props: ExportWizardModalProps) {
               >
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-2 font-semibold text-zinc-100">
-                    <ImagesIcon size={15} class={mode() === 'combined' ? 'text-blue-400' : 'text-zinc-400'} />
+                    <ImagesIcon
+                      size={15}
+                      class={mode() === 'combined' ? 'text-blue-400' : 'text-zinc-400'}
+                    />
                     <span>Single Image (Shared UV)</span>
                   </div>
                   <Show when={mode() === 'combined'}>
@@ -399,7 +521,8 @@ export default function ExportWizardModal(props: ExportWizardModalProps) {
                   </Show>
                 </div>
                 <p class="text-[11px] text-zinc-400 leading-snug">
-                  All pieces are merged into one texture atlas sheet (e.g. <code class="text-zinc-300">Model_BaseColor</code>).
+                  All pieces are merged into one texture atlas sheet (e.g.{' '}
+                  <code class="text-zinc-300">Model_BaseColor</code>).
                 </p>
               </button>
             </div>
@@ -487,13 +610,7 @@ export default function ExportWizardModal(props: ExportWizardModalProps) {
           {/* Filename Stem */}
           <div class="flex flex-col gap-1.5">
             <Label>Filename Prefix</Label>
-            <TextInput
-              value={stem()}
-              onInput={setStem}
-              placeholder="e.g. MyModel"
-              mono
-              size="sm"
-            />
+            <TextInput value={stem()} onInput={setStem} placeholder="e.g. MyModel" mono size="sm" />
           </div>
 
           {/* Resolution Override */}
@@ -515,13 +632,15 @@ export default function ExportWizardModal(props: ExportWizardModalProps) {
 
         {/* Files Preview Box */}
         <div class="flex flex-col gap-1.5">
-          <Label badge={`${previewFiles().length} file(s)`}>
-            Files to be Exported
-          </Label>
+          <Label badge={`${previewFiles().length} file(s)`}>Files to be Exported</Label>
           <div class="max-h-28 overflow-y-auto p-2.5 rounded-lg bg-zinc-950/80 border border-zinc-800/80 font-mono text-[11px] text-zinc-400 space-y-1 select-none">
             <Show
               when={previewFiles().length > 0}
-              fallback={<span class="text-zinc-600 italic">No channels selected. Select at least one channel above.</span>}
+              fallback={
+                <span class="text-zinc-600 italic">
+                  No channels selected. Select at least one channel above.
+                </span>
+              }
             >
               <For each={previewFiles()}>
                 {(file) => (
@@ -539,7 +658,10 @@ export default function ExportWizardModal(props: ExportWizardModalProps) {
         <div class="flex items-start gap-2.5 p-3 rounded-lg bg-zinc-950/80 border border-amber-500/30 text-xs text-zinc-400 leading-relaxed shadow-xs">
           <HelpCircleIcon size={16} class="text-amber-400 shrink-0 mt-0.5" />
           <p>
-            <span class="font-semibold text-zinc-200">Note:</span> You are only exporting texture images here and not assigning materials to the model. You will need to use your 3D program of choice (such as Blender, Maya, Unreal Engine, Unity, Godot, etc.) to hook up the textures as the final step.
+            <span class="font-semibold text-zinc-200">Note:</span> You are only exporting texture
+            images here and not assigning materials to the model. You will need to use your 3D
+            program of choice (such as Blender, Maya, Unreal Engine, Unity, Godot, etc.) to hook up
+            the textures as the final step.
           </p>
         </div>
       </div>

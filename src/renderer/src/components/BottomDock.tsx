@@ -45,7 +45,8 @@ const TOOL_CONFIG: Record<ToolMode, { label: string; key: string; num: string; I
 }
 
 export default function StatusBar(props: StatusBarProps): JSX.Element {
-  const currentTool = (): (typeof TOOL_CONFIG)[ToolMode] => TOOL_CONFIG[props.tool] ?? TOOL_CONFIG.brush
+  const currentTool = (): (typeof TOOL_CONFIG)[ToolMode] =>
+    TOOL_CONFIG[props.tool] ?? TOOL_CONFIG.brush
 
   return (
     <footer
@@ -97,7 +98,14 @@ export default function StatusBar(props: StatusBarProps): JSX.Element {
         </Show>
 
         {/* Brush Spec pills */}
-        <Show when={props.tool === 'brush' || props.tool === 'stamp' || props.tool === 'eraser' || props.tool === 'effect'}>
+        <Show
+          when={
+            props.tool === 'brush' ||
+            props.tool === 'stamp' ||
+            props.tool === 'eraser' ||
+            props.tool === 'effect'
+          }
+        >
           <div
             class="flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-900/80 border border-zinc-800/60 font-mono text-zinc-300 tabular-nums"
             title="Brush radius: [ / ] or Shift+Wheel or RMB+Drag"
@@ -115,7 +123,14 @@ export default function StatusBar(props: StatusBarProps): JSX.Element {
         </Show>
 
         {/* Active material channels — what the next stroke will actually write */}
-        <Show when={props.tool === 'brush' || props.tool === 'line' || props.tool === 'stamp' || props.tool === 'fill'}>
+        <Show
+          when={
+            props.tool === 'brush' ||
+            props.tool === 'line' ||
+            props.tool === 'stamp' ||
+            props.tool === 'fill'
+          }
+        >
           <div
             class="hidden lg:flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-900/80 border border-zinc-800/60 font-mono text-zinc-300"
             title="Material channels this brush writes (toggle them in Brush Settings)"
@@ -133,7 +148,8 @@ export default function StatusBar(props: StatusBarProps): JSX.Element {
             type="button"
             class="flex items-center gap-1.5 px-2 py-0.5 rounded bg-teal-950/40 border border-teal-800/50 text-teal-300 hover:bg-teal-900/40 transition-colors cursor-pointer font-mono"
             onClick={() => {
-              const nextMode = EFFECT_MODES[(EFFECT_MODES.indexOf(brush.effectMode()) + 1) % EFFECT_MODES.length]
+              const nextMode =
+                EFFECT_MODES[(EFFECT_MODES.indexOf(brush.effectMode()) + 1) % EFFECT_MODES.length]
               brush.setEffectMode(nextMode)
             }}
             title="Active Effect Filter. Click or press U to cycle (Blur -> Sharpen -> Smudge -> Pixelate)"
@@ -200,7 +216,9 @@ export default function StatusBar(props: StatusBarProps): JSX.Element {
               }`}
             />
             <span class="text-zinc-400 font-sans">Stencil:</span>
-            <span>{stencil.transforming() ? 'Transforming' : `${Math.round(stencil.scale() * 100)}%`}</span>
+            <span>
+              {stencil.transforming() ? 'Transforming' : `${Math.round(stencil.scale() * 100)}%`}
+            </span>
           </button>
         </Show>
       </div>
@@ -219,17 +237,27 @@ export default function StatusBar(props: StatusBarProps): JSX.Element {
             <Kbd size="xs">Click</Kbd>
             <span>
               Fill{' '}
-              {brush.fillMode() === 'face' ? 'Clicked Face' : props.selectedFaceCount > 0 ? 'Selection' : 'Model'}
+              {brush.fillMode() === 'face'
+                ? 'Clicked Face'
+                : props.selectedFaceCount > 0
+                  ? 'Selection'
+                  : 'Model'}
             </span>
           </span>
           <span>·</span>
         </Show>
-        <span class="inline-flex items-center gap-1" title="Middle Mouse Button drag or Alt+LMB drag">
+        <span
+          class="inline-flex items-center gap-1"
+          title="Middle Mouse Button drag or Alt+LMB drag"
+        >
           <Kbd size="xs">MMB</Kbd>
           <span>Orbit</span>
         </span>
         <span>·</span>
-        <span class="inline-flex items-center gap-1" title="Shift + Middle Mouse Button drag or Alt+MMB drag">
+        <span
+          class="inline-flex items-center gap-1"
+          title="Shift + Middle Mouse Button drag or Alt+MMB drag"
+        >
           <Kbd size="xs">Shift</Kbd>+<Kbd size="xs">MMB</Kbd>
           <span>Pan</span>
         </span>
@@ -252,7 +280,10 @@ export default function StatusBar(props: StatusBarProps): JSX.Element {
 
       {/* Right Area: Resolution & Hotkey Link */}
       <div class="flex items-center gap-2">
-        <span class="font-mono text-zinc-400 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-[10px] tabular-nums" title="Canvas texture resolution">
+        <span
+          class="font-mono text-zinc-400 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-[10px] tabular-nums"
+          title="Canvas texture resolution"
+        >
           {props.textureSize} × {props.textureSize}
         </span>
 

@@ -6,7 +6,10 @@ import * as THREE from 'three'
  * at the top, so rows are flipped during the copy or the exported image
  * would come out upside down.
  */
-export function renderTargetToPngDataUrl(renderer: THREE.WebGLRenderer, target: THREE.WebGLRenderTarget): string {
+export function renderTargetToPngDataUrl(
+  renderer: THREE.WebGLRenderer,
+  target: THREE.WebGLRenderTarget
+): string {
   const width = target.width
   const height = target.height
   const pixels = new Uint8Array(width * height * 4)
@@ -16,7 +19,9 @@ export function renderTargetToPngDataUrl(renderer: THREE.WebGLRenderer, target: 
   canvas.width = width
   canvas.height = height
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('2D canvas context unavailable for export')
+  if (!ctx) {
+    throw new Error('2D canvas context unavailable for export')
+  }
 
   // The render target stores premultiplied color (see paintShader.ts), but
   // Canvas ImageData is straight/non-premultiplied — undo it per pixel or
@@ -79,7 +84,9 @@ export function packOrmDataUrl(
   canvas.width = size
   canvas.height = size
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('2D canvas context unavailable for export')
+  if (!ctx) {
+    throw new Error('2D canvas context unavailable for export')
+  }
   const imageData = ctx.createImageData(size, size)
   const rowBytes = size * 4
 
@@ -121,7 +128,9 @@ async function maskToAlphaCanvas(maskUrl: string, size: number): Promise<HTMLCan
   canvas.width = size
   canvas.height = size
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('2D canvas context unavailable for export')
+  if (!ctx) {
+    throw new Error('2D canvas context unavailable for export')
+  }
   ctx.drawImage(img, 0, 0, size, size)
   const data = ctx.getImageData(0, 0, size, size)
   const px = data.data
@@ -158,7 +167,9 @@ export async function combineMaskedDataUrls(
   canvas.width = size
   canvas.height = size
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('2D canvas context unavailable for export')
+  if (!ctx) {
+    throw new Error('2D canvas context unavailable for export')
+  }
 
   ctx.clearRect(0, 0, size, size)
   if (background) {
@@ -167,7 +178,9 @@ export async function combineMaskedDataUrls(
   }
 
   for (const entry of entries) {
-    if (!entry.url) continue
+    if (!entry.url) {
+      continue
+    }
     const img = await loadImage(entry.url)
     if (!entry.maskUrl) {
       ctx.drawImage(img, 0, 0, size, size)
@@ -177,7 +190,9 @@ export async function combineMaskedDataUrls(
     layer.width = size
     layer.height = size
     const lctx = layer.getContext('2d')
-    if (!lctx) throw new Error('2D canvas context unavailable for export')
+    if (!lctx) {
+      throw new Error('2D canvas context unavailable for export')
+    }
     lctx.drawImage(img, 0, 0, size, size)
     lctx.globalCompositeOperation = 'destination-in'
     lctx.drawImage(await maskToAlphaCanvas(entry.maskUrl, size), 0, 0)
@@ -200,11 +215,15 @@ export async function combineDataUrls(
   canvas.width = width
   canvas.height = height
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('2D canvas context unavailable for export')
+  if (!ctx) {
+    throw new Error('2D canvas context unavailable for export')
+  }
 
   ctx.clearRect(0, 0, width, height)
   for (const url of dataUrls) {
-    if (!url) continue
+    if (!url) {
+      continue
+    }
     const img = await loadImage(url)
     ctx.drawImage(img, 0, 0, width, height)
   }
@@ -225,9 +244,14 @@ export async function packOrmFromDataUrls(
   canvas.width = size
   canvas.height = size
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('2D canvas context unavailable for export')
+  if (!ctx) {
+    throw new Error('2D canvas context unavailable for export')
+  }
 
-  const getImagePixels = async (url: string | null | undefined, fallback: number): Promise<Uint8ClampedArray> => {
+  const getImagePixels = async (
+    url: string | null | undefined,
+    fallback: number
+  ): Promise<Uint8ClampedArray> => {
     if (!url) {
       const arr = new Uint8ClampedArray(size * size * 4)
       arr.fill(fallback)
@@ -263,7 +287,9 @@ export async function packOrmFromDataUrls(
 /**
  * Extracts Roughness (Green) and Metalness (Blue) maps from an ORM texture into PNG data URLs.
  */
-export async function unpackOrmDataUrl(src: string): Promise<{ roughness: string; metalness: string }> {
+export async function unpackOrmDataUrl(
+  src: string
+): Promise<{ roughness: string; metalness: string }> {
   const img = await loadImage(src)
   const width = img.naturalWidth || 2048
   const height = img.naturalHeight || 2048
@@ -272,7 +298,9 @@ export async function unpackOrmDataUrl(src: string): Promise<{ roughness: string
   canvas.width = width
   canvas.height = height
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('2D canvas context unavailable')
+  if (!ctx) {
+    throw new Error('2D canvas context unavailable')
+  }
   ctx.drawImage(img, 0, 0)
   const imgData = ctx.getImageData(0, 0, width, height)
   const pixels = imgData.data

@@ -60,7 +60,9 @@ function clamp(v: number, min: number, max: number): number {
 export function setStencilTexturePath(path: string | null, label?: string): void {
   setTexturePathRaw(path)
   setTextureLabelRaw(path ? (label ?? path.split(/[/\\]/).pop() ?? 'Stencil') : null)
-  if (!path) setTransformingRaw(false)
+  if (!path) {
+    setTransformingRaw(false)
+  }
 }
 
 export function setStencilCenter(x: number, y: number): void {
@@ -92,7 +94,9 @@ export function setStencilTransforming(v: boolean): void {
 
 export function setStencilVisible(v: boolean): void {
   setVisibleRaw(v)
-  if (!v) setTransformingRaw(false)
+  if (!v) {
+    setTransformingRaw(false)
+  }
 }
 
 export function setStencilStampUseLuminance(v: boolean): void {
@@ -118,7 +122,10 @@ export const stencilActive = (): boolean => visible() && texturePath() !== null
  * Stencil rectangle in canvas pixels — the single source of truth shared by the
  * DOM overlay and the paint shader.
  */
-export function stencilRect(canvasWidth: number, canvasHeight: number): {
+export function stencilRect(
+  canvasWidth: number,
+  canvasHeight: number
+): {
   centerX: number
   centerY: number
   width: number

@@ -79,7 +79,9 @@ export default function SettingsModal(props: SettingsModalProps) {
         props.onToast?.(`Detected ${res.version || 'Blender'}`, 'success')
       } else {
         setIsDetected(false)
-        setErrorMessage('Blender could not be found automatically. Please browse and select your Blender binary.')
+        setErrorMessage(
+          'Blender could not be found automatically. Please browse and select your Blender binary.'
+        )
       }
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err))
@@ -176,7 +178,9 @@ export default function SettingsModal(props: SettingsModalProps) {
               </div>
               <div class="flex flex-col">
                 <span class="text-xs font-semibold text-zinc-200">Blender 3D Bridge</span>
-                <span class="text-[10px] text-zinc-500">Directly import native .blend files into MeshCoat</span>
+                <span class="text-[10px] text-zinc-500">
+                  Directly import native .blend files into MeshCoat
+                </span>
               </div>
             </div>
             <Badge variant={isDetected() ? 'success' : 'amber'} size="xs">
@@ -185,7 +189,9 @@ export default function SettingsModal(props: SettingsModalProps) {
           </div>
 
           <p class="text-[11px] text-zinc-400 leading-relaxed">
-            MeshCoat converts native <strong>.blend</strong> files in the background using headless Blender. This accurately evaluates all modifiers (Subdivision, Mirror, Bevel, Geometry Nodes) and UV coordinates into seamless paintable meshes.
+            MeshCoat converts native <strong>.blend</strong> files in the background using headless
+            Blender. This accurately evaluates all modifiers (Subdivision, Mirror, Bevel, Geometry
+            Nodes) and UV coordinates into seamless paintable meshes.
           </p>
 
           {/* Current Path & Config Input */}
@@ -252,9 +258,7 @@ export default function SettingsModal(props: SettingsModalProps) {
 
         {/* 2. Format Capabilities Summary */}
         <div class="flex flex-col gap-2.5 p-3.5 rounded-xl border border-zinc-800 bg-zinc-950/40">
-          <Label uppercase>
-            Supported 3D Model Formats
-          </Label>
+          <Label uppercase>Supported 3D Model Formats</Label>
           <div class="grid grid-cols-2 gap-2 text-xs text-zinc-300">
             <div class="flex items-center gap-2 p-2 rounded-lg bg-zinc-900/40 border border-zinc-850">
               <span class="font-mono text-blue-400 font-semibold">.glb / .gltf</span>

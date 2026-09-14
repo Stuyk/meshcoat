@@ -99,11 +99,11 @@ export default function StencilHUD(props: StencilHUDProps) {
   return (
     <div
       class={
-          props.docked
-            ? // Docked: the dock owns the frame, so no card chrome of its own.
-              'w-full flex flex-col gap-2.5 select-none'
-            : 'absolute top-3 left-3 z-30 w-72 p-3 bg-zinc-900/95 backdrop-blur-md border border-zinc-800 rounded-md shadow-2xl flex flex-col gap-2.5 select-none animate-in fade-in slide-in-from-top-2 duration-150'
-        }
+        props.docked
+          ? // Docked: the dock owns the frame, so no card chrome of its own.
+            'w-full flex flex-col gap-2.5 select-none'
+          : 'absolute top-3 left-3 z-30 w-72 p-3 bg-zinc-900/95 backdrop-blur-md border border-zinc-800 rounded-md shadow-2xl flex flex-col gap-2.5 select-none animate-in fade-in slide-in-from-top-2 duration-150'
+      }
       onClick={(e) => e.stopPropagation()}
     >
       {/* The dock draws this panel's title, summary and actions in its own
@@ -130,9 +130,16 @@ export default function StencilHUD(props: StencilHUDProps) {
                 size="xs"
                 variant="ghost"
                 onClick={() => setStencilVisible(!stencil.visible())}
-                title={stencil.visible() ? 'Hide stencil sheet from viewport' : 'Show stencil sheet in viewport'}
+                title={
+                  stencil.visible()
+                    ? 'Hide stencil sheet from viewport'
+                    : 'Show stencil sheet in viewport'
+                }
               >
-                <Show when={stencil.visible()} fallback={<EyeOffIcon size={13} class="text-zinc-500" />}>
+                <Show
+                  when={stencil.visible()}
+                  fallback={<EyeOffIcon size={13} class="text-zinc-500" />}
+                >
                   <EyeIcon size={13} class="text-teal-400" />
                 </Show>
               </IconButton>
@@ -167,9 +174,7 @@ export default function StencilHUD(props: StencilHUDProps) {
                 <span class="text-xs font-medium text-zinc-200 group-hover:text-teal-300">
                   Load Stencil Image…
                 </span>
-                <span class="text-[10px] text-zinc-500">
-                  PNG, JPG, WebP, BMP
-                </span>
+                <span class="text-[10px] text-zinc-500">PNG, JPG, WebP, BMP</span>
               </div>
             </div>
 
@@ -219,7 +224,8 @@ export default function StencilHUD(props: StencilHUDProps) {
             </Show>
 
             <p class="text-[10px] text-zinc-500 leading-normal">
-              A stencil floats as a screen-space sheet over the 3D viewport. Orbit the mesh underneath it, then paint or stamp through it.
+              A stencil floats as a screen-space sheet over the 3D viewport. Orbit the mesh
+              underneath it, then paint or stamp through it.
             </p>
           </div>
         }
@@ -250,12 +256,7 @@ export default function StencilHUD(props: StencilHUDProps) {
             >
               <RefreshCwIcon size={12} />
             </IconButton>
-            <IconButton
-              size="xs"
-              variant="ghost"
-              onClick={clear}
-              title="Unload stencil"
-            >
+            <IconButton size="xs" variant="ghost" onClick={clear} title="Unload stencil">
               <Trash2Icon size={12} class="text-zinc-400 hover:text-red-400" />
             </IconButton>
           </div>
@@ -392,7 +393,9 @@ export default function StencilHUD(props: StencilHUDProps) {
                         onClick={() => loadStencil(texPath)}
                         title={fileName(texPath, 'texture')}
                         class={`aspect-square rounded overflow-hidden checkerboard-bg border transition-all cursor-pointer relative group ${
-                          isCurrent() ? 'border-teal-400 ring-1 ring-teal-400/50' : 'border-zinc-750 hover:border-zinc-600'
+                          isCurrent()
+                            ? 'border-teal-400 ring-1 ring-teal-400/50'
+                            : 'border-zinc-750 hover:border-zinc-600'
                         }`}
                       >
                         <img
@@ -441,7 +444,8 @@ export default function StencilHUD(props: StencilHUDProps) {
 
         {/* Workflow Tip */}
         <p class="text-[10px] text-zinc-400 leading-normal bg-zinc-950/40 p-2 rounded border border-zinc-800/60">
-          <span class="text-zinc-300 font-semibold">Tip:</span> Orbit the model under the stencil sheet, then click <b>Stamp Onto Model</b> or paint directly through it with any brush.
+          <span class="text-zinc-300 font-semibold">Tip:</span> Orbit the model under the stencil
+          sheet, then click <b>Stamp Onto Model</b> or paint directly through it with any brush.
         </p>
       </Show>
     </div>

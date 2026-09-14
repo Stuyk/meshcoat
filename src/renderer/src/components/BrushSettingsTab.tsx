@@ -29,7 +29,18 @@ import {
   RefreshCwIcon,
   DropletsIcon
 } from './icons'
-import { PanelSection, Slider, Button, IconButton, ColorPicker, Label, Select, ToggleSwitch, ColorSwatch, Kbd } from './ui'
+import {
+  PanelSection,
+  Slider,
+  Button,
+  IconButton,
+  ColorPicker,
+  Label,
+  Select,
+  ToggleSwitch,
+  ColorSwatch,
+  Kbd
+} from './ui'
 import { toAssetUrl } from '../utils/assetUrl'
 import {
   PALETTE_PRESETS,
@@ -123,7 +134,9 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
   const handleImportFile = (e: Event) => {
     const input = e.currentTarget as HTMLInputElement
     const file = input.files?.[0]
-    if (!file) return
+    if (!file) {
+      return
+    }
     const reader = new FileReader()
     reader.onload = () => {
       const text = reader.result as string
@@ -170,10 +183,16 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
           <div class="flex items-center gap-2">
             <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
             <span class="text-amber-300 font-medium text-xs">
-              Constrained to {brush.selectedFaces().size} face{brush.selectedFaces().size > 1 ? 's' : ''}
+              Constrained to {brush.selectedFaces().size} face
+              {brush.selectedFaces().size > 1 ? 's' : ''}
             </span>
           </div>
-          <Button variant="ghost" size="xs" onClick={clearFaceSelection} title="Clear face selection constraint (Esc)">
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={clearFaceSelection}
+            title="Clear face selection constraint (Esc)"
+          >
             Clear
           </Button>
         </div>
@@ -285,7 +304,10 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
                       : 'bg-zinc-950/40 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 border-zinc-800'
                   }`}
                 >
-                  <span class="w-4 h-4 rounded border border-white/20" style={{ background: item.hex }} />
+                  <span
+                    class="w-4 h-4 rounded border border-white/20"
+                    style={{ background: item.hex }}
+                  />
                   <span>{item.label}</span>
                 </button>
               )
@@ -353,7 +375,9 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
           {/* Saved Colors ("My Swatches") */}
           <div class="flex flex-col gap-2 pt-1 border-t border-zinc-800/80">
             <div class="flex items-center justify-between">
-              <Label uppercase badge={savedSwatches().length}>Saved Colors</Label>
+              <Label uppercase badge={savedSwatches().length}>
+                Saved Colors
+              </Label>
               <div class="flex items-center gap-1">
                 <button
                   type="button"
@@ -411,11 +435,7 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
           <div class="flex flex-col gap-2 pt-2 border-t border-zinc-800/80">
             <div class="flex items-center justify-between">
               <Label uppercase>Preset Palette</Label>
-              <Select
-                size="xs"
-                value={activePresetId()}
-                onChange={(val) => setActivePresetId(val)}
-              >
+              <Select size="xs" value={activePresetId()} onChange={(val) => setActivePresetId(val)}>
                 <For each={PALETTE_PRESETS}>
                   {(preset) => <option value={preset.id}>{preset.name}</option>}
                 </For>
@@ -493,7 +513,13 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
 
       {/* Material (PBR) channels — what each stroke writes besides color. Not
           shown for the tools that have no material payload of their own. */}
-      <Show when={props.activeTool !== 'eyedropper' && props.activeTool !== 'faceSelect' && props.activeTool !== 'effect'}>
+      <Show
+        when={
+          props.activeTool !== 'eyedropper' &&
+          props.activeTool !== 'faceSelect' &&
+          props.activeTool !== 'effect'
+        }
+      >
         <MaterialChannelsPanel isMaskTarget={props.isMaskTarget} onToast={props.onToast} />
       </Show>
 
@@ -619,163 +645,163 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
 
         {/* Hardness (Falloff) */}
         <Show when={props.activeTool !== 'fill'}>
-        <Slider
-          label="Hardness (Falloff)"
-          value={brush.hardness()}
-          min={0}
-          max={1}
-          step={0.01}
-          onChange={(v) => setHardness(v)}
-          displayValue={(v) => `${Math.round(v * 100)}%`}
-          presets={HARDNESS_PRESETS}
-          icon={(p) => <FeatherIcon size={p.size} />}
-        />
+          <Slider
+            label="Hardness (Falloff)"
+            value={brush.hardness()}
+            min={0}
+            max={1}
+            step={0.01}
+            onChange={(v) => setHardness(v)}
+            displayValue={(v) => `${Math.round(v * 100)}%`}
+            presets={HARDNESS_PRESETS}
+            icon={(p) => <FeatherIcon size={p.size} />}
+          />
         </Show>
 
         {/* Everything below shapes a DAB — pressure, spacing, tip rotation,
             jitter. A bucket fill has no dab: it floods the model, the face
             selection or one clicked face, so none of it applies. */}
         <Show when={props.activeTool !== 'fill'}>
-        {/* Stylus pressure mapping. PointerEvent.pressure is 0.5 on a mouse and
+          {/* Stylus pressure mapping. PointerEvent.pressure is 0.5 on a mouse and
             0 when nothing is pressed, so these toggles are inert without a
             real tablet — no need to hide them per input device. */}
-        <div class="space-y-1.5 pt-1">
-          <Label uppercase>Stylus Pressure</Label>
-          <div class="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => brush.setPressureRadius(!brush.pressureRadius())}
-              title="Stylus pressure controls brush radius (tapered strokes)"
-              class={`flex-1 h-7 rounded-md border text-[11px] font-medium transition-colors cursor-pointer ${
-                brush.pressureRadius()
-                  ? 'bg-blue-600/15 border-blue-500/70 text-zinc-100'
-                  : 'bg-zinc-950/50 border-zinc-800 text-zinc-400 hover:border-zinc-700'
-              }`}
-            >
-              → Size
-            </button>
-            <button
-              type="button"
-              onClick={() => brush.setPressureOpacity(!brush.pressureOpacity())}
-              title="Stylus pressure controls brush opacity (feathering and blending)"
-              class={`flex-1 h-7 rounded-md border text-[11px] font-medium transition-colors cursor-pointer ${
-                brush.pressureOpacity()
-                  ? 'bg-blue-600/15 border-blue-500/70 text-zinc-100'
-                  : 'bg-zinc-950/50 border-zinc-800 text-zinc-400 hover:border-zinc-700'
-              }`}
-            >
-              → Opacity
-            </button>
+          <div class="space-y-1.5 pt-1">
+            <Label uppercase>Stylus Pressure</Label>
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => brush.setPressureRadius(!brush.pressureRadius())}
+                title="Stylus pressure controls brush radius (tapered strokes)"
+                class={`flex-1 h-7 rounded-md border text-[11px] font-medium transition-colors cursor-pointer ${
+                  brush.pressureRadius()
+                    ? 'bg-blue-600/15 border-blue-500/70 text-zinc-100'
+                    : 'bg-zinc-950/50 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                }`}
+              >
+                → Size
+              </button>
+              <button
+                type="button"
+                onClick={() => brush.setPressureOpacity(!brush.pressureOpacity())}
+                title="Stylus pressure controls brush opacity (feathering and blending)"
+                class={`flex-1 h-7 rounded-md border text-[11px] font-medium transition-colors cursor-pointer ${
+                  brush.pressureOpacity()
+                    ? 'bg-blue-600/15 border-blue-500/70 text-zinc-100'
+                    : 'bg-zinc-950/50 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                }`}
+              >
+                → Opacity
+              </button>
+            </div>
+            <Slider
+              label="Min Pressure Floor"
+              value={brush.pressureMin()}
+              min={0}
+              max={1}
+              step={0.01}
+              onChange={(v) => brush.setPressureMin(v)}
+              displayValue={(v) => `${Math.round(v * 100)}%`}
+              icon={(p) => <FeatherIcon size={p.size} />}
+            />
           </div>
-          <Slider
-            label="Min Pressure Floor"
-            value={brush.pressureMin()}
-            min={0}
-            max={1}
-            step={0.01}
-            onChange={(v) => brush.setPressureMin(v)}
-            displayValue={(v) => `${Math.round(v * 100)}%`}
-            icon={(p) => <FeatherIcon size={p.size} />}
-          />
-        </div>
 
-        {/* Projector Depth — how far a dab cuts along the surface normal.
+          {/* Projector Depth — how far a dab cuts along the surface normal.
             Lower it when paint is reaching the far side of a thin wall or the
             opposite fold of a crease; raise it to wrap further over sharp
             edges and tight curvature. */}
-        <Slider
-          label="Depth (Bleed Through)"
-          value={brush.projectorDepth()}
-          min={0.02}
-          max={2}
-          step={0.01}
-          onChange={(v) => brush.setProjectorDepth(v)}
-          displayValue={(v) => `${Math.round(v * 100)}%`}
-          presets={[
-            { label: 'Thin', value: 0.15 },
-            { label: 'Default', value: 0.35 },
-            { label: 'Wrap', value: 1 }
-          ]}
-          icon={(p) => <FeatherIcon size={p.size} />}
-        />
+          <Slider
+            label="Depth (Bleed Through)"
+            value={brush.projectorDepth()}
+            min={0.02}
+            max={2}
+            step={0.01}
+            onChange={(v) => brush.setProjectorDepth(v)}
+            displayValue={(v) => `${Math.round(v * 100)}%`}
+            presets={[
+              { label: 'Thin', value: 0.15 },
+              { label: 'Default', value: 0.35 },
+              { label: 'Wrap', value: 1 }
+            ]}
+            icon={(p) => <FeatherIcon size={p.size} />}
+          />
 
-        {/* Max Angle — widest surface-vs-brush normal angle that takes paint. */}
-        <Slider
-          label="Max Angle"
-          value={brush.maxAngle()}
-          min={5}
-          max={180}
-          step={1}
-          unit="°"
-          onChange={(v) => brush.setMaxAngle(v)}
-          presets={[
-            { label: '60°', value: 60 },
-            { label: '85°', value: 85 },
-            { label: '120°', value: 120 }
-          ]}
-          icon={(p) => <RotateIcon size={p.size} />}
-        />
+          {/* Max Angle — widest surface-vs-brush normal angle that takes paint. */}
+          <Slider
+            label="Max Angle"
+            value={brush.maxAngle()}
+            min={5}
+            max={180}
+            step={1}
+            unit="°"
+            onChange={(v) => brush.setMaxAngle(v)}
+            presets={[
+              { label: '60°', value: 60 },
+              { label: '85°', value: 85 },
+              { label: '120°', value: 120 }
+            ]}
+            icon={(p) => <RotateIcon size={p.size} />}
+          />
 
-        {/* Spacing (Dab Rate) */}
-        <Slider
-          label="Spacing (Dab Rate)"
-          value={brush.spacing()}
-          min={0.02}
-          max={1}
-          step={0.01}
-          onChange={(v) => setSpacing(v)}
-          displayValue={(v) => `${Math.round(v * 100)}%`}
-          presets={SPACING_PRESETS}
-          icon={(p) => <SpacingIcon size={p.size} />}
-        />
+          {/* Spacing (Dab Rate) */}
+          <Slider
+            label="Spacing (Dab Rate)"
+            value={brush.spacing()}
+            min={0.02}
+            max={1}
+            step={0.01}
+            onChange={(v) => setSpacing(v)}
+            displayValue={(v) => `${Math.round(v * 100)}%`}
+            presets={SPACING_PRESETS}
+            icon={(p) => <SpacingIcon size={p.size} />}
+          />
 
-        {/* Rotation Angle */}
-        <Slider
-          label="Rotation Angle"
-          value={brush.brushRotation()}
-          min={0}
-          max={360}
-          step={1}
-          unit="°"
-          onChange={(v) => brush.setBrushRotation(v)}
-          presets={[
-            { label: '0°', value: 0 },
-            { label: '45°', value: 45 },
-            { label: '90°', value: 90 },
-            { label: '180°', value: 180 }
-          ]}
-          icon={(p) => <RotateIcon size={p.size} />}
-        />
+          {/* Rotation Angle */}
+          <Slider
+            label="Rotation Angle"
+            value={brush.brushRotation()}
+            min={0}
+            max={360}
+            step={1}
+            unit="°"
+            onChange={(v) => brush.setBrushRotation(v)}
+            presets={[
+              { label: '0°', value: 0 },
+              { label: '45°', value: 45 },
+              { label: '90°', value: 90 },
+              { label: '180°', value: 180 }
+            ]}
+            icon={(p) => <RotateIcon size={p.size} />}
+          />
 
-        {/* Follow Stroke Direction Toggle */}
-        <ToggleSwitch
-          checked={brush.angleFollowStroke()}
-          onChange={(val) => brush.setAngleFollowStroke(val)}
-          label="Follow Stroke Direction"
-          icon={(p) => <RotateIcon size={p.size} />}
-          title="Automatically rotates brush tip along stroke path"
-        />
+          {/* Follow Stroke Direction Toggle */}
+          <ToggleSwitch
+            checked={brush.angleFollowStroke()}
+            onChange={(val) => brush.setAngleFollowStroke(val)}
+            label="Follow Stroke Direction"
+            icon={(p) => <RotateIcon size={p.size} />}
+            title="Automatically rotates brush tip along stroke path"
+          />
 
-        {/* Jitter Controls */}
-        <Slider
-          label="Angle Jitter"
-          value={brush.angleJitter()}
-          min={0}
-          max={1}
-          step={0.05}
-          onChange={(v) => brush.setAngleJitter(v)}
-          displayValue={(v) => `${Math.round(v * 100)}%`}
-        />
+          {/* Jitter Controls */}
+          <Slider
+            label="Angle Jitter"
+            value={brush.angleJitter()}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => brush.setAngleJitter(v)}
+            displayValue={(v) => `${Math.round(v * 100)}%`}
+          />
 
-        <Slider
-          label="Size Jitter"
-          value={brush.sizeJitter()}
-          min={0}
-          max={1}
-          step={0.05}
-          onChange={(v) => brush.setSizeJitter(v)}
-          displayValue={(v) => `${Math.round(v * 100)}%`}
-        />
+          <Slider
+            label="Size Jitter"
+            value={brush.sizeJitter()}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => brush.setSizeJitter(v)}
+            displayValue={(v) => `${Math.round(v * 100)}%`}
+          />
         </Show>
       </PanelSection>
     </div>

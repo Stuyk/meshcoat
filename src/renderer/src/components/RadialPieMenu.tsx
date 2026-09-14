@@ -37,7 +37,13 @@ const WEDGES: ToolWedge[] = [
   { id: 'stamp', name: 'Stamp', shortcut: 'S', angleDeg: 30, icon: (p) => <StampIcon {...p} /> },
   { id: 'eraser', name: 'Eraser', shortcut: 'E', angleDeg: 90, icon: (p) => <EraserIcon {...p} /> },
   { id: 'fill', name: 'Fill', shortcut: 'G', angleDeg: 150, icon: (p) => <FillIcon {...p} /> },
-  { id: 'eyedropper', name: 'Picker', shortcut: 'I', angleDeg: 210, icon: (p) => <EyedropperIcon {...p} /> }
+  {
+    id: 'eyedropper',
+    name: 'Picker',
+    shortcut: 'I',
+    angleDeg: 210,
+    icon: (p) => <EyedropperIcon {...p} />
+  }
 ]
 
 const QUICK_COLORS = [
@@ -83,14 +89,18 @@ export default function RadialPieMenu(props: PieMenuProps) {
     }
 
     let deg = (Math.atan2(dy, dx) * 180) / Math.PI
-    if (deg < 0) deg += 360
+    if (deg < 0) {
+      deg += 360
+    }
 
     let closest: ToolWedge = WEDGES[0]
     let minDiff = 360
 
     for (const w of WEDGES) {
       let diff = Math.abs(deg - w.angleDeg)
-      if (diff > 180) diff = 360 - diff
+      if (diff > 180) {
+        diff = 360 - diff
+      }
       if (diff < minDiff) {
         minDiff = diff
         closest = w
@@ -180,7 +190,12 @@ export default function RadialPieMenu(props: PieMenuProps) {
       >
         <svg width="240" height="240" viewBox="-120 -120 240 240" class="drop-shadow-2xl">
           {/* Background glow circle */}
-          <circle r="106" fill="rgba(18, 18, 24, 0.88)" stroke="rgba(255, 255, 255, 0.1)" stroke-width="1" />
+          <circle
+            r="106"
+            fill="rgba(18, 18, 24, 0.88)"
+            stroke="rgba(255, 255, 255, 0.1)"
+            stroke-width="1"
+          />
 
           {/* Wedges */}
           <For each={WEDGES}>
@@ -193,14 +208,22 @@ export default function RadialPieMenu(props: PieMenuProps) {
               const iy = Math.sin(rad) * iconDist
 
               const wedgeFill = () => {
-                if (isHovered()) return 'rgba(59, 130, 246, 0.5)'
-                if (isActive()) return 'rgba(59, 130, 246, 0.25)'
+                if (isHovered()) {
+                  return 'rgba(59, 130, 246, 0.5)'
+                }
+                if (isActive()) {
+                  return 'rgba(59, 130, 246, 0.25)'
+                }
                 return 'rgba(30, 30, 40, 0.75)'
               }
 
               const wedgeStroke = () => {
-                if (isHovered()) return '#60a5fa'
-                if (isActive()) return '#3b82f6'
+                if (isHovered()) {
+                  return '#60a5fa'
+                }
+                if (isActive()) {
+                  return '#3b82f6'
+                }
                 return 'rgba(255, 255, 255, 0.12)'
               }
 
@@ -212,212 +235,218 @@ export default function RadialPieMenu(props: PieMenuProps) {
                     props.onSelectTool(w.id)
                   }}
                 >
-                <path
-                  d={getSectorPath(w.angleDeg)}
-                  fill={wedgeFill()}
-                  stroke={wedgeStroke()}
-                  stroke-width="1.5"
-                />
-                <g
-                  transform={`translate(${ix - 11}, ${iy - 11})`}
-                  class={isHovered() ? 'text-white' : isActive() ? 'text-blue-300' : 'text-zinc-300'}
-                >
-                  {w.icon({ size: 22 })}
+                  <path
+                    d={getSectorPath(w.angleDeg)}
+                    fill={wedgeFill()}
+                    stroke={wedgeStroke()}
+                    stroke-width="1.5"
+                  />
+                  <g
+                    transform={`translate(${ix - 11}, ${iy - 11})`}
+                    class={
+                      isHovered() ? 'text-white' : isActive() ? 'text-blue-300' : 'text-zinc-300'
+                    }
+                  >
+                    {w.icon({ size: 22 })}
+                  </g>
                 </g>
-              </g>
-            )
-          }}
-        </For>
+              )
+            }}
+          </For>
 
-        {/* Center Hub */}
-        <circle
-          r="36"
-          fill="rgba(24, 24, 32, 0.95)"
-          stroke="rgba(255, 255, 255, 0.18)"
-          stroke-width="1.5"
-          class="cursor-pointer"
-          onClick={(e) => {
-            e.stopPropagation()
-            colorInputRef?.click()
-          }}
-        />
-        <circle
-          r="18"
-          style={{ fill: brush.color() }}
-          stroke="rgba(255, 255, 255, 0.3)"
-          stroke-width="1.5"
-          class="cursor-pointer hover:scale-110 transition-transform"
-          onClick={(e) => {
-            e.stopPropagation()
-            colorInputRef?.click()
-          }}
-        />
-      </svg>
+          {/* Center Hub */}
+          <circle
+            r="36"
+            fill="rgba(24, 24, 32, 0.95)"
+            stroke="rgba(255, 255, 255, 0.18)"
+            stroke-width="1.5"
+            class="cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation()
+              colorInputRef?.click()
+            }}
+          />
+          <circle
+            r="18"
+            style={{ fill: brush.color() }}
+            stroke="rgba(255, 255, 255, 0.3)"
+            stroke-width="1.5"
+            class="cursor-pointer hover:scale-110 transition-transform"
+            onClick={(e) => {
+              e.stopPropagation()
+              colorInputRef?.click()
+            }}
+          />
+        </svg>
 
-      {/* Floating Tool Label underneath center */}
-      <Show when={WEDGES.find((w) => w.id === hoveredTool())}>
-        {(wedge) => (
-          <div class="absolute left-1/2 -translate-x-1/2 top-[125px] flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-900/95 border border-zinc-700 shadow-xl backdrop-blur-sm text-xs font-semibold text-zinc-100 whitespace-nowrap pointer-events-none">
-            <span>{wedge().name}</span>
-            <span class="font-mono text-[10px] text-zinc-400">[{wedge().shortcut}]</span>
-          </div>
-        )}
-      </Show>
+        {/* Floating Tool Label underneath center */}
+        <Show when={WEDGES.find((w) => w.id === hoveredTool())}>
+          {(wedge) => (
+            <div class="absolute left-1/2 -translate-x-1/2 top-[125px] flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-900/95 border border-zinc-700 shadow-xl backdrop-blur-sm text-xs font-semibold text-zinc-100 whitespace-nowrap pointer-events-none">
+              <span>{wedge().name}</span>
+              <span class="font-mono text-[10px] text-zinc-400">[{wedge().shortcut}]</span>
+            </div>
+          )}
+        </Show>
 
-      {/* Quick Access HUD Card (Colors, Textures, Symmetry, Rotation) */}
-      <div
-        class="absolute left-1/2 -translate-x-1/2 top-[245px] w-[270px] p-2.5 bg-zinc-900/95 border border-zinc-750 rounded-xl shadow-2xl backdrop-blur-md flex flex-col gap-2.5 text-xs"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Row 1: Quick Color Swatches */}
-        <div class="flex flex-col gap-1">
-          <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
-            Color
-          </span>
-          <div class="flex items-center gap-1 flex-wrap">
-            <For each={QUICK_COLORS}>
-              {(col) => (
-                <button
-                  type="button"
-                  class={`w-4 h-4 rounded-full border transition-transform cursor-pointer ${
-                    brush.color().toLowerCase() === col.toLowerCase()
-                      ? 'ring-2 ring-blue-500 scale-110 border-white'
-                      : 'border-white/20 hover:scale-110'
-                  }`}
-                  style={{ 'background-color': col }}
-                  title={`Select color: ${col}`}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    brush.setColor(col)
-                  }}
-                />
-              )}
-            </For>
-            <label class="relative w-4 h-4 rounded-full border border-white/30 overflow-hidden cursor-pointer flex items-center justify-center">
-              <input
-                ref={colorInputRef}
-                type="color"
-                class="sr-only"
-                value={brush.color()}
-                onInput={(e) => brush.setColor(e.currentTarget.value)}
-              />
-              <span class="w-full h-full" style={{ 'background-color': brush.color() }} />
-            </label>
-          </div>
-        </div>
-
-        {/* Row 2: Recent 5 Textures */}
-        <div class="flex flex-col gap-1">
-          <div class="flex items-center justify-between text-[10px]">
-            <span class="font-semibold text-zinc-400 uppercase tracking-wider">Textures</span>
-            <span class="text-zinc-500 font-mono">
-              {brush.texturePath() ? 'Texture Active' : 'Solid Color'}
+        {/* Quick Access HUD Card (Colors, Textures, Symmetry, Rotation) */}
+        <div
+          class="absolute left-1/2 -translate-x-1/2 top-[245px] w-[270px] p-2.5 bg-zinc-900/95 border border-zinc-750 rounded-xl shadow-2xl backdrop-blur-md flex flex-col gap-2.5 text-xs"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Row 1: Quick Color Swatches */}
+          <div class="flex flex-col gap-1">
+            <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
+              Color
             </span>
-          </div>
-          <div class="flex items-center gap-1 overflow-x-auto pb-0.5">
-            <button
-              type="button"
-              class={`px-2 py-1 rounded text-[11px] font-medium border transition-colors cursor-pointer ${
-                !brush.texturePath()
-                  ? 'bg-blue-600/30 text-blue-300 border-blue-500/60'
-                  : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200'
-              }`}
-              title="Solid Color (No Texture)"
-              onClick={(e) => {
-                e.stopPropagation()
-                setTexturePath(null)
-              }}
-            >
-              None
-            </button>
-            <For each={quickTextures()}>
-              {(texPath) => {
-                const label = displayName(texPath, '')
-                const isSelected = () => brush.texturePath() === texPath
-                return (
+            <div class="flex items-center gap-1 flex-wrap">
+              <For each={QUICK_COLORS}>
+                {(col) => (
                   <button
                     type="button"
-                    class={`w-6 h-6 rounded checkerboard-bg overflow-hidden border transition-transform cursor-pointer flex-shrink-0 ${
-                      isSelected()
-                        ? 'ring-2 ring-blue-500 border-white'
-                        : 'border-zinc-700 hover:border-zinc-500'
+                    class={`w-4 h-4 rounded-full border transition-transform cursor-pointer ${
+                      brush.color().toLowerCase() === col.toLowerCase()
+                        ? 'ring-2 ring-blue-500 scale-110 border-white'
+                        : 'border-white/20 hover:scale-110'
                     }`}
-                    title={label}
+                    style={{ 'background-color': col }}
+                    title={`Select color: ${col}`}
                     onClick={(e) => {
                       e.stopPropagation()
-                      setTexturePath(isSelected() ? null : texPath, !props.isMaskTarget?.())
+                      brush.setColor(col)
                     }}
-                  >
-                    <img src={toAssetUrl(texPath)} alt={label} class="w-full h-full object-cover" />
-                  </button>
-                )
-              }}
-            </For>
-          </div>
-        </div>
-
-        {/* Row 3: Symmetry & Brush Angle */}
-        <div class="flex items-center justify-between gap-2 pt-1 border-t border-zinc-800 text-[10px]">
-          {/* Symmetry */}
-          <div class="flex items-center gap-1">
-            <span class="flex items-center gap-1 text-zinc-400">
-              <SymmetryIcon size={12} />
-              <span>Sym:</span>
-            </span>
-            <div class="flex items-center gap-0.5">
-              {(['off', 'x', 'y', 'z'] as const).map((axis) => (
-                <button
-                  type="button"
-                  class={`px-1.5 py-0.5 rounded font-mono text-[10px] font-medium border transition-colors cursor-pointer ${
-                    brush.symmetryAxis() === axis
-                      ? 'bg-blue-600 text-white border-blue-500'
-                      : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200'
-                  }`}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    brush.setSymmetryAxis(axis)
-                  }}
-                >
-                  {axis === 'off' ? 'Off' : axis.toUpperCase()}
-                </button>
-              ))}
+                  />
+                )}
+              </For>
+              <label class="relative w-4 h-4 rounded-full border border-white/30 overflow-hidden cursor-pointer flex items-center justify-center">
+                <input
+                  ref={colorInputRef}
+                  type="color"
+                  class="sr-only"
+                  value={brush.color()}
+                  onInput={(e) => brush.setColor(e.currentTarget.value)}
+                />
+                <span class="w-full h-full" style={{ 'background-color': brush.color() }} />
+              </label>
             </div>
           </div>
 
-          {/* Angle */}
-          <div class="flex items-center gap-1">
-            <span class="flex items-center gap-1 text-zinc-400 font-mono">
-              <RotateIcon size={12} />
-              <span>{Math.round(brush.brushRotation())}°</span>
-            </span>
-            <div class="flex items-center gap-0.5">
+          {/* Row 2: Recent 5 Textures */}
+          <div class="flex flex-col gap-1">
+            <div class="flex items-center justify-between text-[10px]">
+              <span class="font-semibold text-zinc-400 uppercase tracking-wider">Textures</span>
+              <span class="text-zinc-500 font-mono">
+                {brush.texturePath() ? 'Texture Active' : 'Solid Color'}
+              </span>
+            </div>
+            <div class="flex items-center gap-1 overflow-x-auto pb-0.5">
               <button
                 type="button"
-                class="px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-750 font-mono text-[10px] cursor-pointer"
-                title="Rotate -15° (Shift+R)"
+                class={`px-2 py-1 rounded text-[11px] font-medium border transition-colors cursor-pointer ${
+                  !brush.texturePath()
+                    ? 'bg-blue-600/30 text-blue-300 border-blue-500/60'
+                    : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200'
+                }`}
+                title="Solid Color (No Texture)"
                 onClick={(e) => {
                   e.stopPropagation()
-                  brush.setBrushRotation(brush.brushRotation() - 15)
+                  setTexturePath(null)
                 }}
               >
-                -15°
+                None
               </button>
-              <button
-                type="button"
-                class="px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-750 font-mono text-[10px] cursor-pointer"
-                title="Rotate +15° (R)"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  brush.setBrushRotation(brush.brushRotation() + 15)
+              <For each={quickTextures()}>
+                {(texPath) => {
+                  const label = displayName(texPath, '')
+                  const isSelected = () => brush.texturePath() === texPath
+                  return (
+                    <button
+                      type="button"
+                      class={`w-6 h-6 rounded checkerboard-bg overflow-hidden border transition-transform cursor-pointer flex-shrink-0 ${
+                        isSelected()
+                          ? 'ring-2 ring-blue-500 border-white'
+                          : 'border-zinc-700 hover:border-zinc-500'
+                      }`}
+                      title={label}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setTexturePath(isSelected() ? null : texPath, !props.isMaskTarget?.())
+                      }}
+                    >
+                      <img
+                        src={toAssetUrl(texPath)}
+                        alt={label}
+                        class="w-full h-full object-cover"
+                      />
+                    </button>
+                  )
                 }}
-              >
-                +15°
-              </button>
+              </For>
+            </div>
+          </div>
+
+          {/* Row 3: Symmetry & Brush Angle */}
+          <div class="flex items-center justify-between gap-2 pt-1 border-t border-zinc-800 text-[10px]">
+            {/* Symmetry */}
+            <div class="flex items-center gap-1">
+              <span class="flex items-center gap-1 text-zinc-400">
+                <SymmetryIcon size={12} />
+                <span>Sym:</span>
+              </span>
+              <div class="flex items-center gap-0.5">
+                {(['off', 'x', 'y', 'z'] as const).map((axis) => (
+                  <button
+                    type="button"
+                    class={`px-1.5 py-0.5 rounded font-mono text-[10px] font-medium border transition-colors cursor-pointer ${
+                      brush.symmetryAxis() === axis
+                        ? 'bg-blue-600 text-white border-blue-500'
+                        : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200'
+                    }`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      brush.setSymmetryAxis(axis)
+                    }}
+                  >
+                    {axis === 'off' ? 'Off' : axis.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Angle */}
+            <div class="flex items-center gap-1">
+              <span class="flex items-center gap-1 text-zinc-400 font-mono">
+                <RotateIcon size={12} />
+                <span>{Math.round(brush.brushRotation())}°</span>
+              </span>
+              <div class="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  class="px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-750 font-mono text-[10px] cursor-pointer"
+                  title="Rotate -15° (Shift+R)"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    brush.setBrushRotation(brush.brushRotation() - 15)
+                  }}
+                >
+                  -15°
+                </button>
+                <button
+                  type="button"
+                  class="px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-750 font-mono text-[10px] cursor-pointer"
+                  title="Rotate +15° (R)"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    brush.setBrushRotation(brush.brushRotation() + 15)
+                  }}
+                >
+                  +15°
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
-  </>
-)
+    </>
+  )
 }

@@ -69,12 +69,7 @@ export default function EffectHUD(props: EffectHUDProps) {
             </div>
 
             <Show when={props.onClose}>
-              <IconButton
-                size="xs"
-                variant="ghost"
-                onClick={props.onClose}
-                title="Close panel"
-              >
+              <IconButton size="xs" variant="ghost" onClick={props.onClose} title="Close panel">
                 <XIcon size={13} />
               </IconButton>
             </Show>
@@ -85,9 +80,7 @@ export default function EffectHUD(props: EffectHUDProps) {
         <div class="space-y-1">
           <div class="flex items-center justify-between">
             <Label uppercase>Filter Choice</Label>
-            <span class="text-[10px] text-zinc-500 font-mono">
-              Press U to cycle
-            </span>
+            <span class="text-[10px] text-zinc-500 font-mono">Press U to cycle</span>
           </div>
 
           <div class="grid grid-cols-2 gap-1.5">

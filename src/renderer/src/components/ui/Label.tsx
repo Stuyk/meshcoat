@@ -33,16 +33,12 @@ export default function Label(props: LabelProps) {
         </label>
 
         <Show when={props.actions}>
-          <div class="flex items-center gap-1.5 text-[11px] text-zinc-400">
-            {props.actions}
-          </div>
+          <div class="flex items-center gap-1.5 text-[11px] text-zinc-400">{props.actions}</div>
         </Show>
       </div>
 
       <Show when={props.description}>
-        <span class="text-[11px] text-zinc-500 leading-normal">
-          {props.description}
-        </span>
+        <span class="text-[11px] text-zinc-500 leading-normal">{props.description}</span>
       </Show>
     </div>
   )

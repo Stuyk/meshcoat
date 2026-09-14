@@ -26,12 +26,22 @@ function vertexKey(x: number, y: number, z: number): string {
  * Computes the perpendicular distance from point P to the infinite line through A and B.
  */
 function pointToSegmentDistance(
-  px: number, py: number, pz: number,
-  ax: number, ay: number, az: number,
-  bx: number, by: number, bz: number
+  px: number,
+  py: number,
+  pz: number,
+  ax: number,
+  ay: number,
+  az: number,
+  bx: number,
+  by: number,
+  bz: number
 ): number {
-  const abx = bx - ax, aby = by - ay, abz = bz - az
-  const apx = px - ax, apy = py - ay, apz = pz - az
+  const abx = bx - ax,
+    aby = by - ay,
+    abz = bz - az
+  const apx = px - ax,
+    apy = py - ay,
+    apz = pz - az
   const crossX = apy * abz - apz * aby
   const crossY = apz * abx - apx * abz
   const crossZ = apx * aby - apy * abx
@@ -50,28 +60,46 @@ export function computeEdgeCurvature(
   worldPositions: Float32Array,
   triangleCount: number
 ): EdgeCurvatureData {
-  const edgeMap = new Map<string, {
-    faceIndices: number[]
-    v0: [number, number, number]
-    v1: [number, number, number]
-  }>()
+  const edgeMap = new Map<
+    string,
+    {
+      faceIndices: number[]
+      v0: [number, number, number]
+      v1: [number, number, number]
+    }
+  >()
 
   const faceNormals: THREE.Vector3[] = new Array(triangleCount)
   const faceCentroids: THREE.Vector3[] = new Array(triangleCount)
 
-  // 1. Compute face normals, centroids, and build undirected edge map
   for (let f = 0; f < triangleCount; f++) {
     const base = f * 9
-    const p0 = new THREE.Vector3(worldPositions[base], worldPositions[base + 1], worldPositions[base + 2])
-    const p1 = new THREE.Vector3(worldPositions[base + 3], worldPositions[base + 4], worldPositions[base + 5])
-    const p2 = new THREE.Vector3(worldPositions[base + 6], worldPositions[base + 7], worldPositions[base + 8])
+    const p0 = new THREE.Vector3(
+      worldPositions[base],
+      worldPositions[base + 1],
+      worldPositions[base + 2]
+    )
+    const p1 = new THREE.Vector3(
+      worldPositions[base + 3],
+      worldPositions[base + 4],
+      worldPositions[base + 5]
+    )
+    const p2 = new THREE.Vector3(
+      worldPositions[base + 6],
+      worldPositions[base + 7],
+      worldPositions[base + 8]
+    )
 
     const cb = new THREE.Vector3().subVectors(p2, p1)
     const ab = new THREE.Vector3().subVectors(p0, p1)
     const normal = new THREE.Vector3().crossVectors(cb, ab).normalize()
     faceNormals[f] = normal
 
-    const centroid = new THREE.Vector3().add(p0).add(p1).add(p2).multiplyScalar(1 / 3)
+    const centroid = new THREE.Vector3()
+      .add(p0)
+      .add(p1)
+      .add(p2)
+      .multiplyScalar(1 / 3)
     faceCentroids[f] = centroid
 
     // 3 edges per triangle: (p1, p2) opp p0, (p2, p0) opp p1, (p0, p1) opp p2
@@ -85,7 +113,9 @@ export function computeEdgeCurvature(
       const [va, vb] = verts[e]
       const ka = vertexKey(va.x, va.y, va.z)
       const kb = vertexKey(vb.x, vb.y, vb.z)
-      if (ka === kb) continue
+      if (ka === kb) {
+        continue
+      }
       const edgeKey = ka < kb ? `${ka}_${kb}` : `${kb}_${ka}`
 
       let entry = edgeMap.get(edgeKey)
@@ -97,7 +127,6 @@ export function computeEdgeCurvature(
     }
   }
 
-  // 2. Evaluate curvature for each unique edge in edgeMap
   const edgeCurvatureMap = new Map<string, number>()
   const edgeConcavityMap = new Map<string, number>()
   for (const [key, entry] of edgeMap.entries()) {
@@ -142,7 +171,6 @@ export function computeEdgeCurvature(
     }
   }
 
-  // 3. Build vertex attributes for triangle distances and edge curvatures
   const vertexCount = triangleCount * 3
   const edgeDistances = new Float32Array(vertexCount * 3)
   const edgeCurvatures = new Float32Array(vertexCount * 3)
@@ -150,9 +178,15 @@ export function computeEdgeCurvature(
 
   for (let f = 0; f < triangleCount; f++) {
     const base = f * 9
-    const p0x = worldPositions[base], p0y = worldPositions[base + 1], p0z = worldPositions[base + 2]
-    const p1x = worldPositions[base + 3], p1y = worldPositions[base + 4], p1z = worldPositions[base + 5]
-    const p2x = worldPositions[base + 6], p2y = worldPositions[base + 7], p2z = worldPositions[base + 8]
+    const p0x = worldPositions[base],
+      p0y = worldPositions[base + 1],
+      p0z = worldPositions[base + 2]
+    const p1x = worldPositions[base + 3],
+      p1y = worldPositions[base + 4],
+      p1z = worldPositions[base + 5]
+    const p2x = worldPositions[base + 6],
+      p2y = worldPositions[base + 7],
+      p2z = worldPositions[base + 8]
 
     // Triangle altitudes (height from vertex to opposite edge):
     const h0 = pointToSegmentDistance(p0x, p0y, p0z, p1x, p1y, p1z, p2x, p2y, p2z)
@@ -177,7 +211,7 @@ export function computeEdgeCurvature(
     const k2c = edgeConcavityMap.get(keyE2) ?? 0
 
     // Vertex 0 (opposite edge 0): distance to edge 0 is h0, to edge 1 is 0, to edge 2 is 0
-    const v0Offset = (f * 3) * 3
+    const v0Offset = f * 3 * 3
     edgeDistances[v0Offset] = h0
     edgeDistances[v0Offset + 1] = 0
     edgeDistances[v0Offset + 2] = 0

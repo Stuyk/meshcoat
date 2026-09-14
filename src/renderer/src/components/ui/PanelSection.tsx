@@ -33,9 +33,14 @@ export default function PanelSection(props: PanelSectionProps) {
   const isOpen = (): boolean => (props.open !== undefined ? props.open : uncontrolledOpen())
 
   function toggle(): void {
-    if (!isCollapsible()) return
-    if (props.onToggle) props.onToggle()
-    else setUncontrolledOpen((v) => !v)
+    if (!isCollapsible()) {
+      return
+    }
+    if (props.onToggle) {
+      props.onToggle()
+    } else {
+      setUncontrolledOpen((v) => !v)
+    }
   }
 
   return (

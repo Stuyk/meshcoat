@@ -10,14 +10,7 @@ import {
 import { groupMaterialSets, paintableChannels, type MaterialSet } from '../paint/materialSets'
 import { CHANNEL_SPECS } from '../paint/channels'
 import { Button, IconButton, SearchInput, Label } from './ui'
-import {
-  FolderOpenIcon,
-  XIcon,
-  CheckIcon,
-  StampIcon,
-  ClipboardIcon,
-  Trash2Icon
-} from './icons'
+import { FolderOpenIcon, XIcon, CheckIcon, StampIcon, ClipboardIcon, Trash2Icon } from './icons'
 import { toAssetUrl } from '../utils/assetUrl'
 import { isBrowserDisplayable } from '../utils/textureLoad'
 import { fileName } from '../utils/paths'
@@ -51,7 +44,9 @@ export default function TextureShelf(props: {
    */
   const selectedPasted = (): { url: string; name: string } | undefined => {
     const current = brush.texturePath()
-    if (!current || brush.materialSet()) return undefined
+    if (!current || brush.materialSet()) {
+      return undefined
+    }
     return brush.pastedTextures().find((t) => t.url === current)
   }
 
@@ -83,10 +78,19 @@ export default function TextureShelf(props: {
   // Ctrl/Cmd+V only while the Pasted tab is open, matching how the stencil
   // panel claims paste: elsewhere it stays whatever the focused control expects.
   const onPasteKey = (e: KeyboardEvent): void => {
-    if (activeShelf() !== 'pasted') return
-    if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'v') return
+    if (activeShelf() !== 'pasted') {
+      return
+    }
+    if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'v') {
+      return
+    }
     const target = e.target as HTMLElement | null
-    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
+    if (
+      target &&
+      (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+    ) {
+      return
+    }
     e.preventDefault()
     void pasteFromClipboard()
   }
@@ -150,17 +154,23 @@ export default function TextureShelf(props: {
 
   createEffect(
     on([searchQuery, activeShelf], () => {
-      if (bodyRef) bodyRef.scrollTop = 0
+      if (bodyRef) {
+        bodyRef.scrollTop = 0
+      }
       setScrollTop(0)
     })
   )
 
   let resizeObserver: ResizeObserver | undefined
   onMount(() => {
-    if (!bodyRef) return
+    if (!bodyRef) {
+      return
+    }
     setViewportHeight(bodyRef.clientHeight)
     resizeObserver = new ResizeObserver(() => {
-      if (bodyRef) setViewportHeight(bodyRef.clientHeight)
+      if (bodyRef) {
+        setViewportHeight(bodyRef.clientHeight)
+      }
     })
     resizeObserver.observe(bodyRef)
   })
@@ -170,10 +180,17 @@ export default function TextureShelf(props: {
     <aside class="w-[260px] min-w-[260px] max-w-[260px] h-full flex flex-col bg-zinc-925 border-r border-zinc-800 select-none z-20 flex-shrink-0">
       {/* Header Bar */}
       <div class="h-10 px-3 flex items-center justify-between border-b border-zinc-800 bg-zinc-900/60 flex-shrink-0">
-        <Label uppercase badge={props.textures.length}>Textures</Label>
+        <Label uppercase badge={props.textures.length}>
+          Textures
+        </Label>
 
         <div class="flex items-center gap-1.5">
-          <Button variant="secondary" size="xs" onClick={props.onPickFolder} title="Load folder of textures">
+          <Button
+            variant="secondary"
+            size="xs"
+            onClick={props.onPickFolder}
+            title="Load folder of textures"
+          >
             <FolderOpenIcon size={13} />
             <span>Load</span>
           </Button>
@@ -219,9 +236,7 @@ export default function TextureShelf(props: {
         >
           <span>Used</span>
           <Show when={brush.recentTextures().length > 0}>
-            <span class="font-mono text-[10px] text-zinc-500">
-              {brush.recentTextures().length}
-            </span>
+            <span class="font-mono text-[10px] text-zinc-500">{brush.recentTextures().length}</span>
           </Show>
         </button>
         <button
@@ -236,9 +251,7 @@ export default function TextureShelf(props: {
         >
           <span>Pasted</span>
           <Show when={brush.pastedTextures().length > 0}>
-            <span class="font-mono text-[10px] text-zinc-500">
-              {brush.pastedTextures().length}
-            </span>
+            <span class="font-mono text-[10px] text-zinc-500">{brush.pastedTextures().length}</span>
           </Show>
         </button>
       </div>
@@ -263,8 +276,11 @@ export default function TextureShelf(props: {
               variant="ghost"
               onClick={() => {
                 const selected = selectedPasted()
-                if (selected) removePastedTexture(selected.url)
-                else clearPastedTextures()
+                if (selected) {
+                  removePastedTexture(selected.url)
+                } else {
+                  clearPastedTextures()
+                }
               }}
               title={
                 selectedPasted()
@@ -305,9 +321,7 @@ export default function TextureShelf(props: {
               <div class="p-3 rounded-md bg-zinc-900 text-zinc-500 group-hover:text-blue-400 transition-colors mb-2">
                 <StampIcon size={24} />
               </div>
-              <span class="text-xs font-semibold text-zinc-300 mb-1">
-                No textures loaded
-              </span>
+              <span class="text-xs font-semibold text-zinc-300 mb-1">No textures loaded</span>
               <span class="text-[11px] text-zinc-500 mb-3 max-w-[180px]">
                 Click to load a folder of PNG, JPG, or WebP textures.
               </span>
@@ -325,8 +339,8 @@ export default function TextureShelf(props: {
                   when={activeShelf() === 'pasted'}
                   fallback="No textures used yet — paint, stamp, or fill with one to see it here."
                 >
-                  Copy an image anywhere — a browser, a screenshot, an image editor — then
-                  hit Paste Image (Ctrl+V). It stays in memory for this session.
+                  Copy an image anywhere — a browser, a screenshot, an image editor — then hit Paste
+                  Image (Ctrl+V). It stays in memory for this session.
                 </Show>
               </div>
             }
@@ -434,7 +448,10 @@ export default function TextureShelf(props: {
                               </div>
                             </Show>
                           </div>
-                          <span class="text-[10px] font-medium text-amber-200/90 truncate mt-1.5" title={set.name}>
+                          <span
+                            class="text-[10px] font-medium text-amber-200/90 truncate mt-1.5"
+                            title={set.name}
+                          >
                             {set.name}
                           </span>
                         </button>
@@ -450,49 +467,52 @@ export default function TextureShelf(props: {
 
                     return (
                       <div style={style} class="relative">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTexturePath(isSelected() ? null : path, !props.isMaskTarget?.())
-                        }}
-                        title={
-                          pasted()
-                            ? `${filename()} — ${pasted()!.width}x${pasted()!.height} (Click to toggle)`
-                            : `${filename()} (Click to toggle)`
-                        }
-                        class={`w-full flex flex-col p-1.5 rounded-lg border text-left transition-all cursor-pointer group ${
-                          isSelected()
-                            ? 'bg-blue-600/15 border-blue-500/80 shadow-xs'
-                            : 'bg-zinc-900/60 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-850/60'
-                        }`}
-                      >
-                        <div class="relative aspect-square w-full rounded-md overflow-hidden checkerboard-bg border border-zinc-800 flex items-center justify-center">
-                          <Show
-                            when={isBrowserDisplayable(path)}
-                            fallback={
-                              <span class="text-[10px] font-mono uppercase text-zinc-500">
-                                {(filename().split('.').pop() ?? '').toUpperCase()}
-                              </span>
-                            }
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTexturePath(isSelected() ? null : path, !props.isMaskTarget?.())
+                          }}
+                          title={
+                            pasted()
+                              ? `${filename()} — ${pasted()!.width}x${pasted()!.height} (Click to toggle)`
+                              : `${filename()} (Click to toggle)`
+                          }
+                          class={`w-full flex flex-col p-1.5 rounded-lg border text-left transition-all cursor-pointer group ${
+                            isSelected()
+                              ? 'bg-blue-600/15 border-blue-500/80 shadow-xs'
+                              : 'bg-zinc-900/60 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-850/60'
+                          }`}
+                        >
+                          <div class="relative aspect-square w-full rounded-md overflow-hidden checkerboard-bg border border-zinc-800 flex items-center justify-center">
+                            <Show
+                              when={isBrowserDisplayable(path)}
+                              fallback={
+                                <span class="text-[10px] font-mono uppercase text-zinc-500">
+                                  {(filename().split('.').pop() ?? '').toUpperCase()}
+                                </span>
+                              }
+                            >
+                              <img
+                                src={toAssetUrl(path)}
+                                alt={filename()}
+                                loading="lazy"
+                                decoding="async"
+                                class="max-w-full max-h-full object-cover group-hover:scale-105 transition-transform"
+                              />
+                            </Show>
+                            <Show when={isSelected()}>
+                              <div class="absolute top-1 right-1 w-4 h-4 rounded bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                                <CheckIcon size={10} />
+                              </div>
+                            </Show>
+                          </div>
+                          <span
+                            class="text-[10px] font-medium text-zinc-300 truncate mt-1.5"
+                            title={filename()}
                           >
-                            <img
-                              src={toAssetUrl(path)}
-                              alt={filename()}
-                              loading="lazy"
-                              decoding="async"
-                              class="max-w-full max-h-full object-cover group-hover:scale-105 transition-transform"
-                            />
-                          </Show>
-                          <Show when={isSelected()}>
-                            <div class="absolute top-1 right-1 w-4 h-4 rounded bg-blue-600 text-white flex items-center justify-center shadow-xs">
-                              <CheckIcon size={10} />
-                            </div>
-                          </Show>
-                        </div>
-                        <span class="text-[10px] font-medium text-zinc-300 truncate mt-1.5" title={filename()}>
-                          {filename()}
-                        </span>
-                      </button>
+                            {filename()}
+                          </span>
+                        </button>
                       </div>
                     )
                   }}

@@ -19,11 +19,8 @@ const standardPack: AbrFileResult = {
   brushes: getStandardBrushPresets()
 }
 
-// Signal for all brush packs
 const [brushPacks, setBrushPacks] = createSignal<AbrFileResult[]>([standardPack])
-// Active selected brush preset
 const [activeBrushPreset, setActiveBrushPresetRaw] = createSignal<AbrBrushPreset | null>(null)
-// Modal visibility signal
 const [isBrushManagerOpen, setIsBrushManagerOpen] = createSignal(false)
 
 /** Load persisted custom packs from Electron disk storage or IndexedDB on initialization */
@@ -56,39 +53,54 @@ export async function initBrushPresets(): Promise<void> {
 
   // 3. Fallback to localStorage (legacy migration)
   if (!customPacks) {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) {
-        const localData = JSON.parse(raw) as AbrFileResult[]
-        if (Array.isArray(localData) && localData.length > 0) {
-          customPacks = localData
-          // Migrate into IndexedDB and Electron disk
-          void persistPacks([standardPack, ...customPacks])
-        }
-      }
-    } catch (err) {
-      console.warn('Failed to restore brush packs from localStorage:', err)
-    }
+    customPacks = loadLegacyPacksFromLocalStorage()
   }
 
-  // Hydrate packs
-  const allPacks = customPacks && customPacks.length > 0 ? [standardPack, ...customPacks] : [standardPack]
+  const allPacks =
+    customPacks && customPacks.length > 0 ? [standardPack, ...customPacks] : [standardPack]
   setBrushPacks(allPacks)
 
-  // Restore active brush preset if previously selected
+  restoreActiveBrushPreset(allPacks)
+}
+
+/** Reads the legacy localStorage pack list and migrates it into IndexedDB/disk storage. Returns null on any failure or empty result. */
+function loadLegacyPacksFromLocalStorage(): AbrFileResult[] | null {
   try {
-    const savedActiveId = localStorage.getItem(ACTIVE_PRESET_KEY)
-    if (savedActiveId) {
-      for (const pack of allPacks) {
-        const found = pack.brushes.find((b) => b.id === savedActiveId)
-        if (found) {
-          selectBrushPreset(found)
-          break
-        }
-      }
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) {
+      return null
     }
+    const localData = JSON.parse(raw) as AbrFileResult[]
+    if (!Array.isArray(localData) || localData.length === 0) {
+      return null
+    }
+    // Migrate into IndexedDB and Electron disk
+    void persistPacks([standardPack, ...localData])
+    return localData
+  } catch (err) {
+    console.warn('Failed to restore brush packs from localStorage:', err)
+    return null
+  }
+}
+
+/** Re-selects whatever brush preset was active last session, if it still exists in one of the hydrated packs. */
+function restoreActiveBrushPreset(allPacks: AbrFileResult[]): void {
+  let savedActiveId: string | null = null
+  try {
+    savedActiveId = localStorage.getItem(ACTIVE_PRESET_KEY)
   } catch {
     // Ignore preset restoration errors
+  }
+  if (!savedActiveId) {
+    return
+  }
+  for (const pack of allPacks) {
+    const found = pack.brushes.find((b) => b.id === savedActiveId)
+    if (!found) {
+      continue
+    }
+    selectBrushPreset(found)
+    return
   }
 }
 
@@ -170,7 +182,9 @@ export function addBrushPack(pack: AbrFileResult): void {
 
 /** Removes a brush pack by name. */
 export function removeBrushPack(packName: string): void {
-  if (packName === 'Standard Tips') return
+  if (packName === 'Standard Tips') {
+    return
+  }
   const next = brushPacks().filter((p) => p.packName !== packName)
   setBrushPacks(next)
   void persistPacks(next)
