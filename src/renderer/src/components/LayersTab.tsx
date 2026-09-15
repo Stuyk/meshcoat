@@ -178,37 +178,34 @@ export default function LayersTab(props: {
 
                 <div
                   onClick={() => run((s) => (s.activeId = layer.id))}
-                  class={`flex flex-col p-2 rounded-xl border transition-all cursor-pointer ${
+                  class={`flex flex-col p-2 rounded-[var(--ui-radius)] border transition-all cursor-pointer ${
                     isActive()
-                      ? 'bg-zinc-850/90 border-blue-500/80 shadow-xs ring-1 ring-blue-500/20'
-                      : 'bg-zinc-900/60 border-zinc-800/80 hover:border-zinc-750 hover:bg-zinc-850/50'
+                      ? 'bg-[var(--bg-input)] border-[var(--accent-color)] shadow-xs ring-1 ring-[var(--accent-color)]/30'
+                      : 'bg-[var(--bg-panel)]/80 border-[var(--border-color)] hover:border-white/20 hover:bg-[var(--bg-panel)]'
                   } ${!visible() ? 'opacity-50' : ''}`}
                 >
-                  {/* Row 1: Visibility, Thumbnail, Name, Rename Button */}
-                  <div class="flex items-center gap-2.5">
-                    {/* Visibility Toggle */}
+                  <div class="flex items-center gap-2">
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation()
                         run((s) => s.setVisible(layer.id, !layer.visible))
                       }}
-                      class="p-1 rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors cursor-pointer"
+                      class="p-1 rounded-[2px] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/10 transition-colors cursor-pointer"
                       title={visible() ? 'Hide layer' : 'Show layer'}
                     >
                       {visible() ? (
-                        <EyeIcon size={14} />
+                        <EyeIcon size={13} />
                       ) : (
-                        <EyeOffIcon size={14} class="text-zinc-600" />
+                        <EyeOffIcon size={13} class="text-[var(--text-muted)] opacity-50" />
                       )}
                     </button>
 
-                    {/* Thumbnail */}
-                    <div class="relative w-8 h-8 rounded-lg overflow-hidden checkerboard-bg border border-zinc-750 flex-shrink-0">
+                    <div class="relative w-7 h-7 rounded-[var(--ui-radius)] overflow-hidden checkerboard-bg border border-[var(--border-color)] shrink-0">
                       <img src={preview()} alt="" class="w-full h-full object-cover" />
                       <Show when={isMaskFlag()}>
                         <span
-                          class="absolute bottom-0 right-0 p-0.5 bg-blue-600 text-white rounded-tl text-[8px]"
+                          class="absolute bottom-0 right-0 p-0.5 bg-[var(--accent-color)] text-[var(--accent-text)] rounded-tl text-[8px]"
                           title="Mask Layer"
                         >
                           <DramaIcon size={8} />
@@ -216,7 +213,6 @@ export default function LayersTab(props: {
                       </Show>
                     </div>
 
-                    {/* Layer Name & Inline Rename */}
                     <div class="flex-1 min-w-0">
                       <Show
                         when={editingId() === layer.id}
@@ -227,18 +223,18 @@ export default function LayersTab(props: {
                             title="Double-click to rename"
                           >
                             <Show when={isClipped()}>
-                              <CornerDownRightIcon size={11} class="text-zinc-500 flex-shrink-0" />
+                              <CornerDownRightIcon size={11} class="text-[var(--text-muted)] shrink-0" />
                             </Show>
-                            <span class="text-xs font-semibold text-zinc-200 truncate">
+                            <span class="text-[11px] font-semibold text-[var(--text-main)] truncate">
                               {name()}
                             </span>
                             <Show when={isMaskFlag()}>
-                              <span class="px-1 py-0 rounded bg-blue-950/80 border border-blue-800/60 text-[9px] font-mono text-blue-300">
+                              <span class="px-1 py-0 rounded-[2px] bg-[var(--accent-color)]/20 border border-[var(--accent-color)]/40 text-[9px] font-mono text-[var(--accent-color)]">
                                 MASK
                               </span>
                             </Show>
                             <Show when={isBottom() && !isMaskFlag()}>
-                              <span class="px-1 py-0 rounded bg-zinc-800 border border-zinc-700 text-[9px] font-mono text-zinc-400">
+                              <span class="px-1 py-0 rounded-[2px] bg-[var(--bg-input)] border border-[var(--border-color)] text-[9px] font-mono text-[var(--text-muted)]">
                                 BASE
                               </span>
                             </Show>
@@ -267,39 +263,37 @@ export default function LayersTab(props: {
                             class="p-1 text-emerald-400 hover:text-emerald-300 cursor-pointer"
                             title="Confirm rename"
                           >
-                            <CheckIcon size={13} />
+                            <CheckIcon size={12} />
                           </button>
                         </div>
                       </Show>
                     </div>
 
-                    {/* Rename Button */}
                     <Show when={editingId() !== layer.id}>
                       <button
                         type="button"
                         onClick={(e) => startEditing(layer, e)}
-                        class="p-1 text-zinc-500 hover:text-zinc-300 rounded hover:bg-zinc-800 transition-colors cursor-pointer"
+                        class="p-1 text-[var(--text-muted)] hover:text-[var(--text-main)] rounded-[2px] hover:bg-white/10 transition-colors cursor-pointer"
                         title="Rename layer"
                       >
-                        <Edit2Icon size={12} />
+                        <Edit2Icon size={11} />
                       </button>
                     </Show>
                   </div>
 
-                  {/* Row 2: Blend Mode & Opacity Slider */}
                   <div
-                    class="flex items-center gap-2 mt-2 pt-1.5 border-t border-zinc-800/60"
+                    class="flex items-center gap-2 mt-1.5 pt-1.5 border-t border-[var(--border-color)]"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <Show
                       when={!isMaskFlag()}
                       fallback={
-                        <span class="text-[10px] font-medium text-zinc-500 w-16">Strength</span>
+                        <span class="text-[9px] font-medium text-[var(--text-muted)] w-14">Strength</span>
                       }
                     >
                       <Select
                         size="xs"
-                        class="w-24 truncate"
+                        class="w-20 truncate"
                         title="Blend mode"
                         value={blendMode()}
                         onChange={(val) => run((s) => s.setBlendMode(layer.id, val as BlendMode))}
@@ -320,20 +314,18 @@ export default function LayersTab(props: {
                       onInput={(e) =>
                         run((s) => s.setOpacity(layer.id, parseFloat(e.currentTarget.value), false))
                       }
-                      class="flex-1 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                      class="flex-1 h-1 bg-[var(--bg-input)] rounded-[2px] appearance-none cursor-pointer accent-[var(--accent-color)]"
                     />
-                    <span class="font-mono text-[10px] text-zinc-400 tabular-nums w-8 text-right">
+                    <span class="font-mono text-[9px] text-[var(--accent-color)] tabular-nums w-7 text-right">
                       {Math.round(opacity() * 100)}%
                     </span>
                   </div>
 
-                  {/* Row 3: Action Toolbar (Shown When Active) */}
                   <Show when={isActive()}>
                     <div
-                      class="flex items-center justify-between gap-1 mt-2 pt-2 border-t border-zinc-800/80"
+                      class="flex items-center justify-between gap-1 mt-1.5 pt-1.5 border-t border-[var(--border-color)]"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      {/* Mask Toggle */}
                       <button
                         type="button"
                         onClick={() =>
@@ -341,10 +333,10 @@ export default function LayersTab(props: {
                             layer.isMask ? s.unmaskLayer(layer.id) : s.convertToMask(layer.id)
                           )
                         }
-                        class={`p-1.5 rounded transition-colors cursor-pointer ${
+                        class={`p-1 rounded-[2px] transition-colors cursor-pointer text-[10px] ${
                           isMaskFlag()
-                            ? 'bg-blue-600/30 text-blue-300 border border-blue-500/50'
-                            : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
+                            ? 'bg-[var(--accent-color)]/20 text-[var(--accent-color)] border border-[var(--accent-color)]/40'
+                            : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/10'
                         }`}
                         title={isMaskFlag() ? 'Switch to Texture Layer' : 'Switch to Mask Layer'}
                       >

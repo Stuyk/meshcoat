@@ -12,7 +12,7 @@ export interface TextInputProps {
   disabled?: boolean
   readOnly?: boolean
   icon?: (props: { size?: number; class?: string }) => JSX.Element
-  prefix?: string
+  prefix?: string | JSX.Element
   suffix?: JSX.Element
   clearable?: boolean
   autoFocus?: boolean
@@ -23,9 +23,9 @@ export interface TextInputProps {
 }
 
 const SIZE_CLASSES = {
-  xs: 'h-6 px-2 text-xs',
-  sm: 'h-8 px-2.5 text-xs',
-  md: 'h-9 px-3 text-sm'
+  xs: 'h-6.5 px-2.5 text-[11px]',
+  sm: 'h-7.5 px-3 text-xs',
+  md: 'h-8.5 px-3.5 text-sm'
 }
 
 export default function TextInput(props: TextInputProps) {
@@ -34,18 +34,18 @@ export default function TextInput(props: TextInputProps) {
 
   return (
     <div
-      class={`relative flex items-center w-full bg-zinc-950/70 border border-zinc-800 rounded-md transition-colors focus-within:border-blue-500/80 focus-within:ring-1 focus-within:ring-blue-500/40 ${
+      class={`relative flex items-center w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-[var(--ui-radius)] transition-colors focus-within:border-[var(--accent-color)] focus-within:ring-1 focus-within:ring-[var(--accent-color)] ${
         props.disabled ? 'opacity-40 pointer-events-none' : ''
       } ${props.class ?? ''}`}
     >
       <Show when={props.icon}>
-        <span class="pl-2.5 text-zinc-500 pointer-events-none flex items-center shrink-0">
+        <span class="pl-2.5 text-[var(--text-muted)] pointer-events-none flex items-center shrink-0">
           {props.icon!({ size: size() === 'xs' ? 12 : 14 })}
         </span>
       </Show>
 
       <Show when={props.prefix}>
-        <span class="pl-2.5 font-mono text-zinc-500 select-none text-xs shrink-0">
+        <span class="pl-2.5 font-mono text-[var(--text-muted)] select-none text-[11px] shrink-0">
           {props.prefix}
         </span>
       </Show>
@@ -58,34 +58,36 @@ export default function TextInput(props: TextInputProps) {
         readOnly={props.readOnly}
         maxLength={props.maxLength}
         spellcheck={props.spellcheck ?? false}
-        placeholder={props.placeholder}
         autofocus={props.autoFocus ?? props.autofocus}
+        placeholder={props.placeholder}
         onInput={(e) => props.onInput?.(e.currentTarget.value)}
         onChange={(e) => props.onChange?.(e.currentTarget.value)}
         onKeyDown={props.onKeyDown}
-        class={`w-full bg-transparent text-zinc-100 placeholder-zinc-500 outline-hidden ${
+        class={`w-full bg-transparent text-[var(--text-main)] placeholder:text-[var(--text-muted)] outline-none border-none ${
           props.mono ? 'font-mono' : ''
         } ${SIZE_CLASSES[size()]}`}
       />
 
-      <Show when={props.clearable && props.value && !props.disabled && !props.readOnly}>
+      <Show when={props.clearable && props.value}>
         <button
           type="button"
+          tabIndex={-1}
           onClick={() => {
             props.onInput?.('')
             props.onChange?.('')
             inputRef?.focus()
           }}
-          class="pr-2 text-zinc-500 hover:text-zinc-200 transition-colors cursor-pointer shrink-0"
-          title="Clear"
+          class="mr-2 text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors cursor-pointer p-0.5"
+          title="Clear text"
         >
-          <XIcon size={12} />
+          <XIcon size={13} />
         </button>
       </Show>
 
       <Show when={props.suffix}>
-        <div class="pr-2 shrink-0 flex items-center">{props.suffix}</div>
+        <span class="pr-2.5 flex items-center shrink-0">{props.suffix}</span>
       </Show>
     </div>
   )
 }
+export { TextInput }

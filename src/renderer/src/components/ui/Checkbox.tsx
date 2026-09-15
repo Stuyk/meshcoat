@@ -27,31 +27,32 @@ export default function Checkbox(props: CheckboxProps) {
           class="sr-only"
         />
         <div
-          class={`w-4 h-4 rounded border transition-all flex items-center justify-center ${
+          class={`w-3.5 h-3.5 rounded-[var(--ui-radius)] border transition-all flex items-center justify-center ${
             props.checked
-              ? 'bg-blue-600 border-blue-500 text-white shadow-xs'
-              : 'bg-zinc-950/70 border-zinc-700/80 group-hover:border-zinc-500'
+              ? 'bg-[var(--accent-color)] border-[var(--accent-color)] text-[var(--accent-text)] shadow-xs'
+              : 'bg-[var(--bg-input)] border-[var(--border-color)] group-hover:border-white/30'
           }`}
         >
           <Show when={props.checked}>
-            <CheckIcon size={12} class="stroke-[3]" />
+            <CheckIcon size={10} class="stroke-[3]" />
           </Show>
         </div>
       </div>
 
       {(props.label || props.description) && (
         <div class="flex flex-col min-w-0">
-          <div class="flex items-center gap-1.5 text-xs font-medium text-zinc-200">
+          <div class="flex items-center gap-1.5 text-[11px] font-medium text-[var(--text-main)]">
             {props.label}
             <Show when={props.subtext}>
-              <span class="text-[10px] text-zinc-500 font-mono font-normal">{props.subtext}</span>
+              <span class="text-[9px] text-[var(--text-muted)] font-mono font-normal">{props.subtext}</span>
             </Show>
           </div>
           <Show when={props.description}>
-            <span class="text-[11px] text-zinc-400 leading-normal">{props.description}</span>
+            <span class="text-[10px] text-[var(--text-muted)] leading-normal">{props.description}</span>
           </Show>
         </div>
       )}
     </label>
   )
 }
+export { Checkbox }

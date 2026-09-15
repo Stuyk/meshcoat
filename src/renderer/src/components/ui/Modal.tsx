@@ -35,39 +35,36 @@ export default function Modal(props: ModalProps) {
   return (
     <Show when={props.isOpen}>
       <div
-        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-[2px] animate-in fade-in duration-120"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/65 backdrop-blur-[2px] animate-in fade-in duration-100"
         onClick={props.onClose}
       >
         <div
-          class={`flex flex-col w-full ${sizeClass()} max-h-[90vh] bg-zinc-900 border border-zinc-700/80 rounded-xl shadow-2xl shadow-black/60 overflow-hidden animate-in zoom-in-95 duration-120`}
+          class={`flex flex-col w-full ${sizeClass()} max-h-[90vh] bg-[var(--bg-panel)] border border-[var(--border-color)] rounded-[var(--ui-radius)] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-100`}
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Modal Header */}
-          <header class="flex items-center justify-between px-5 py-3.5 border-b border-zinc-800 bg-zinc-850/60 select-none">
-            <div class="flex items-center gap-2.5">
+          <header class="flex items-center justify-between px-4 py-2.5 border-b border-[var(--border-color)] bg-[var(--bg-panel-header)] select-none">
+            <div class="flex items-center gap-2">
               {props.icon && (
-                <div class="text-blue-400 flex items-center">{props.icon({ size: 18 })}</div>
+                <div class="text-[var(--accent-color)] flex items-center">{props.icon({ size: 16 })}</div>
               )}
-              <h2 class="text-sm font-semibold text-zinc-100 tracking-tight">{props.title}</h2>
+              <h2 class="text-xs font-bold text-[var(--text-main)] tracking-tight uppercase">{props.title}</h2>
             </div>
             <button
               type="button"
-              class="p-1 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors"
+              class="p-1 rounded-[2px] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/10 transition-colors cursor-pointer"
               onClick={props.onClose}
               title="Close (Esc)"
             >
-              <XIcon size={16} />
+              <XIcon size={14} />
             </button>
           </header>
 
-          {/* Modal Body */}
-          <div class="flex-1 overflow-y-auto p-5 space-y-4 text-sm text-zinc-300">
+          <div class="flex-1 overflow-y-auto dcc-scroll p-4 space-y-3.5 text-xs text-[var(--text-main)]">
             {props.children}
           </div>
 
-          {/* Modal Footer */}
           {props.footer && (
-            <footer class="flex items-center justify-end gap-2.5 px-5 py-3 border-t border-zinc-800 bg-zinc-900/60 select-none">
+            <footer class="flex items-center justify-end gap-2 px-4 py-2.5 border-t border-[var(--border-color)] bg-[var(--bg-panel-header)]/60 select-none">
               {props.footer}
             </footer>
           )}
@@ -76,3 +73,4 @@ export default function Modal(props: ModalProps) {
     </Show>
   )
 }
+export { Modal }

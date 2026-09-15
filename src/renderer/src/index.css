@@ -1,43 +1,57 @@
 @import "tailwindcss";
 
+:root {
+  --bg-main: #242426;
+  --bg-panel: #2e2e32;
+  --bg-panel-header: #28282b;
+  --bg-input: #1e1e20;
+  --border-color: #1c1c1e;
+  --accent-color: #0084ff;
+  --accent-hover: #0073e6;
+  --accent-text: #ffffff;
+  --text-main: #e8e8ea;
+  --text-muted: #9c9ca4;
+  --ui-size: 13px;
+  --ui-radius: 4px;
+  --font-main: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
 @theme {
-  /* Neutral dark grays with subtle cool undertones */
-  --color-canvas: #121214;
-  --color-subtle: #17171a;
-  --color-panel: #1c1c20;
-  --color-surface: #232329;
-  --color-surface-hover: #2b2b33;
-  --color-surface-active: #34343f;
+  --color-canvas: #242426;
+  --color-subtle: #1e1e20;
+  --color-panel: #2e2e32;
+  --color-surface: #2e2e32;
+  --color-surface-hover: #38383e;
+  --color-surface-active: #42424a;
 
-  --color-border-subtle: #272730;
-  --color-border-default: #33333e;
-  --color-border-focus: #3b82f6;
+  --color-border-subtle: #1c1c1e;
+  --color-border-default: #28282c;
+  --color-border-focus: #0084ff;
 
-  --color-accent-primary: #3b82f6;
-  --color-accent-hover: #2563eb;
-  --color-accent-subtle: rgba(59, 130, 246, 0.15);
+  --color-accent-primary: #0084ff;
+  --color-accent-hover: #0073e6;
+  --color-accent-subtle: rgba(0, 132, 255, 0.15);
 
-  /* Map the zinc scale to the application's neutral desktop darks and blues */
-  --color-zinc-950: #121214;
-  --color-zinc-925: #17171a;
-  --color-zinc-900: #1c1c20;
-  --color-zinc-850: #232329;
-  --color-zinc-800: #2b2b33;
-  --color-zinc-750: #34343f;
-  --color-zinc-700: #3e3e4a;
-  --color-zinc-650: #494958;
-  --color-zinc-600: #555566;
-  --color-zinc-500: #6b7280;
-  --color-zinc-400: #9ca3af;
-  --color-zinc-300: #d1d5db;
-  --color-zinc-200: #e5e7eb;
-  --color-zinc-100: #f3f4f6;
+  --color-zinc-950: #1a1a1c;
+  --color-zinc-925: #1e1e20;
+  --color-zinc-900: #242426;
+  --color-zinc-850: #28282b;
+  --color-zinc-800: #2e2e32;
+  --color-zinc-750: #38383e;
+  --color-zinc-700: #42424a;
+  --color-zinc-650: #50505a;
+  --color-zinc-600: #62626e;
+  --color-zinc-500: #82828e;
+  --color-zinc-400: #94949a;
+  --color-zinc-300: #c2c2c8;
+  --color-zinc-200: #dcdce0;
+  --color-zinc-100: #e8e8ea;
 
-  /* Standardized tight, cohesive desktop corner radius */
-  --radius: 6px;
-  --radius-xs: 4px;
+  --radius: 4px;
+  --radius-xs: 2px;
   --radius-sm: 4px;
-  --radius-md: 6px;
+  --radius-md: 4px;
   --radius-lg: 6px;
   --radius-xl: 6px;
   --radius-2xl: 6px;
@@ -45,42 +59,48 @@
 }
 
 @layer base {
-  * {
-    box-sizing: border-box;
-  }
-
-  html,
   body {
-    margin: 0;
-    padding: 0;
-    height: 100%;
-    width: 100%;
-    overflow: hidden;
-    background-color: var(--color-canvas, #121214);
-    color: var(--color-text-primary, #f3f4f6);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    user-select: none;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+    background-color: var(--bg-main, #242426);
+    color: var(--text-main, #e8e8ea);
+    font-size: var(--ui-size, 13px);
+    line-height: 1.4;
+    font-family: var(--font-main);
   }
 
-  /* Sleek Desktop Scrollbars */
   ::-webkit-scrollbar {
-    width: 7px;
-    height: 7px;
+    width: 6px;
+    height: 6px;
   }
   ::-webkit-scrollbar-track {
-    background: transparent;
+    background: var(--bg-main, #242426);
   }
   ::-webkit-scrollbar-thumb {
-    background: #2e2e38;
-    border-radius: 4px;
+    background: #38383e;
+    border-radius: 3px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #464656;
+    background: #484852;
   }
 
-  /* Canvas Cursors per Active Tool */
+  .dcc-scroll::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .dcc-scroll::-webkit-scrollbar-track {
+    background: var(--bg-main, #242426);
+  }
+  .dcc-scroll::-webkit-scrollbar-thumb {
+    background: #38383e;
+    border-radius: 3px;
+  }
+  .dcc-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-color, #0084ff);
+  }
+
+  .dcc-bevel-button {
+    transition: all 0.1s ease-in-out;
+  }
+
   .tool-brush,
   .tool-eraser,
   .tool-stamp,
@@ -90,14 +110,11 @@
   }
 
   .tool-eyedropper {
-    cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%2318181b' stroke='%23ffffff' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m2 22 1-1h3l9-9'%3E%3C/path%3E%3Cpath d='M3 21v-3l9-9'%3E%3C/path%3E%3Cpath d='m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z'%3E%3C/path%3E%3C/svg%3E") 2 22, crosshair !important;
+    cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%231e1e20' stroke='%23ffffff' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m2 22 1-1h3l9-9'%3E%3C/path%3E%3Cpath d='M3 21v-3l9-9'%3E%3C/path%3E%3Cpath d='m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z'%3E%3C/path%3E%3C/svg%3E") 2 22, crosshair !important;
   }
 
   .tool-fill {
-    /* A tight dot, not a bucket illustration: the fill tool has no footprint to
-       show, so the cursor's only job is to say precisely which face is under it.
-       A 24px icon hid the very thing being aimed at. Hotspot is the dot itself. */
-    cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 18 18'%3E%3Ccircle cx='9' cy='9' r='5.5' fill='%2318181b' fill-opacity='0.5'/%3E%3Ccircle cx='9' cy='9' r='4' fill='%2360a5fa' stroke='%23ffffff' stroke-width='1.5'/%3E%3C/svg%3E") 9 9, crosshair !important;
+    cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 18 18'%3E%3Ccircle cx='9' cy='9' r='5.5' fill='%231e1e20' fill-opacity='0.5'/%3E%3Ccircle cx='9' cy='9' r='4' fill='%230084ff' stroke='%23ffffff' stroke-width='1.5'/%3E%3C/svg%3E") 9 9, crosshair !important;
   }
 
   .tool-faceSelect {
@@ -113,14 +130,13 @@
   }
 }
 
-/* Texture Transparency Checkerboard Pattern */
 .checkerboard-bg {
-  background-color: #17171c;
+  background-color: #1e1e20;
   background-image:
-    linear-gradient(45deg, #24242c 25%, transparent 25%),
-    linear-gradient(-45deg, #24242c 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, #24242c 75%),
-    linear-gradient(-45deg, transparent 75%, #24242c 75%);
+    linear-gradient(45deg, #28282b 25%, transparent 25%),
+    linear-gradient(-45deg, #28282b 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #28282b 75%),
+    linear-gradient(-45deg, transparent 75%, #28282b 75%);
   background-size: 14px 14px;
   background-position: 0 0, 0 7px, 7px -7px, -7px 0px;
 }

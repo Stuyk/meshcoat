@@ -15,16 +15,10 @@ export interface SegmentedControlProps<T> {
   class?: string
 }
 
-const SIZE_CLASSES = {
-  xs: 'p-0.5 text-xs',
-  sm: 'p-0.5 text-xs',
-  md: 'p-1 text-sm'
-}
-
 const ITEM_SIZE_CLASSES = {
   xs: 'h-6 px-2 gap-1 text-[11px]',
-  sm: 'h-7 px-2.5 gap-1.5 text-xs',
-  md: 'h-8 px-3 gap-2 text-xs'
+  sm: 'h-7 px-3 gap-1.5 text-xs',
+  md: 'h-8 px-3.5 gap-2 text-sm'
 }
 
 export default function SegmentedControl<T extends string | number>(
@@ -34,9 +28,9 @@ export default function SegmentedControl<T extends string | number>(
 
   return (
     <div
-      class={`inline-flex items-center bg-zinc-900 border border-zinc-750/70 rounded-lg select-none ${
-        SIZE_CLASSES[size()]
-      } ${props.class ?? ''}`}
+      class={`inline-flex items-center bg-[var(--bg-input)] p-0.5 border border-[var(--border-color)] rounded-[var(--ui-radius)] gap-0.5 select-none ${
+        props.class ?? ''
+      }`}
     >
       <For each={props.options}>
         {(opt) => {
@@ -46,12 +40,12 @@ export default function SegmentedControl<T extends string | number>(
               type="button"
               title={opt.title ?? opt.label}
               onClick={() => props.onChange(opt.value)}
-              class={`flex-1 inline-flex items-center justify-center font-medium rounded-md transition-all cursor-pointer whitespace-nowrap ${
+              class={`flex-1 inline-flex items-center justify-center font-medium transition-all cursor-pointer whitespace-nowrap rounded-[2px] ${
                 ITEM_SIZE_CLASSES[size()]
               } ${
                 isSelected()
-                  ? 'bg-zinc-800 text-zinc-100 shadow-xs border border-zinc-650/80 font-semibold'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/50'
+                  ? 'bg-[var(--accent-color)] text-[var(--accent-text)] font-semibold shadow-sm'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5'
               }`}
             >
               {opt.icon && opt.icon({ size: size() === 'xs' ? 12 : 14 })}
@@ -63,3 +57,4 @@ export default function SegmentedControl<T extends string | number>(
     </div>
   )
 }
+export { SegmentedControl }

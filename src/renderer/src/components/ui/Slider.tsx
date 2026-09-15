@@ -1,4 +1,4 @@
-import { For, type JSX } from 'solid-js'
+import { For, createSignal, onCleanup, type JSX } from 'solid-js'
 
 export interface SliderPreset {
   label: string
@@ -6,7 +6,7 @@ export interface SliderPreset {
 }
 
 export interface SliderProps {
-  label: string
+  label?: string
   value: number
   min: number
   max: number
@@ -18,9 +18,22 @@ export interface SliderProps {
   icon?: (props: { size?: number; class?: string }) => JSX.Element
   disabled?: boolean
   class?: string
+  showValue?: boolean
+  title?: string
 }
 
 export default function Slider(props: SliderProps) {
+  const [isDragging, setIsDragging] = createSignal(false)
+  let trackRef: HTMLDivElement | undefined
+
+  const step = () => props.step ?? 0.01
+
+  const percentage = () => {
+    const range = props.max - props.min
+    if (range === 0) return 0
+    return Math.min(100, Math.max(0, ((props.value - props.min) / range) * 100))
+  }
+
   const formattedValue = () => {
     if (props.displayValue) {
       return props.displayValue(props.value)
@@ -31,28 +44,79 @@ export default function Slider(props: SliderProps) {
     return String(props.value)
   }
 
-  return (
-    <div class={`flex flex-col gap-1.5 select-none ${props.class ?? ''}`}>
-      <div class="flex items-center justify-between text-xs">
-        <div class="flex items-center gap-1.5 text-zinc-300 font-medium">
-          {props.icon && <span class="text-zinc-400">{props.icon({ size: 13 })}</span>}
-          <span>{props.label}</span>
-        </div>
-        <span class="font-mono text-zinc-400 bg-zinc-800/80 px-1.5 py-0.5 rounded border border-zinc-700/50 text-[11px] tabular-nums">
-          {formattedValue()}
-        </span>
-      </div>
+  const updateFromPosition = (clientX: number) => {
+    if (!trackRef || props.disabled) return
+    const rect = trackRef.getBoundingClientRect()
+    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
+    const val = props.min + ratio * (props.max - props.min)
+    const stp = step()
+    const stepped = Math.round(val / stp) * stp
+    const decimals = stp.toString().split('.')[1]?.length ?? 2
+    const rounded = Number(stepped.toFixed(Math.min(4, decimals)))
+    const clamped = Math.min(props.max, Math.max(props.min, rounded))
+    props.onChange(clamped)
+  }
 
-      <div class="relative flex items-center">
-        <input
-          type="range"
-          min={props.min}
-          max={props.max}
-          step={props.step ?? 1}
-          value={props.value}
-          disabled={props.disabled}
-          onInput={(e) => props.onChange(parseFloat(e.currentTarget.value))}
-          class="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 disabled:opacity-40"
+  const handleMouseDown = (e: MouseEvent) => {
+    if (props.disabled) return
+    setIsDragging(true)
+    updateFromPosition(e.clientX)
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      updateFromPosition(moveEvent.clientX)
+    }
+
+    const onMouseUp = () => {
+      setIsDragging(false)
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+  }
+
+  onCleanup(() => {
+    setIsDragging(false)
+  })
+
+  const defaultTooltip = () => props.title ?? (props.label ? `${props.label}: ${formattedValue()}` : undefined)
+
+  return (
+    <div
+      title={defaultTooltip()}
+      class={`flex flex-col gap-1.5 select-none ${props.disabled ? 'opacity-40 pointer-events-none' : ''} ${props.class ?? ''}`}
+    >
+      {(props.label || props.showValue !== false) && (
+        <div class="flex items-center justify-between text-xs">
+          <div class="flex items-center gap-1.5 text-[var(--text-main)] font-medium">
+            {props.icon && <span class="text-[var(--text-muted)]">{props.icon({ size: 14 })}</span>}
+            {props.label && <span>{props.label}</span>}
+          </div>
+          <span class="font-mono text-[var(--accent-color)] text-[11px] tabular-nums font-bold bg-[var(--bg-input)] px-2 py-0.5 rounded-[2px] border border-[var(--border-color)]">
+            {formattedValue()}
+          </span>
+        </div>
+      )}
+
+      <div
+        ref={trackRef}
+        class="h-5 flex items-center cursor-pointer relative group"
+        onMouseDown={handleMouseDown}
+        title={defaultTooltip()}
+      >
+        <div class="w-full h-2 bg-[var(--bg-input)] border border-[var(--border-color)] relative rounded-[3px] overflow-hidden">
+          <div
+            class="h-full bg-[var(--accent-color)] group-hover:brightness-110 transition-all"
+            style={{ width: `${percentage()}%` }}
+          />
+        </div>
+        <div
+          class="absolute w-3 h-4.5 border border-black/50 shadow-sm top-1/2 -translate-y-1/2 -translate-x-1/2 rounded-[2px] group-hover:scale-110 transition-transform"
+          style={{
+            left: `${percentage()}%`,
+            background: isDragging() ? 'var(--accent-color)' : '#e8e8ea'
+          }}
         />
       </div>
 
@@ -66,10 +130,11 @@ export default function Slider(props: SliderProps) {
                   type="button"
                   disabled={props.disabled}
                   onClick={() => props.onChange(preset.value)}
-                  class={`px-1.5 py-0.5 text-[10px] font-medium rounded border transition-colors ${
+                  title={`Set ${props.label ?? 'value'} to ${preset.label}`}
+                  class={`px-2 py-0.5 text-[10px] font-mono font-medium rounded-[2px] border transition-colors cursor-pointer ${
                     isSelected()
-                      ? 'bg-blue-600/30 text-blue-300 border-blue-500/50'
-                      : 'bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 border-zinc-750/50'
+                      ? 'bg-[var(--accent-color)] text-[var(--accent-text)] border-[var(--accent-color)] font-bold'
+                      : 'bg-[var(--bg-panel)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 border-[var(--border-color)]'
                   }`}
                 >
                   {preset.label}
@@ -82,3 +147,4 @@ export default function Slider(props: SliderProps) {
     </div>
   )
 }
+export { Slider }

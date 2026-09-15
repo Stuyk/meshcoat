@@ -109,10 +109,7 @@ export class OrbitPanZoomControls {
     this.lastY = e.clientY
 
     if (this.dragging === 'orbit') {
-      this.spherical.theta -= dx * 0.005
-      this.spherical.phi -= dy * 0.005
-      this.spherical.phi = Math.max(0.001, Math.min(Math.PI - 0.001, this.spherical.phi))
-      this.applySpherical()
+      this.orbitBy(dx, dy)
     } else if (this.dragging === 'pan') {
       const panScale = this.spherical.radius * 0.0015
       const right = new THREE.Vector3()
@@ -142,6 +139,14 @@ export class OrbitPanZoomControls {
     e.preventDefault()
     this.spherical.radius *= 1 + Math.sign(e.deltaY) * 0.1
     this.spherical.radius = Math.max(0.05, this.spherical.radius)
+    this.applySpherical()
+  }
+
+  /** Orbits the camera around `target` by a screen-space pixel delta. Shared by pointer-drag orbit and the corner gizmo. */
+  orbitBy(dx: number, dy: number): void {
+    this.spherical.theta -= dx * 0.005
+    this.spherical.phi -= dy * 0.005
+    this.spherical.phi = Math.max(0.001, Math.min(Math.PI - 0.001, this.spherical.phi))
     this.applySpherical()
   }
 

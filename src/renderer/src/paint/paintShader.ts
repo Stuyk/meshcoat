@@ -375,7 +375,7 @@ ${BRUSH_MASK_GLSL}
 
     // Stroke falloff: if a custom tip or stamp is active, its alpha mask shapes the stroke;
     // otherwise, use spherical smoothstep falloff:
-    float strokeFalloff = mix(falloff, facingMask, max(uStampMode, uUseTipTexture));
+    float strokeFalloff = mix(falloff, facingMask, max(uStampMode * max(uUseTexture, uUseTipTexture), uUseTipTexture));
 
     // Decal mask in stamp tool mode
     float stampDecalMask = mix(1.0, inStamp, uStampMode * (1.0 - uFillMode));

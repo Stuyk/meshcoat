@@ -9,8 +9,10 @@ import {
   type ToolMode
 } from '../paint/brush'
 import { EFFECT_MODES, EFFECT_MODE_LABELS, type EffectMode } from '../paint/effectShader'
+import { brushPresets } from '../paint/brushPresets'
 import { DropletsIcon, SparklesIcon, FeatherIcon, WireframeIcon, XIcon } from './icons'
-import { Slider, IconButton, Label } from './ui'
+import { Slider, IconButton, Label, Button } from './ui'
+import { toAssetUrl } from '../utils/assetUrl'
 
 export interface EffectHUDProps {
   /** Rendered inside the tool panel dock rather than floating over the viewport. */
@@ -77,6 +79,47 @@ export default function EffectHUD(props: EffectHUDProps) {
         </Show>
 
         {/* 2x2 Mode Choice Selector Grid */}
+        <div class="flex items-center justify-between p-1.5 rounded-[var(--ui-radius)] bg-[var(--bg-input)] border border-[var(--border-color)]">
+          <div class="flex items-center gap-2 min-w-0">
+            <div class="w-7 h-7 rounded-[var(--ui-radius)] checkerboard-bg border border-[var(--border-color)] flex items-center justify-center overflow-hidden shrink-0">
+              <Show
+                when={brush.tipTexturePath()}
+                fallback={<div class="w-3.5 h-3.5 rounded-full bg-teal-400" />}
+              >
+                <img
+                  src={toAssetUrl(brush.tipTexturePath()!)}
+                  alt="Tip"
+                  class="w-full h-full object-contain p-0.5"
+                />
+              </Show>
+            </div>
+            <span class="text-xs font-medium text-[var(--text-main)] truncate">
+              {brushPresets.active() ? brushPresets.active()!.name : 'Round Tip'}
+            </span>
+          </div>
+          <div class="flex items-center gap-1 shrink-0">
+            <Show when={brushPresets.active()}>
+              <IconButton
+                size="xs"
+                variant="ghost"
+                onClick={() => brushPresets.clear()}
+                tooltip="Reset to round tip"
+              >
+                <XIcon size={12} />
+              </IconButton>
+            </Show>
+            <Button
+              variant="accent"
+              size="xs"
+              onClick={() => brushPresets.openManager()}
+              title="Open Brush Library"
+            >
+              <SparklesIcon size={12} class="text-amber-300" />
+              <span>Library</span>
+            </Button>
+          </div>
+        </div>
+
         <div class="space-y-1">
           <div class="flex items-center justify-between">
             <Label uppercase>Filter Choice</Label>

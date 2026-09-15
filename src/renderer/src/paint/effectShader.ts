@@ -70,6 +70,8 @@ ${BRUSH_MASK_UNIFORMS_GLSL}
   uniform vec2 uTexelSize;
   uniform float uBrushOpacity;
   uniform float uRestrictFace;
+  uniform sampler2D uBrushTipTexture;
+  uniform float uUseTipTexture;
 
   varying vec3 vWorldPosition;
   varying vec3 vWorldNormal;
@@ -106,7 +108,16 @@ ${BRUSH_MASK_GLSL}
     computeBrushMask(falloff, facingMask, visibility);
 
     float faceMask = mix(1.0, vSelected, uRestrictFace);
-    float strength = falloff * facingMask * faceMask * uBrushOpacity * uEffectStrength;
+    vec3 rel = vWorldPosition - uBrushWorldPos;
+    float lu = dot(rel, uBrushTangent) / uBrushRadius * 0.5 + 0.5;
+    float lv = dot(rel, uBrushBitangent) / uBrushRadius * 0.5 + 0.5;
+    vec2 stampUv = vec2(lu, lv);
+    float inStamp = step(0.0, stampUv.x) * step(stampUv.x, 1.0) * step(0.0, stampUv.y) * step(stampUv.y, 1.0);
+    vec4 tipSample = texture2D(uBrushTipTexture, stampUv);
+    float tipAlpha = tipSample.a * inStamp;
+    float tipMask = mix(1.0, tipAlpha, uUseTipTexture);
+    float strokeFalloff = mix(falloff, facingMask, uUseTipTexture);
+    float strength = strokeFalloff * tipMask * facingMask * faceMask * uBrushOpacity * uEffectStrength * visibility;
 
     if (strength <= 0.001) {
       gl_FragColor = original;
@@ -154,6 +165,8 @@ export interface EffectUniforms extends BrushMaskUniforms {
   uTexelSize: THREE.IUniform<THREE.Vector2>
   uBrushOpacity: THREE.IUniform<number>
   uRestrictFace: THREE.IUniform<number>
+  uBrushTipTexture: THREE.IUniform<THREE.Texture | null>
+  uUseTipTexture: THREE.IUniform<number>
 }
 
 export function createEffectMaterial(
@@ -169,7 +182,9 @@ export function createEffectMaterial(
     uSmudgeDir: { value: new THREE.Vector2() },
     uTexelSize: { value: new THREE.Vector2(1 / textureSize, 1 / textureSize) },
     uBrushOpacity: { value: 1 },
-    uRestrictFace: { value: 0 }
+    uRestrictFace: { value: 0 },
+    uBrushTipTexture: { value: null },
+    uUseTipTexture: { value: 0 }
   }
 
   return new THREE.ShaderMaterial({

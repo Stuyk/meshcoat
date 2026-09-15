@@ -11,8 +11,9 @@ import {
   type BrushTextureMapping,
   type BrushTextureRepeat
 } from '../paint/brush'
-import { ImagesIcon, XIcon, Trash2Icon } from './icons'
-import { Slider, SegmentedControl, IconButton, Label } from './ui'
+import { ImagesIcon, XIcon, Trash2Icon, SparklesIcon } from './icons'
+import { Slider, SegmentedControl, IconButton, Label, Button } from './ui'
+import { brushPresets } from '../paint/brushPresets'
 import { toAssetUrl } from '../utils/assetUrl'
 import { fileName } from '../utils/paths'
 
@@ -115,6 +116,49 @@ export default function MaterialTextureHUD(props: MaterialTextureHUDProps): JSX.
                         ? 'Triplanar Mode'
                         : 'Brush Tip Mode'}
               </span>
+            </div>
+          </div>
+        </Show>
+
+        <Show when={props.activeTool === 'stamp'}>
+          <div class="flex items-center justify-between p-1.5 rounded-[var(--ui-radius)] bg-[var(--bg-input)] border border-[var(--border-color)]">
+            <div class="flex items-center gap-2 min-w-0">
+              <div class="w-7 h-7 rounded-[var(--ui-radius)] checkerboard-bg border border-[var(--border-color)] flex items-center justify-center overflow-hidden shrink-0">
+                <Show
+                  when={brush.tipTexturePath()}
+                  fallback={<div class="w-3.5 h-3.5 rounded-full bg-blue-400" />}
+                >
+                  <img
+                    src={toAssetUrl(brush.tipTexturePath()!)}
+                    alt="Tip"
+                    class="w-full h-full object-contain p-0.5"
+                  />
+                </Show>
+              </div>
+              <span class="text-xs font-medium text-[var(--text-main)] truncate">
+                {brushPresets.active() ? brushPresets.active()!.name : 'Standard Round Tip'}
+              </span>
+            </div>
+            <div class="flex items-center gap-1 shrink-0">
+              <Show when={brushPresets.active()}>
+                <IconButton
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => brushPresets.clear()}
+                  tooltip="Reset to standard round tip"
+                >
+                  <XIcon size={12} />
+                </IconButton>
+              </Show>
+              <Button
+                variant="accent"
+                size="xs"
+                onClick={() => brushPresets.openManager()}
+                title="Open Brush Library"
+              >
+                <SparklesIcon size={12} class="text-amber-300" />
+                <span>Library</span>
+              </Button>
             </div>
           </div>
         </Show>

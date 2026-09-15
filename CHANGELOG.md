@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.2.2
+
+### Added
+- **Brush Tip Support for Eraser, Stamp, and Effects Brushes**: Custom `.abr` and preset brush tips can now be selected and applied to the Eraser, Stamp, and Effects (Blur, Sharpen, Smudge, Pixelate) tools.
+- **Unified 3D Reticle Silhouettes**: The 3D cursor reticle and mirror symmetry gizmo now display active brush tip outlines across all brush, stamp, eraser, and effects tools.
+- **Docked Tool Panel Brush Access**: Added direct brush tip preview, reset, and library access buttons to the Effects Brush HUD and Material Texture / Stamp panels.
+- **Expanded Bottom Dock Indicators**: Added hardness and rotation indicators to the bottom dock for Eraser and Effects tools.
+- **Rotation Gizmo**: In the top right, introduced a 3D gizmo to grab and rotate. Handy for pen users.
+
+### Fixed
+- **Stamp Tool Falloff**: Fixed stamp mode falloff calculation to prevent untextured stamp dabs from flooding the mesh with flat color.
+- **Stamp Reticle Orientation**: The stamp reticle now rotates in sync with brush angle adjustments.
+
 ## v2.2.0
 
 A face-texturing release. The headline is the Face UV Projector — select faces, place a texture on them with its own offset, scale and rotation, and watch it on the model before committing — built for the trim-sheet and PSX-style workflows where a texture goes *on a face*, not across an unwrap. Alongside it, clipboard textures and a tool dock that no longer talks about panels you aren't using.

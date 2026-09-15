@@ -177,6 +177,7 @@ function updateBrushTipUniforms(
   gizmoHandle.mirrorBrushTipMesh.rotation.z = -rotRad
   gizmoHandle.stampPreviewMesh.rotation.z = rotRad
   gizmoHandle.mirrorStampPreviewMesh.rotation.z = -rotRad
+  gizmoHandle.stampReticle.rotation.z = rotRad
 }
 
 /**
@@ -226,9 +227,7 @@ function applyToolVisibility(
     gizmoHandle.eyedropperReticle.visible = false
     gizmoHandle.bucketReticle.visible = false
     gizmoHandle.stampReticle.visible = false
-    // The effect brush has a plain circular footprint — a tip alpha shapes
-    // where paint lands, which is not something a filter can honour.
-    if (hasTip && tool !== 'eraser' && tool !== 'effect') {
+    if (hasTip) {
       gizmoHandle.brushRing.visible = false
       gizmoHandle.brushTipMesh.visible = true
       gizmoHandle.brushTipMesh.scale.setScalar(brush.radius())
@@ -241,17 +240,25 @@ function applyToolVisibility(
     hideHoverFace()
   } else if (tool === 'stamp') {
     gizmoHandle.group.visible = true
-    gizmoHandle.brushRing.visible = false
     gizmoHandle.eyedropperReticle.visible = false
     gizmoHandle.bucketReticle.visible = false
-    gizmoHandle.stampReticle.visible = true
-    gizmoHandle.stampReticle.scale.setScalar(brush.radius())
     gizmoHandle.stampPreviewMesh.visible = showStampColorPreview
-    gizmoHandle.brushTipMesh.visible = hasTip && !showStampColorPreview
     if (showStampColorPreview) {
+      gizmoHandle.stampReticle.visible = true
+      gizmoHandle.stampReticle.scale.setScalar(brush.radius())
       gizmoHandle.stampPreviewMesh.scale.setScalar(brush.radius())
+      gizmoHandle.brushTipMesh.visible = false
+      gizmoHandle.brushRing.visible = false
     } else if (hasTip) {
+      gizmoHandle.stampReticle.visible = false
+      gizmoHandle.brushRing.visible = false
+      gizmoHandle.brushTipMesh.visible = true
       gizmoHandle.brushTipMesh.scale.setScalar(brush.radius())
+    } else {
+      gizmoHandle.stampReticle.visible = false
+      gizmoHandle.brushTipMesh.visible = false
+      gizmoHandle.brushRing.visible = true
+      gizmoHandle.brushRing.scale.setScalar(brush.radius())
     }
     hideHoverFace()
   } else if (tool === 'eyedropper') {
@@ -287,7 +294,11 @@ function updateMirrorReticle(
   showStampColorPreview: boolean
 ): void {
   const mirrorableTool =
-    tool === 'brush' || tool === 'eraser' || tool === 'line' || tool === 'stamp'
+    tool === 'brush' ||
+    tool === 'eraser' ||
+    tool === 'line' ||
+    tool === 'stamp' ||
+    tool === 'effect'
   const mirroredHit = brush.symmetryEnabled() && mirrorableTool ? ctx.getMirroredHit(hit) : null
   if (!mirroredHit) {
     gizmoHandle.mirrorGroup.visible = false
@@ -306,7 +317,7 @@ function updateMirrorReticle(
     gizmoHandle.mirrorBrushTipMesh.visible = false
     gizmoHandle.mirrorStampPreviewMesh.visible = true
     gizmoHandle.mirrorStampPreviewMesh.scale.setScalar(brush.radius())
-  } else if (hasTip && tool !== 'eraser') {
+  } else if (hasTip) {
     gizmoHandle.mirrorBrushRing.visible = false
     gizmoHandle.mirrorBrushTipMesh.visible = true
     gizmoHandle.mirrorStampPreviewMesh.visible = false

@@ -898,8 +898,14 @@ export class PaintEngine {
       Math.abs(hit.normal.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0)
     const tangent = new THREE.Vector3().crossVectors(up, hit.normal).normalize()
     const bitangent = new THREE.Vector3().crossVectors(hit.normal, tangent).normalize()
+    if (params.angle) {
+      tangent.applyAxisAngle(hit.normal, params.angle)
+      bitangent.applyAxisAngle(hit.normal, params.angle)
+    }
     u.uBrushTangent.value.copy(tangent)
     u.uBrushBitangent.value.copy(bitangent)
+    u.uBrushTipTexture.value = params.brushTipTexture ?? null
+    u.uUseTipTexture.value = params.brushTipTexture ? 1 : 0
 
     const restrict = params.restrictFaces != null
     u.uRestrictFace.value = restrict ? 1 : 0
@@ -941,6 +947,8 @@ export class PaintEngine {
     }
 
     this.uvMesh.material = prevMaterial
+    u.uBrushTipTexture.value = null
+    u.uUseTipTexture.value = 0
     this._contentVersion++
   }
 
@@ -1737,4 +1745,6 @@ export interface EffectParams {
   smudgeDir?: THREE.Vector2 | null
   restrictFaces?: ReadonlySet<number> | null
   occlusion?: OcclusionParams | null
+  brushTipTexture?: THREE.Texture | null
+  angle?: number
 }
