@@ -177,9 +177,8 @@ export default function TextureShelf(props: {
   onCleanup(() => resizeObserver?.disconnect())
 
   return (
-    <aside class="w-[260px] min-w-[260px] max-w-[260px] h-full flex flex-col bg-zinc-925 border-r border-zinc-800 select-none z-20 flex-shrink-0">
-      {/* Header Bar */}
-      <div class="h-10 px-3 flex items-center justify-between border-b border-zinc-800 bg-zinc-900/60 flex-shrink-0">
+    <aside class="w-[250px] min-w-[250px] max-w-[250px] h-full flex flex-col bg-[var(--bg-panel)] border-r border-[var(--border-color)] select-none z-20 shrink-0">
+      <div class="h-9 px-3 flex items-center justify-between border-b border-[var(--border-color)] bg-[var(--bg-panel-header)] shrink-0">
         <Label uppercase badge={props.textures.length}>
           Textures
         </Label>
@@ -191,7 +190,7 @@ export default function TextureShelf(props: {
             onClick={props.onPickFolder}
             title="Load folder of textures"
           >
-            <FolderOpenIcon size={13} />
+            <FolderOpenIcon size={14} />
             <span>Load</span>
           </Button>
 
@@ -202,64 +201,75 @@ export default function TextureShelf(props: {
               onClick={props.onClearFolder}
               title="Clear loaded textures"
             >
-              <XIcon size={13} class="text-zinc-400 hover:text-red-400" />
+              <XIcon size={14} class="text-[var(--text-muted)] hover:text-red-400" />
             </IconButton>
           </Show>
         </div>
       </div>
 
-      {/* All / Used / Pasted Tabs. Always shown, unlike the rest of the shelf
-          chrome: Pasted is the one tab that works with no folder loaded at all,
-          so gating the bar on props.textures would hide the only way to reach
-          it from exactly the empty project that most wants it. */}
-      <div class="px-3 pt-2 pb-1 flex items-center gap-1 border-b border-zinc-800/80 bg-zinc-925">
-        <button
-          type="button"
-          class={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
-            activeShelf() === 'all'
-              ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-xs'
-              : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/50'
-          }`}
-          onClick={() => setActiveShelf('all')}
-        >
-          All
-        </button>
-        <button
-          type="button"
-          class={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
-            activeShelf() === 'used'
-              ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-xs'
-              : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/50'
-          }`}
-          onClick={() => setActiveShelf('used')}
-          title="Textures you've painted, stamped, or filled with"
-        >
-          <span>Used</span>
-          <Show when={brush.recentTextures().length > 0}>
-            <span class="font-mono text-[10px] text-zinc-500">{brush.recentTextures().length}</span>
-          </Show>
-        </button>
-        <button
-          type="button"
-          class={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
-            activeShelf() === 'pasted'
-              ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-xs'
-              : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/50'
-          }`}
-          onClick={() => setActiveShelf('pasted')}
-          title="Images pasted from the clipboard — kept in memory for this session only"
-        >
-          <span>Pasted</span>
-          <Show when={brush.pastedTextures().length > 0}>
-            <span class="font-mono text-[10px] text-zinc-500">{brush.pastedTextures().length}</span>
-          </Show>
-        </button>
+      <div class="px-2 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-panel-header)]">
+        <div class="flex items-center p-0.5 rounded-[var(--ui-radius)] bg-[var(--bg-input)] border border-[var(--border-color)]">
+          <button
+            type="button"
+            title="All loaded textures and material sets"
+            class={`flex-1 flex items-center justify-center gap-1.5 py-1 px-1.5 rounded-[2px] text-xs font-medium transition-colors cursor-pointer ${
+              activeShelf() === 'all'
+                ? 'bg-[var(--accent-color)] text-[var(--accent-text)] font-semibold shadow-xs'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5'
+            }`}
+            onClick={() => setActiveShelf('all')}
+          >
+            <span>All</span>
+          </button>
+          <button
+            type="button"
+            class={`flex-1 flex items-center justify-center gap-1.5 py-1 px-1.5 rounded-[2px] text-xs font-medium transition-colors cursor-pointer ${
+              activeShelf() === 'used'
+                ? 'bg-[var(--accent-color)] text-[var(--accent-text)] font-semibold shadow-xs'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5'
+            }`}
+            onClick={() => setActiveShelf('used')}
+            title="Textures you've painted, stamped, or filled with"
+          >
+            <span>Used</span>
+            <Show when={brush.recentTextures().length > 0}>
+              <span class={`font-mono text-[10px] px-1 rounded-full ${
+                activeShelf() === 'used'
+                  ? 'bg-black/30 text-[var(--accent-text)]'
+                  : 'bg-white/10 text-[var(--text-muted)]'
+              }`}>
+                {brush.recentTextures().length}
+              </span>
+            </Show>
+          </button>
+          <button
+            type="button"
+            class={`flex-1 flex items-center justify-center gap-1.5 py-1 px-1.5 rounded-[2px] text-xs font-medium transition-colors cursor-pointer ${
+              activeShelf() === 'pasted'
+                ? 'bg-[var(--accent-color)] text-[var(--accent-text)] font-semibold shadow-xs'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5'
+            }`}
+            onClick={() => setActiveShelf('pasted')}
+            title="Images pasted from the clipboard — kept in memory for this session only"
+          >
+            <span>Pasted</span>
+            <Show when={brush.pastedTextures().length > 0}>
+              <span class={`font-mono text-[10px] px-1 rounded-full ${
+                activeShelf() === 'pasted'
+                  ? 'bg-black/30 text-[var(--accent-text)]'
+                  : 'bg-white/10 text-[var(--text-muted)]'
+              }`}>
+                {brush.pastedTextures().length}
+              </span>
+            </Show>
+          </button>
+        </div>
       </div>
 
       {/* Paste toolbar — lives inside the Pasted tab rather than in the shelf
           header, so the header keeps meaning "the loaded folder". */}
       <Show when={activeShelf() === 'pasted'}>
-        <div class="px-2.5 py-2 border-b border-zinc-800 bg-zinc-925 flex items-center gap-1.5 flex-shrink-0">
+        <div class="px-2 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-panel)] flex items-center gap-1.5 shrink-0">
           <Button
             variant="primary"
             size="xs"
@@ -267,7 +277,7 @@ export default function TextureShelf(props: {
             onClick={() => void pasteFromClipboard()}
             title="Paste the clipboard image as a texture (Ctrl+V)"
           >
-            <ClipboardIcon size={13} />
+            <ClipboardIcon size={12} />
             <span>Paste Image</span>
           </Button>
           <Show when={brush.pastedTextures().length > 0}>
@@ -288,15 +298,14 @@ export default function TextureShelf(props: {
                   : 'Discard every pasted texture'
               }
             >
-              <Trash2Icon size={13} class="text-zinc-400 hover:text-red-400" />
+              <Trash2Icon size={12} class="text-[var(--text-muted)] hover:text-red-400" />
             </IconButton>
           </Show>
         </div>
       </Show>
 
-      {/* Filter / Search Bar */}
       <Show when={sourceTextures().length > 0}>
-        <div class="px-2.5 py-2 border-b border-zinc-800 bg-zinc-925 flex-shrink-0">
+        <div class="px-2 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-panel)] shrink-0">
           <SearchInput
             value={searchQuery()}
             onInput={setSearchQuery}
@@ -316,13 +325,13 @@ export default function TextureShelf(props: {
           fallback={
             <div
               onClick={props.onPickFolder}
-              class="flex flex-col items-center justify-center h-full p-4 border border-dashed border-zinc-800 hover:border-zinc-700 rounded-xl text-center bg-zinc-950/40 hover:bg-zinc-900/40 transition-all cursor-pointer group"
+              class="flex flex-col items-center justify-center h-full p-4 border border-dashed border-[var(--border-color)] hover:border-[var(--accent-color)]/60 rounded-[var(--ui-radius)] text-center bg-[var(--bg-input)] hover:bg-[var(--bg-panel-header)] transition-all cursor-pointer group"
             >
-              <div class="p-3 rounded-md bg-zinc-900 text-zinc-500 group-hover:text-blue-400 transition-colors mb-2">
+              <div class="p-3 rounded-[var(--ui-radius)] bg-[var(--bg-panel-header)] text-[var(--text-muted)] group-hover:text-[var(--accent-color)] transition-colors mb-2 border border-[var(--border-color)]">
                 <StampIcon size={24} />
               </div>
-              <span class="text-xs font-semibold text-zinc-300 mb-1">No textures loaded</span>
-              <span class="text-[11px] text-zinc-500 mb-3 max-w-[180px]">
+              <span class="text-xs font-semibold text-[var(--text-main)] mb-1">No textures loaded</span>
+              <span class="text-[11px] text-[var(--text-muted)] mb-3 max-w-[180px]">
                 Click to load a folder of PNG, JPG, or WebP textures.
               </span>
               <Button variant="primary" size="xs">
@@ -334,7 +343,7 @@ export default function TextureShelf(props: {
           <Show
             when={activeShelf() === 'all' || sourceTextures().length > 0}
             fallback={
-              <div class="flex items-center justify-center h-48 text-center text-[11px] text-zinc-500 p-4">
+              <div class="flex items-center justify-center h-48 text-center text-[11px] text-[var(--text-muted)] p-4">
                 <Show
                   when={activeShelf() === 'pasted'}
                   fallback="No textures used yet — paint, stamp, or fill with one to see it here."
@@ -348,7 +357,7 @@ export default function TextureShelf(props: {
             <Show
               when={hasResults()}
               fallback={
-                <div class="flex items-center justify-center h-48 text-center text-[11px] text-zinc-500 p-4">
+                <div class="flex items-center justify-center h-48 text-center text-[11px] text-[var(--text-muted)] p-4">
                   No textures match "{searchQuery()}"
                 </div>
               }
@@ -373,23 +382,23 @@ export default function TextureShelf(props: {
                           onClick={() => setTexturePath(null)}
                           title="Solid Color (No Texture) - Hotkey: X"
                           style={style}
-                          class={`flex flex-col p-1.5 rounded-lg border text-left transition-all cursor-pointer group ${
+                          class={`flex flex-col p-1.5 rounded-[var(--ui-radius)] border text-left transition-all cursor-pointer group ${
                             isSelected()
-                              ? 'bg-blue-600/15 border-blue-500/80 shadow-xs'
-                              : 'bg-zinc-900/60 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-850/60'
+                              ? 'bg-[var(--accent-color)]/10 border-[var(--accent-color)] ring-1 ring-[var(--accent-color)]/40 shadow-xs'
+                              : 'bg-[var(--bg-input)] border-[var(--border-color)] hover:border-white/20 hover:bg-white/5'
                           }`}
                         >
                           <div
-                            class="relative aspect-square w-full rounded-md border border-white/10 flex items-center justify-center"
+                            class="relative aspect-square w-full rounded-[2px] border border-white/10 flex items-center justify-center"
                             style={{ 'background-color': brush.color() }}
                           >
                             <Show when={isSelected()}>
-                              <div class="absolute top-1 right-1 w-4 h-4 rounded bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                              <div class="absolute top-1 right-1 w-4 h-4 rounded-[2px] bg-[var(--accent-color)] text-[var(--accent-text)] flex items-center justify-center shadow-xs">
                                 <CheckIcon size={10} />
                               </div>
                             </Show>
                           </div>
-                          <span class="text-[10px] font-medium text-zinc-300 truncate mt-1.5">
+                          <span class="text-[11px] font-medium text-[var(--text-main)] truncate mt-1.5">
                             Solid Color [X]
                           </span>
                         </button>
@@ -415,13 +424,13 @@ export default function TextureShelf(props: {
                             .map((c) => CHANNEL_SPECS[c].label)
                             .join(', ')}. Painting it writes every one of those channels at once.`}
                           style={style}
-                          class={`flex flex-col p-1.5 rounded-lg border text-left transition-all cursor-pointer group ${
+                          class={`flex flex-col p-1.5 rounded-[var(--ui-radius)] border text-left transition-all cursor-pointer group ${
                             isSelected()
-                              ? 'bg-amber-600/15 border-amber-500/80 shadow-xs'
-                              : 'bg-zinc-900/60 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-850/60'
+                              ? 'bg-amber-500/15 border-amber-500 ring-1 ring-amber-500/40 shadow-xs'
+                              : 'bg-[var(--bg-input)] border-[var(--border-color)] hover:border-white/20 hover:bg-white/5'
                           }`}
                         >
-                          <div class="relative aspect-square w-full rounded-md overflow-hidden checkerboard-bg border border-zinc-800 flex items-center justify-center">
+                          <div class="relative aspect-square w-full rounded-[2px] overflow-hidden checkerboard-bg border border-[var(--border-color)] flex items-center justify-center">
                             <Show when={thumb}>
                               <img
                                 src={toAssetUrl(thumb!)}
@@ -433,23 +442,40 @@ export default function TextureShelf(props: {
                             </Show>
                             {/* Which channels this set can actually supply — the
                                 thing that is invisible in a folder of loose files. */}
-                            <div class="absolute bottom-1 left-1 flex gap-0.5">
+                            <div class="absolute bottom-1 left-1 flex items-center gap-0.5 bg-black/80 p-0.5 rounded-[2px] backdrop-blur-xs border border-white/10">
                               <For each={channels}>
                                 {(c) => (
-                                  <span class="px-1 rounded bg-black/70 text-[8px] font-mono uppercase text-amber-200 leading-4">
-                                    {CHANNEL_SPECS[c].short}
+                                  <span
+                                    title={CHANNEL_SPECS[c].label}
+                                    class={`w-3.5 h-3.5 flex items-center justify-center rounded-[1px] font-bold text-[8px] font-mono leading-none ${
+                                      c === 'baseColor'
+                                        ? 'bg-emerald-500/20 text-emerald-300'
+                                        : c === 'roughness'
+                                          ? 'bg-sky-500/20 text-sky-300'
+                                          : c === 'metalness'
+                                            ? 'bg-amber-500/20 text-amber-300'
+                                            : 'bg-violet-500/20 text-violet-300'
+                                    }`}
+                                  >
+                                    {c === 'baseColor'
+                                      ? 'C'
+                                      : c === 'roughness'
+                                        ? 'R'
+                                        : c === 'metalness'
+                                          ? 'M'
+                                          : 'N'}
                                   </span>
                                 )}
                               </For>
                             </div>
                             <Show when={isSelected()}>
-                              <div class="absolute top-1 right-1 w-4 h-4 rounded bg-amber-500 text-black flex items-center justify-center shadow-xs">
+                              <div class="absolute top-1 right-1 w-4 h-4 rounded-[2px] bg-amber-500 text-black flex items-center justify-center shadow-xs">
                                 <CheckIcon size={10} />
                               </div>
                             </Show>
                           </div>
                           <span
-                            class="text-[10px] font-medium text-amber-200/90 truncate mt-1.5"
+                            class="text-[11px] font-medium text-amber-200/90 truncate mt-1.5"
                             title={set.name}
                           >
                             {set.name}
@@ -477,17 +503,17 @@ export default function TextureShelf(props: {
                               ? `${filename()} — ${pasted()!.width}x${pasted()!.height} (Click to toggle)`
                               : `${filename()} (Click to toggle)`
                           }
-                          class={`w-full flex flex-col p-1.5 rounded-lg border text-left transition-all cursor-pointer group ${
+                          class={`w-full flex flex-col p-1.5 rounded-[var(--ui-radius)] border text-left transition-all cursor-pointer group ${
                             isSelected()
-                              ? 'bg-blue-600/15 border-blue-500/80 shadow-xs'
-                              : 'bg-zinc-900/60 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-850/60'
+                              ? 'bg-[var(--accent-color)]/10 border-[var(--accent-color)] ring-1 ring-[var(--accent-color)]/40 shadow-xs'
+                              : 'bg-[var(--bg-input)] border-[var(--border-color)] hover:border-white/20 hover:bg-white/5'
                           }`}
                         >
-                          <div class="relative aspect-square w-full rounded-md overflow-hidden checkerboard-bg border border-zinc-800 flex items-center justify-center">
+                          <div class="relative aspect-square w-full rounded-[2px] overflow-hidden checkerboard-bg border border-[var(--border-color)] flex items-center justify-center">
                             <Show
                               when={isBrowserDisplayable(path)}
                               fallback={
-                                <span class="text-[10px] font-mono uppercase text-zinc-500">
+                                <span class="text-[10px] font-mono uppercase text-[var(--text-muted)]">
                                   {(filename().split('.').pop() ?? '').toUpperCase()}
                                 </span>
                               }
@@ -501,13 +527,13 @@ export default function TextureShelf(props: {
                               />
                             </Show>
                             <Show when={isSelected()}>
-                              <div class="absolute top-1 right-1 w-4 h-4 rounded bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                              <div class="absolute top-1 right-1 w-4 h-4 rounded-[2px] bg-[var(--accent-color)] text-[var(--accent-text)] flex items-center justify-center shadow-xs">
                                 <CheckIcon size={10} />
                               </div>
                             </Show>
                           </div>
                           <span
-                            class="text-[10px] font-medium text-zinc-300 truncate mt-1.5"
+                            class="text-[11px] font-medium text-[var(--text-main)] truncate mt-1.5"
                             title={filename()}
                           >
                             {filename()}

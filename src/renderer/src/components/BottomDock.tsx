@@ -2,8 +2,8 @@ import { Show, type JSX } from 'solid-js'
 import { brush, setTextureMapping } from '../paint/brush'
 import { CHANNEL_SPECS, PAINT_CHANNELS } from '../paint/channels'
 import type { ToolMode } from '../paint/brush'
-import { stencil, setStencilTransforming } from '../paint/stencil'
-import { EFFECT_MODES, EFFECT_MODE_LABELS } from '../paint/effectShader'
+import { stencil } from '../paint/stencil'
+import { EFFECT_MODE_LABELS } from '../paint/effectShader'
 import {
   BrushIcon,
   StampIcon,
@@ -50,54 +50,49 @@ export default function StatusBar(props: StatusBarProps): JSX.Element {
 
   return (
     <footer
-      class="h-7 min-h-7 px-3 bg-zinc-925 border-t border-zinc-800 flex items-center justify-between text-[11px] text-zinc-400 select-none z-30 flex-shrink-0"
+      class="h-7 min-h-7 px-3 bg-[var(--bg-panel-header)] border-t border-[var(--border-color)] flex items-center justify-between text-xs text-[var(--text-muted)] select-none z-30 shrink-0"
       role="status"
       aria-label="Application Status"
     >
-      {/* Left Area: Active Tool & Face Mask Status & Brush Specs */}
-      <div class="flex items-center gap-2">
-        {/* Tool Indicator */}
+      <div class="flex items-center gap-2.5">
         <div
-          class="flex items-center gap-1.5 px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-200"
+          class="flex items-center gap-1.5 px-2 py-0.5 rounded-[var(--ui-radius)] bg-[var(--bg-input)] border border-[var(--border-color)] text-[var(--text-main)]"
           title={`Active Tool: ${currentTool().label} (${currentTool().num} or ${currentTool().key})`}
         >
           {(() => {
             const Icon = currentTool().Icon
-            return <Icon size={12} class="text-blue-400" />
+            return <Icon size={13} class="text-[var(--accent-color)]" />
           })()}
-          <span class="font-medium text-zinc-200">{currentTool().label}</span>
+          <span class="font-medium">{currentTool().label}</span>
           <Kbd size="xs">{currentTool().num}</Kbd>
         </div>
 
-        {/* Selected Faces Indicator */}
         <Show
           when={props.selectedFaceCount > 0}
           fallback={
             <div
-              class="hidden sm:flex items-center gap-1 text-zinc-500"
+              class="hidden sm:flex items-center gap-1 text-[var(--text-muted)] text-[11px]"
               title="Hold Ctrl and drag to isolate faces (Ctrl+A selects all)"
             >
               <Kbd size="xs">Ctrl</Kbd>
-              <span>+Drag to isolate faces</span>
+              <span>+Drag to mask</span>
             </div>
           }
         >
           <button
             type="button"
-            class="flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-950/60 border border-amber-800/80 text-amber-300 hover:bg-amber-900/60 transition-colors cursor-pointer"
+            class="flex items-center gap-1 px-2 py-0.5 rounded-[var(--ui-radius)] bg-amber-950/60 border border-amber-800/80 text-amber-300 hover:bg-amber-900/60 transition-colors cursor-pointer text-[11px]"
             onClick={props.onClearFaceSelection}
             title="Click or press Esc / Ctrl+D to clear face selection"
           >
             <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
             <span class="font-medium">
-              {props.selectedFaceCount} face{props.selectedFaceCount > 1 ? 's' : ''} masked
+              {props.selectedFaceCount} masked
             </span>
-            <span class="text-amber-500/80 text-[10px]">(Esc to clear)</span>
-            <XIcon size={11} class="text-amber-400" />
+            <XIcon size={12} class="text-amber-400" />
           </button>
         </Show>
 
-        {/* Brush Spec pills */}
         <Show
           when={
             props.tool === 'brush' ||
@@ -107,196 +102,169 @@ export default function StatusBar(props: StatusBarProps): JSX.Element {
           }
         >
           <div
-            class="flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-900/80 border border-zinc-800/60 font-mono text-zinc-300 tabular-nums"
+            class="flex items-center gap-1 px-2 py-0.5 rounded-[var(--ui-radius)] bg-[var(--bg-input)] border border-[var(--border-color)] font-mono text-[var(--text-main)] tabular-nums text-[11px]"
             title="Brush radius: [ / ] or Shift+Wheel or RMB+Drag"
           >
-            <span class="text-zinc-500 font-sans">R:</span>
+            <span class="text-[var(--text-muted)] font-sans">R:</span>
             <span>{Math.round(brush.radius())}px</span>
           </div>
+
           <div
-            class="flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-900/80 border border-zinc-800/60 font-mono text-zinc-300 tabular-nums"
-            title="Brush opacity: Shift+RMB+Drag"
+            class="flex items-center gap-1 px-2 py-0.5 rounded-[var(--ui-radius)] bg-[var(--bg-input)] border border-[var(--border-color)] font-mono text-[var(--text-main)] tabular-nums text-[11px]"
+            title="Opacity: Shift+[ / Shift+] or Shift+Alt+Wheel"
           >
-            <span class="text-zinc-500 font-sans">Op:</span>
+            <span class="text-[var(--text-muted)] font-sans">Op:</span>
             <span>{Math.round(brush.opacity() * 100)}%</span>
           </div>
-        </Show>
 
-        {/* Active material channels — what the next stroke will actually write */}
-        <Show
-          when={
-            props.tool === 'brush' ||
-            props.tool === 'line' ||
-            props.tool === 'stamp' ||
-            props.tool === 'fill'
-          }
-        >
-          <div
-            class="hidden lg:flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-900/80 border border-zinc-800/60 font-mono text-zinc-300"
-            title="Material channels this brush writes (toggle them in Brush Settings)"
-          >
-            <span class="text-zinc-500 font-sans">Ch:</span>
-            {PAINT_CHANNELS.filter((c) => brush.channelEnabled()[c]).map((c) => (
-              <span class="text-[10px] text-zinc-300">{CHANNEL_SPECS[c].short}</span>
-            ))}
-          </div>
-        </Show>
-
-        {/* Effect Filter cycle pill */}
-        <Show when={props.tool === 'effect'}>
-          <button
-            type="button"
-            class="flex items-center gap-1.5 px-2 py-0.5 rounded bg-teal-950/40 border border-teal-800/50 text-teal-300 hover:bg-teal-900/40 transition-colors cursor-pointer font-mono"
-            onClick={() => {
-              const nextMode =
-                EFFECT_MODES[(EFFECT_MODES.indexOf(brush.effectMode()) + 1) % EFFECT_MODES.length]
-              brush.setEffectMode(nextMode)
-            }}
-            title="Active Effect Filter. Click or press U to cycle (Blur -> Sharpen -> Smudge -> Pixelate)"
-          >
-            <span class="w-1.5 h-1.5 rounded-full bg-teal-400" />
-            <span class="text-teal-400/80 font-sans">Filter:</span>
-            <span class="font-medium">{EFFECT_MODE_LABELS[brush.effectMode()]}</span>
-          </button>
-        </Show>
-
-        {/* Brush Texture Projection toggle */}
-        <Show when={props.tool === 'brush' && brush.texturePath()}>
-          <button
-            type="button"
-            class="flex items-center gap-1 px-2 py-0.5 rounded bg-blue-950/40 border border-blue-800/50 text-blue-300 hover:bg-blue-900/40 transition-colors cursor-pointer font-mono"
-            onClick={() => {
-              const current = brush.textureMapping()
-              const next = current === 'uv' ? 'triplanar' : current === 'triplanar' ? 'tip' : 'uv'
-              setTextureMapping(next)
-            }}
-            title="Click to cycle texture projection: Direct UV -> World Triplanar -> Brush Tip"
-          >
-            <span class="text-blue-400/80 font-sans">Proj:</span>
-            <span class="font-medium">
-              {brush.textureMapping() === 'uv'
-                ? 'Direct UV'
-                : brush.textureMapping() === 'triplanar'
-                  ? 'Triplanar'
-                  : 'Brush Tip'}
-            </span>
-          </button>
-        </Show>
-
-        {/* Texture Scale / Tiling Spec pills */}
-        <Show when={(props.tool === 'fill' || props.tool === 'brush') && brush.texturePath()}>
-          <div
-            class="flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-900/80 border border-zinc-800/60 font-mono text-zinc-300 tabular-nums"
-            title="Texture scale / tiling ([ / ] or Shift+Wheel to adjust)"
-          >
-            <span class="text-zinc-500 font-sans">Scale:</span>
-            <span>{brush.textureScale().toFixed(2)}x</span>
-          </div>
-        </Show>
-
-        {/* Screen Stencil Spec / Transform Toggle pill */}
-        <Show when={stencil.stencilActive()}>
-          <button
-            type="button"
-            class={`flex items-center gap-1.5 px-2 py-0.5 rounded border font-mono transition-colors cursor-pointer ${
-              stencil.transforming()
-                ? 'bg-blue-950/60 border-blue-600/70 text-blue-300'
-                : 'bg-teal-950/40 border-teal-800/50 text-teal-300 hover:bg-teal-900/40'
-            }`}
-            onClick={() => setStencilTransforming(!stencil.transforming())}
-            title={
-              stencil.transforming()
-                ? 'Screen Stencil is in Transform Mode. Click or press Esc to return to Painting'
-                : 'Screen Stencil is active. Click to enter Stencil Transform mode'
+          <Show
+            when={
+              props.tool === 'brush' ||
+              props.tool === 'stamp' ||
+              props.tool === 'eraser' ||
+              props.tool === 'effect'
             }
+          >
+            <div
+              class="hidden md:flex items-center gap-1 px-2 py-0.5 rounded-[var(--ui-radius)] bg-[var(--bg-input)] border border-[var(--border-color)] font-mono text-[var(--text-main)] tabular-nums text-[11px]"
+              title="Hardness: Ctrl+[ / Ctrl+]"
+            >
+              <span class="text-[var(--text-muted)] font-sans">H:</span>
+              <span>{Math.round(brush.hardness() * 100)}%</span>
+            </div>
+          </Show>
+
+          <Show
+            when={
+              props.tool === 'brush' ||
+              props.tool === 'stamp' ||
+              props.tool === 'eraser' ||
+              props.tool === 'effect'
+            }
+          >
+            <div
+              class="hidden lg:flex items-center gap-1 px-2 py-0.5 rounded-[var(--ui-radius)] bg-[var(--bg-input)] border border-[var(--border-color)] font-mono text-[var(--text-main)] tabular-nums text-[11px]"
+              title="Brush rotation: Ctrl+Wheel or drag slider"
+            >
+              <span class="text-[var(--text-muted)] font-sans">Rot:</span>
+              <span>{brush.brushRotation()}°</span>
+            </div>
+          </Show>
+        </Show>
+
+        <Show when={props.tool === 'effect'}>
+          <div
+            class="flex items-center gap-1 px-2 py-0.5 rounded-[var(--ui-radius)] bg-[var(--bg-input)] border border-[var(--border-color)] font-mono text-[11px] text-teal-300"
+            title="Cycle modes with 7 or U"
+          >
+            <span class="text-[var(--text-muted)] font-sans">Filter:</span>
+            <span class="font-semibold">{EFFECT_MODE_LABELS[brush.effectMode()]}</span>
+          </div>
+        </Show>
+
+        <Show when={props.tool === 'faceProjector'}>
+          <div
+            class="flex items-center gap-1 px-2 py-0.5 rounded-[var(--ui-radius)] bg-[var(--bg-input)] border border-[var(--border-color)] font-mono text-[11px] text-purple-300"
+            title="Texture placement on selected faces"
+          >
+            <span class="text-[var(--text-muted)] font-sans">UV Placement:</span>
+            <span class="font-semibold">{brush.faceProjection().fit ? 'Fit' : 'Tile'}</span>
+          </div>
+        </Show>
+
+        <Show when={stencil.texturePath()}>
+          <div
+            class={`flex items-center gap-1 px-2 py-0.5 rounded-[var(--ui-radius)] border text-[11px] font-mono transition-colors ${
+              stencil.transforming()
+                ? 'bg-amber-950/60 border-amber-800/80 text-amber-300'
+                : stencil.visible()
+                  ? 'bg-teal-950/50 border-teal-800/60 text-teal-300'
+                  : 'bg-[var(--bg-input)] border-[var(--border-color)] text-[var(--text-muted)]'
+            }`}
+            title="Screen Stencil: Hold Alt to scale/rotate/move, press S to toggle panel"
           >
             <span
               class={`w-1.5 h-1.5 rounded-full ${
-                stencil.transforming() ? 'bg-blue-400 animate-pulse' : 'bg-teal-400'
+                stencil.transforming()
+                  ? 'bg-amber-400 animate-pulse'
+                  : stencil.visible()
+                    ? 'bg-teal-400'
+                    : 'bg-zinc-600'
               }`}
             />
-            <span class="text-zinc-400 font-sans">Stencil:</span>
-            <span>
-              {stencil.transforming() ? 'Transforming' : `${Math.round(stencil.scale() * 100)}%`}
-            </span>
-          </button>
+            <span>Stencil {stencil.transforming() ? 'Transform' : stencil.visible() ? 'Active' : 'Off'}</span>
+          </div>
         </Show>
       </div>
 
-      {/* Center Area: Camera / Navigation Shortcuts */}
-      <div class="hidden md:flex items-center gap-2 text-zinc-500">
-        <Show when={props.tool === 'brush' || props.tool === 'eraser' || props.tool === 'stamp'}>
-          <span class="inline-flex items-center gap-1">
-            <Kbd size="xs">Shift</Kbd>
-            <span>+Click Straight Line</span>
-          </span>
-          <span>·</span>
-        </Show>
-        <Show when={props.tool === 'fill'}>
-          <span class="inline-flex items-center gap-1">
-            <Kbd size="xs">Click</Kbd>
-            <span>
-              Fill{' '}
-              {brush.fillMode() === 'face'
-                ? 'Clicked Face'
-                : props.selectedFaceCount > 0
-                  ? 'Selection'
-                  : 'Model'}
-            </span>
-          </span>
-          <span>·</span>
-        </Show>
-        <span
-          class="inline-flex items-center gap-1"
-          title="Middle Mouse Button drag or Alt+LMB drag"
-        >
-          <Kbd size="xs">MMB</Kbd>
-          <span>Orbit</span>
-        </span>
-        <span>·</span>
-        <span
-          class="inline-flex items-center gap-1"
-          title="Shift + Middle Mouse Button drag or Alt+MMB drag"
-        >
-          <Kbd size="xs">Shift</Kbd>+<Kbd size="xs">MMB</Kbd>
-          <span>Pan</span>
-        </span>
-        <span>·</span>
-        <span class="inline-flex items-center gap-1" title="Scroll wheel or Alt+RMB drag">
-          <Kbd size="xs">Wheel</Kbd>
-          <span>Zoom</span>
-        </span>
-        <span>·</span>
-        <button
-          type="button"
-          class="inline-flex items-center gap-1 text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer"
-          onClick={props.onFrameCamera}
-          title="Focus / Frame model (F or Home)"
-        >
-          <FocusIcon size={11} />
-          <span>Frame [F]</span>
-        </button>
-      </div>
-
-      {/* Right Area: Resolution & Hotkey Link */}
       <div class="flex items-center gap-2">
-        <span
-          class="font-mono text-zinc-400 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-[10px] tabular-nums"
-          title="Canvas texture resolution"
-        >
-          {props.textureSize} × {props.textureSize}
-        </span>
+        <Show when={props.tool === 'stamp'}>
+          <div class="hidden xl:flex items-center gap-1 px-2 py-0.5 rounded-[var(--ui-radius)] bg-[var(--bg-input)] border border-[var(--border-color)] text-[11px]">
+            <span class="text-[var(--text-muted)]">Mode:</span>
+            <button
+              type="button"
+              class="text-[var(--accent-color)] hover:underline font-mono cursor-pointer"
+              onClick={() => {
+                const next = brush.textureMapping() === 'uv' ? 'triplanar' : 'uv'
+                setTextureMapping(next)
+              }}
+              title="Click to toggle UV / Triplanar"
+            >
+              {brush.textureMapping()}
+            </button>
+          </div>
+        </Show>
+
+        <Show when={props.tool === 'brush'}>
+          <div
+            class="hidden 2xl:flex items-center gap-1 text-[11px] text-[var(--text-muted)]"
+            title="Active PBR paint channels written per stroke"
+          >
+            <span class="font-medium">Channels:</span>
+            <div class="flex items-center gap-0.5">
+              {PAINT_CHANNELS.map((ch) => {
+                const on = () => brush.channelEnabled()[ch]
+                return (
+                  <span
+                    class={`px-1 rounded-[2px] font-mono text-[9px] font-bold ${
+                      on() ? 'text-[var(--accent-color)] bg-[var(--accent-color)]/10' : 'text-zinc-600 line-through'
+                    }`}
+                  >
+                    {CHANNEL_SPECS[ch].short}
+                  </span>
+                )
+              })}
+            </div>
+          </div>
+        </Show>
+
+        <div class="hidden md:flex items-center gap-1 font-mono text-[11px] text-[var(--text-muted)] px-1.5">
+          <span>{props.textureSize}×{props.textureSize}</span>
+        </div>
 
         <button
           type="button"
-          class="flex items-center gap-1 text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer"
+          class="flex items-center gap-1 text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors cursor-pointer px-1 py-0.5 rounded-[var(--ui-radius)] hover:bg-white/5 text-[11px]"
+          onClick={props.onFrameCamera}
+          title="Frame model (F)"
+        >
+          <FocusIcon size={12} />
+          <span class="hidden sm:inline">Frame</span>
+          <Kbd size="xs">F</Kbd>
+        </button>
+
+        <button
+          type="button"
+          class="flex items-center gap-1 text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors cursor-pointer px-1 py-0.5 rounded-[var(--ui-radius)] hover:bg-white/5 text-[11px]"
           onClick={props.onOpenHelp}
-          title="View keyboard shortcuts guide (?)"
+          title="Open keyboard shortcuts & help (?)"
         >
           <HelpCircleIcon size={12} />
-          <span>Hotkeys (?)</span>
+          <span class="hidden sm:inline">Help</span>
+          <Kbd size="xs">?</Kbd>
         </button>
       </div>
     </footer>
   )
 }
+export { StatusBar }

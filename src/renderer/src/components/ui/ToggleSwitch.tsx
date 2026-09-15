@@ -20,20 +20,20 @@ export default function ToggleSwitch(props: ToggleSwitchProps) {
       disabled={props.disabled}
       title={props.title}
       onClick={() => props.onChange(!props.checked)}
-      class={`flex items-center justify-between w-full p-2.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer select-none disabled:opacity-40 disabled:pointer-events-none ${
+      class={`flex items-center justify-between w-full p-2 rounded-[var(--ui-radius)] border text-[11px] font-medium transition-colors cursor-pointer select-none disabled:opacity-40 disabled:pointer-events-none ${
         props.checked
-          ? 'bg-blue-600/15 border-blue-500/50 text-blue-300'
-          : 'bg-zinc-950/40 border-zinc-800 text-zinc-300 hover:text-zinc-100 hover:border-zinc-700'
+          ? 'bg-[var(--accent-color)]/15 border-[var(--accent-color)]/50 text-[var(--text-main)]'
+          : 'bg-[var(--bg-input)] border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:border-white/30'
       } ${props.class ?? ''}`}
     >
       <div class="flex items-center gap-2 min-w-0 pr-2">
         <Show when={props.icon}>
-          <span class="text-blue-400 shrink-0">{props.icon!({ size: 14 })}</span>
+          <span class="text-[var(--accent-color)] shrink-0">{props.icon!({ size: 13 })}</span>
         </Show>
         <div class="flex flex-col text-left min-w-0">
           <span class="truncate">{props.label}</span>
           <Show when={props.description}>
-            <span class="text-[10px] text-zinc-500 font-normal leading-tight mt-0.5">
+            <span class="text-[9px] text-[var(--text-muted)] font-normal leading-tight mt-0.5">
               {props.description}
             </span>
           </Show>
@@ -41,16 +41,17 @@ export default function ToggleSwitch(props: ToggleSwitchProps) {
       </div>
 
       <div
-        class={`relative w-8 h-4.5 rounded-full transition-colors shrink-0 p-0.5 ${
-          props.checked ? 'bg-blue-600' : 'bg-zinc-800 border border-zinc-700'
+        class={`relative w-7 h-4 rounded-full transition-colors shrink-0 p-0.5 ${
+          props.checked ? 'bg-[var(--accent-color)]' : 'bg-[#18181a] border border-[var(--border-color)]'
         }`}
       >
         <div
-          class={`w-3.5 h-3.5 rounded-full bg-white transition-transform ${
-            props.checked ? 'translate-x-3.5' : 'translate-x-0'
+          class={`w-3 h-3 rounded-full bg-white transition-transform ${
+            props.checked ? 'translate-x-3' : 'translate-x-0'
           }`}
         />
       </div>
     </button>
   )
 }
+export { ToggleSwitch }

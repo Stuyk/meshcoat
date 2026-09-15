@@ -11,6 +11,7 @@ import { loadPaintTexture } from '../utils/textureLoad'
 import { toAssetUrl } from '../utils/assetUrl'
 import RadialPieMenu from '../components/RadialPieMenu'
 import { createGizmo, createSymmetryGuide } from './gizmos'
+import { createNavCube, type NavCubeHandle } from './navCube'
 import { updateGizmo } from './gizmoUpdate'
 import { ViewportRuntime } from './viewportRuntime'
 import type { ViewportProps, ViewportHandle } from './viewportTypes'
@@ -54,11 +55,57 @@ export default function Viewport(props: ViewportProps): JSX.Element {
   const rt = new ViewportRuntime(props)
   const gizmoCtx = buildGizmoCtx(rt)
 
+  // Corner orbit gizmo: a small square in the top-right the artist can drag
+  // directly (no Alt+click needed) to spin the camera around the current
+  // focus point — whatever `controls.target` is, be that a selected piece's
+  // center or the whole model's.
+  let orbitGizmoDragging = false
+  let orbitGizmoLastX = 0
+  let orbitGizmoLastY = 0
+  let navCubeCanvasRef: HTMLCanvasElement | undefined
+  let navCubeHandle: NavCubeHandle | undefined
+
+  const onOrbitGizmoPointerMove = (e: PointerEvent): void => {
+    if (!orbitGizmoDragging || !rt.sceneHandle) {
+      return
+    }
+    const dx = e.clientX - orbitGizmoLastX
+    const dy = e.clientY - orbitGizmoLastY
+    orbitGizmoLastX = e.clientX
+    orbitGizmoLastY = e.clientY
+    rt.sceneHandle.controls.orbitBy(dx, dy)
+  }
+
+  const onOrbitGizmoPointerUp = (): void => {
+    orbitGizmoDragging = false
+    window.removeEventListener('pointermove', onOrbitGizmoPointerMove)
+    window.removeEventListener('pointerup', onOrbitGizmoPointerUp)
+  }
+
+  const onOrbitGizmoPointerDown = (e: PointerEvent): void => {
+    e.preventDefault()
+    e.stopPropagation()
+    orbitGizmoDragging = true
+    orbitGizmoLastX = e.clientX
+    orbitGizmoLastY = e.clientY
+    window.addEventListener('pointermove', onOrbitGizmoPointerMove)
+    window.addEventListener('pointerup', onOrbitGizmoPointerUp)
+  }
+
+  onCleanup(() => {
+    window.removeEventListener('pointermove', onOrbitGizmoPointerMove)
+    window.removeEventListener('pointerup', onOrbitGizmoPointerUp)
+  })
+
   onMount(() => {
     if (!rt.canvasRef) {
       return
     }
     rt.sceneHandle = createScene(rt.canvasRef)
+
+    if (navCubeCanvasRef) {
+      navCubeHandle = createNavCube(navCubeCanvasRef, 108)
+    }
 
     rt.gizmoHandle = createGizmo()
     rt.sceneHandle.scene.add(rt.gizmoHandle.group)
@@ -431,6 +478,7 @@ export default function Viewport(props: ViewportProps): JSX.Element {
       rt.rafId = requestAnimationFrame(animate)
       if (rt.sceneHandle) {
         rt.sceneHandle.renderer.render(rt.sceneHandle.scene, rt.sceneHandle.camera)
+        navCubeHandle?.render(rt.sceneHandle.camera)
       }
     }
     animate()
@@ -638,6 +686,7 @@ export default function Viewport(props: ViewportProps): JSX.Element {
 
   onCleanup(() => {
     cancelAnimationFrame(rt.rafId)
+    navCubeHandle?.dispose()
     rt.occlusionPass?.dispose()
     window.removeEventListener('keydown', boundKeyDown)
     window.removeEventListener('pointermove', rt.boundPointerMove)
@@ -704,6 +753,18 @@ export default function Viewport(props: ViewportProps): JSX.Element {
             ? 'stencil-transform-active'
             : `tool-${props.tool()}`
         }`}
+      />
+      {/* Orbit nav cube: drag to spin the camera around the current pivot
+          (selection center, or the whole model when nothing's selected). */}
+      <canvas
+        ref={(el) => {
+          navCubeCanvasRef = el
+        }}
+        width={108}
+        height={108}
+        class="absolute top-3 right-3 z-20 w-[108px] h-[108px] cursor-grab active:cursor-grabbing select-none touch-none"
+        title="Drag to orbit camera"
+        onPointerDown={onOrbitGizmoPointerDown}
       />
       {/* Screen-space stencil sheet. Positioned from the exact same
           stencilRect() numbers the paint shader samples with, so what the

@@ -470,7 +470,7 @@ export function applyToolAt(
         : new THREE.Color(brush.color())
     const alpha = isMask ? (tool === 'eraser' ? 1 : 1) : tool === 'eraser' ? engine.baseAlpha : 1
     const strokeTexture = isMask ? null : tool === 'eraser' ? null : rt.brushTexture
-    const strokeTip = tool === 'eraser' ? null : rt.brushTipTexture
+    const strokeTip = rt.brushTipTexture
 
     const baseAngle = (brush.brushRotation() * Math.PI) / 180
     let strokeAngle = baseAngle
@@ -620,6 +620,22 @@ export function applyToolAt(
     }
     effectDabRadius = applyPressure(effectDabRadius, event, brush.pressureRadius())
 
+    const baseAngle = (brush.brushRotation() * Math.PI) / 180
+    let strokeAngle = baseAngle
+    if (brush.angleFollowStroke() && rt.lastStampPos) {
+      const moveVec = hit.point.clone().sub(rt.lastStampPos)
+      if (moveVec.lengthSq() > 0.000001) {
+        const up =
+          Math.abs(hit.normal.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0)
+        const tangent = new THREE.Vector3().crossVectors(up, hit.normal).normalize()
+        const bitangent = new THREE.Vector3().crossVectors(hit.normal, tangent).normalize()
+        strokeAngle = Math.atan2(moveVec.dot(bitangent), moveVec.dot(tangent)) + baseAngle
+      }
+    }
+    if (brush.angleJitter() > 0) {
+      strokeAngle += (Math.random() - 0.5) * 2 * Math.PI * brush.angleJitter()
+    }
+
     engine.applyEffect(hit, {
       mode: brush.effectMode(),
       radius: effectDabRadius,
@@ -632,8 +648,32 @@ export function applyToolAt(
       pixelSize: brush.pixelSize(),
       smudgeDir,
       restrictFaces,
-      occlusion
+      occlusion,
+      brushTipTexture: rt.brushTipTexture,
+      angle: strokeAngle
     })
+
+    if (brush.symmetryEnabled()) {
+      const mirrored = getMirroredHit(rt, hit)
+      if (mirrored) {
+        engine.applyEffect(mirrored, {
+          mode: brush.effectMode(),
+          radius: effectDabRadius,
+          hardness: brush.hardness(),
+          opacity: applyPressure(brush.opacity(), event, brush.pressureOpacity()),
+          projectorDepth: brush.projectorDepth(),
+          maxAngle: brush.maxAngle(),
+          strength: brush.effectStrength(),
+          effectRadius: brush.effectRadius(),
+          pixelSize: brush.pixelSize(),
+          smudgeDir,
+          restrictFaces,
+          occlusion,
+          brushTipTexture: rt.brushTipTexture,
+          angle: -strokeAngle
+        })
+      }
+    }
 
     rt.layerStack.recomposite()
     rt.lastStampPos = hit.point.clone()

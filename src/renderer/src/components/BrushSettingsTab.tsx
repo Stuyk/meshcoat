@@ -32,6 +32,7 @@ import {
 import {
   PanelSection,
   Slider,
+  NumberInput,
   Button,
   IconButton,
   ColorPicker,
@@ -53,10 +54,6 @@ import {
 import { normalizeHex } from '../utils/colorUtils'
 import MaterialChannelsPanel from './MaterialChannelsPanel'
 
-/**
- * Radius presets are fractions of the model's own size, not fixed world units:
- * "Medium" has to mean the same thing on a gemstone and on a building.
- */
 const RADIUS_PRESET_FRACTIONS = [
   { label: 'Fine', fraction: 0.025 },
   { label: 'Sm', fraction: 0.075 },
@@ -176,12 +173,11 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
   }
 
   return (
-    <div class="flex flex-col text-xs text-zinc-300 select-none divide-y divide-zinc-850">
-      {/* 1. Face Selection Constraint Banner */}
+    <div class="flex flex-col text-xs text-[var(--text-main)] select-none divide-y divide-[var(--border-color)]">
       <Show when={brush.selectedFaces().size > 0}>
         <div class="p-3 bg-amber-950/40 border-b border-amber-800/60 flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
             <span class="text-amber-300 font-medium text-xs">
               Constrained to {brush.selectedFaces().size} face
               {brush.selectedFaces().size > 1 ? 's' : ''}
@@ -198,24 +194,22 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
         </div>
       </Show>
 
-      {/* 2. Mask Editing Alert Banner */}
       <Show when={props.isMaskTarget?.()}>
         <div class="p-3 bg-blue-950/40 border-b border-blue-800/60 flex flex-col gap-1">
           <div class="flex items-center gap-2 text-xs font-semibold text-blue-300">
-            <span class="w-2 h-2 rounded-full bg-blue-400" />
+            <span class="w-1.5 h-1.5 rounded-full bg-blue-400" />
             <span>Editing Layer Mask</span>
           </div>
-          <p class="text-[11px] text-zinc-400 leading-tight">
+          <p class="text-[11px] text-[var(--text-muted)] leading-tight">
             White reveals the layer, Black hides it. Press <Kbd size="xs">X</Kbd> to swap.
           </p>
         </div>
       </Show>
 
-      {/* 3. Active Brush Profile Card */}
-      <div class="p-3.5 flex items-center justify-between gap-3 bg-zinc-900/30">
+      <div class="p-3 flex items-center justify-between gap-3 bg-[var(--bg-panel-header)]">
         <div class="flex items-center gap-3 min-w-0">
           <div
-            class="w-12 h-12 rounded-xl checkerboard-bg border border-zinc-750/80 flex items-center justify-center overflow-hidden flex-shrink-0"
+            class="w-11 h-11 rounded-[var(--ui-radius)] checkerboard-bg border border-[var(--border-color)] flex items-center justify-center overflow-hidden shrink-0 shadow-inner"
             title="Current brush tip preview"
           >
             <Show
@@ -241,10 +235,10 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
             </Show>
           </div>
           <div class="flex flex-col min-w-0">
-            <span class="text-xs font-semibold text-zinc-100 truncate">
+            <span class="text-xs font-semibold text-[var(--text-main)] truncate">
               {brushPresets.active() ? brushPresets.active()!.name : 'Standard Round Tip'}
             </span>
-            <div class="flex items-center gap-1.5 font-mono text-[10px] text-zinc-400 mt-1">
+            <div class="flex items-center gap-1.5 font-mono text-[11px] text-[var(--text-muted)] mt-0.5">
               <span>R: {brush.radius().toFixed(2)}</span>
               <span>·</span>
               <span>{Math.round(brush.opacity() * 100)}% Op</span>
@@ -254,19 +248,19 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
           </div>
         </div>
 
-        <div class="flex items-center gap-1.5 flex-shrink-0">
+        <div class="flex items-center gap-1.5 shrink-0">
           <Show when={brushPresets.active()}>
             <IconButton
               size="xs"
               variant="ghost"
               onClick={() => brushPresets.clear()}
-              title="Reset to default round tip"
+              tooltip="Reset to default round tip"
             >
               <XIcon size={14} />
             </IconButton>
           </Show>
           <Button
-            variant="primary"
+            variant="accent"
             size="xs"
             onClick={() => brushPresets.openManager()}
             title="Open Brush Preset Manager"
@@ -277,19 +271,17 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
         </div>
       </div>
 
-      {/* 4. Color & Palette Section */}
       <PanelSection
         title={props.isMaskTarget?.() ? 'Mask Grayscale' : 'Paint Color'}
         icon={(p) => <PaletteIcon size={p.size} class="text-emerald-400" />}
         actions={
           <span
-            class="block w-4 h-4 rounded-full border border-white/25 shadow-xs ring-1 ring-black/30 shrink-0"
+            class="block w-4 h-4 rounded-[var(--ui-radius)] border border-white/30 shadow-xs shrink-0"
             style={{ 'background-color': brush.color() }}
             title={`Active: ${brush.color().toUpperCase()}`}
           />
         }
       >
-        {/* Mask Mode Grayscale Buttons */}
         <Show when={props.isMaskTarget?.()}>
           <div class="grid grid-cols-1 gap-1.5">
             {MASK_GRAYS.map((item) => {
@@ -297,15 +289,22 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
               return (
                 <button
                   type="button"
+                  title={`${item.label} — ${item.hex.toUpperCase()}: ${
+                    item.hex === '#ffffff'
+                      ? 'Full layer opacity (100% visible)'
+                      : item.hex === '#000000'
+                        ? 'Completely transparent (0% hidden)'
+                        : 'Partial mask transparency'
+                  }`}
                   onClick={() => brush.setColor(item.hex)}
-                  class={`flex items-center gap-2.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
+                  class={`flex items-center gap-2.5 px-3 py-1.5 rounded-[var(--ui-radius)] border text-xs font-medium transition-colors cursor-pointer ${
                     isActive()
-                      ? 'bg-zinc-800 text-zinc-100 border-zinc-600'
-                      : 'bg-zinc-950/40 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 border-zinc-800'
+                      ? 'bg-[var(--accent-color)] text-[var(--accent-text)] border-[var(--accent-color)]'
+                      : 'bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-panel-header)] border-[var(--border-color)]'
                   }`}
                 >
                   <span
-                    class="w-4 h-4 rounded border border-white/20"
+                    class="w-4 h-4 rounded-[2px] border border-white/20"
                     style={{ background: item.hex }}
                   />
                   <span>{item.label}</span>
@@ -315,46 +314,41 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
           </div>
         </Show>
 
-        {/* Standard Paint Color & Palettes */}
         <Show when={!props.isMaskTarget?.()}>
-          {/* Master Color Bar */}
-          <div class="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-zinc-950/60 border border-zinc-800">
-            {/* Click to toggle picker */}
+          <div class="flex items-center justify-between gap-2 p-1.5 rounded-[var(--ui-radius)] bg-[var(--bg-input)] border border-[var(--border-color)]">
             <button
               type="button"
-              class="flex items-center gap-2.5 flex-1 min-w-0 cursor-pointer group text-left px-1"
+              class="flex items-center gap-2.5 flex-1 min-w-0 cursor-pointer group text-left px-1.5 py-0.5"
               onClick={() => setShowColorPicker((v) => !v)}
               title={showColorPicker() ? 'Collapse Color Picker' : 'Expand Color Picker'}
             >
               <span
-                class="w-6 h-6 rounded-full border border-white/25 shadow-inner group-hover:scale-105 transition-transform shrink-0"
+                class="w-6 h-6 rounded-[var(--ui-radius)] border border-white/25 shadow-inner shrink-0 group-hover:scale-105 transition-transform"
                 style={{ 'background-color': brush.color() }}
               />
-              <span class="font-mono text-xs font-semibold text-zinc-200 truncate">
+              <span class="font-mono text-xs font-semibold text-[var(--text-main)] truncate">
                 {brush.color().toUpperCase()}
               </span>
-              <span class="text-zinc-500 group-hover:text-zinc-300 ml-auto mr-1">
+              <span class="text-[var(--text-muted)] group-hover:text-[var(--text-main)] ml-auto mr-1">
                 {showColorPicker() ? <ChevronUpIcon size={14} /> : <ChevronDownIcon size={14} />}
               </span>
             </button>
 
-            <div class="flex items-center gap-1 shrink-0">
-              {/* Eyedropper Button */}
+            <div class="flex items-center gap-1.5 shrink-0">
               <IconButton
-                size="sm"
+                size="xs"
                 onClick={() => props.onSelectEyedropper?.()}
-                title="Eyedropper Tool (I)"
+                tooltip="Eyedropper Tool (I)"
               >
                 <EyedropperIcon size={14} />
               </IconButton>
 
-              {/* Save Active Color Button */}
               <Button
-                variant="secondary"
+                variant="outline"
                 size="xs"
                 onClick={() => handleSaveActiveColor()}
                 title="Save current color to My Swatches"
-                class="h-7 px-2 text-[11px]"
+                class="h-7 px-2 text-xs"
               >
                 <PlusIcon size={12} class="text-emerald-400" />
                 <span>Save</span>
@@ -362,18 +356,18 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
             </div>
           </div>
 
-          {/* Expandable Color Picker */}
           <Show when={showColorPicker()}>
-            <ColorPicker
-              color={brush.color()}
-              onChange={(hex) => brush.setColor(hex)}
-              onSaveColor={handleSaveActiveColor}
-              onEyeDropperClick={() => props.onSelectEyedropper?.()}
-            />
+            <div class="pt-1.5">
+              <ColorPicker
+                color={brush.color()}
+                onChange={(hex) => brush.setColor(hex)}
+                onSaveColor={handleSaveActiveColor}
+                onEyeDropperClick={() => props.onSelectEyedropper?.()}
+              />
+            </div>
           </Show>
 
-          {/* Saved Colors ("My Swatches") */}
-          <div class="flex flex-col gap-2 pt-1 border-t border-zinc-800/80">
+          <div class="flex flex-col gap-2 pt-2 border-t border-[var(--border-color)]">
             <div class="flex items-center justify-between">
               <Label uppercase badge={savedSwatches().length}>
                 Saved Colors
@@ -383,28 +377,27 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
                   type="button"
                   onClick={() => handleSaveActiveColor()}
                   title="Add current color to saved swatches"
-                  class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/30 transition-colors cursor-pointer"
+                  class="flex items-center gap-1 px-2 py-0.5 rounded-[var(--ui-radius)] text-[11px] text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/30 transition-colors cursor-pointer"
                 >
-                  <PlusIcon size={11} />
+                  <PlusIcon size={12} />
                   <span>Add</span>
                 </button>
                 <button
                   type="button"
                   onClick={handleResetSavedSwatches}
                   title="Reset saved colors to default"
-                  class="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors cursor-pointer"
+                  class="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-panel-header)] transition-colors cursor-pointer"
                 >
-                  <RefreshCwIcon size={11} />
+                  <RefreshCwIcon size={12} />
                 </button>
               </div>
             </div>
 
-            {/* Saved Swatches Grid */}
-            <div class="grid grid-cols-10 gap-1.5 min-h-6">
+            <div class="grid grid-cols-10 gap-1.5 min-h-7">
               <Show
                 when={savedSwatches().length > 0}
                 fallback={
-                  <div class="col-span-10 py-1.5 text-center text-[11px] text-zinc-500 italic">
+                  <div class="col-span-10 py-1.5 text-center text-xs text-[var(--text-muted)] italic">
                     Click + to save current color
                   </div>
                 }
@@ -431,9 +424,8 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
             </div>
           </div>
 
-          {/* Preset Palettes ("Load Palette") */}
-          <div class="flex flex-col gap-2 pt-2 border-t border-zinc-800/80">
-            <div class="flex items-center justify-between">
+          <div class="flex flex-col gap-2 pt-2 border-t border-[var(--border-color)]">
+            <div class="flex items-center justify-between gap-2">
               <Label uppercase>Preset Palette</Label>
               <Select size="xs" value={activePresetId()} onChange={(val) => setActivePresetId(val)}>
                 <For each={PALETTE_PRESETS}>
@@ -442,12 +434,10 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
               </Select>
             </div>
 
-            {/* Selected Preset Description */}
             <Show when={selectedPreset().description}>
-              <p class="text-[10px] text-zinc-500 -mt-1">{selectedPreset().description}</p>
+              <p class="text-[11px] text-[var(--text-muted)] -mt-0.5">{selectedPreset().description}</p>
             </Show>
 
-            {/* Preset Swatches Grid */}
             <div class="grid grid-cols-10 gap-1.5">
               <For each={selectedPreset().colors}>
                 {(hex) => {
@@ -464,9 +454,7 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
             </div>
           </div>
 
-          {/* Palette Import / Export Actions Bar */}
-          <div class="flex items-center justify-between gap-1.5 pt-2 border-t border-zinc-800/80">
-            {/* Hidden File Input for Palette Import */}
+          <div class="flex items-center justify-between gap-1.5 pt-2 border-t border-[var(--border-color)]">
             <input
               ref={fileInputRef}
               type="file"
@@ -476,43 +464,41 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
             />
 
             <Button
-              variant="secondary"
+              variant="outline"
               size="xs"
               onClick={() => fileInputRef?.click()}
               title="Import palette (.hex, .gpl, .json)"
-              class="flex-1 text-[11px] justify-center"
+              class="flex-1 text-xs justify-center"
             >
-              <UploadIcon size={12} class="text-blue-400" />
+              <UploadIcon size={13} class="text-blue-400" />
               <span>Import</span>
             </Button>
 
             <Button
-              variant="secondary"
+              variant="outline"
               size="xs"
               onClick={() => exportPaletteAsHex(savedSwatches())}
               title="Export saved colors as .hex file"
-              class="flex-1 text-[11px] justify-center"
+              class="flex-1 text-xs justify-center"
             >
-              <DownloadIcon size={12} class="text-zinc-400" />
+              <DownloadIcon size={13} class="text-zinc-400" />
               <span>Export</span>
             </Button>
 
             <Button
-              variant="secondary"
+              variant="outline"
               size="xs"
               onClick={() => exportPaletteAsJson(savedSwatches())}
               title="Export saved colors as .json file"
-              class="flex-1 text-[11px] justify-center"
+              class="flex-1 text-xs justify-center"
             >
-              <DownloadIcon size={12} class="text-zinc-400" />
+              <DownloadIcon size={13} class="text-zinc-400" />
               <span>JSON</span>
             </Button>
           </div>
         </Show>
       </PanelSection>
 
-      {/* Material (PBR) channels — what each stroke writes besides color. Not
-          shown for the tools that have no material payload of their own. */}
       <Show
         when={
           props.activeTool !== 'eyedropper' &&
@@ -523,7 +509,6 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
         <MaterialChannelsPanel isMaskTarget={props.isMaskTarget} onToast={props.onToast} />
       </Show>
 
-      {/* Effects Brush Section — only meaningful while that tool is active */}
       <Show when={props.activeTool === 'effect'}>
         <PanelSection
           title="Effects Brush"
@@ -536,11 +521,20 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
                 {(mode) => (
                   <button
                     type="button"
+                    title={
+                      mode === 'blur'
+                        ? 'Blur: Smooth and soften paint transitions under the stroke'
+                        : mode === 'sharpen'
+                          ? 'Sharpen: Boost contrast and crisp edge details'
+                          : mode === 'smudge'
+                            ? 'Smudge: Drag and blend existing paint in the stroke direction'
+                            : 'Pixelate: Quantize texels into chunky retro pixels'
+                    }
                     onClick={() => brush.setEffectMode(mode)}
-                    class={`h-7 rounded-md border text-[11px] font-medium transition-colors cursor-pointer ${
+                    class={`h-7 rounded-[var(--ui-radius)] border text-xs font-medium transition-colors cursor-pointer ${
                       brush.effectMode() === mode
-                        ? 'bg-teal-600/20 border-teal-500/70 text-teal-100'
-                        : 'bg-zinc-950/50 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                        ? 'bg-[var(--accent-color)] border-[var(--accent-color)] text-[var(--accent-text)]'
+                        : 'bg-[var(--bg-input)] border-[var(--border-color)] text-[var(--text-muted)] hover:border-white/20'
                     }`}
                   >
                     {EFFECT_MODE_LABELS[mode]}
@@ -561,7 +555,6 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
             icon={(p) => <FeatherIcon size={p.size} />}
           />
 
-          {/* Kernel radius only means something to the two convolution modes. */}
           <Show when={brush.effectMode() === 'blur' || brush.effectMode() === 'sharpen'}>
             <Slider
               label="Kernel Radius"
@@ -598,211 +591,227 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
             />
           </Show>
 
-          <p class="text-[10px] text-zinc-500 leading-normal">
+          <p class="text-[11px] text-[var(--text-muted)] leading-normal">
             Reworks paint already on the active layer — it never adds color, so the color and
             texture settings don't apply. Radius, hardness, opacity and pressure work as usual.
           </p>
         </PanelSection>
       </Show>
 
-      {/* Stroke Dynamics Section */}
       <PanelSection
         title={props.activeTool === 'fill' ? 'Fill Settings' : 'Stroke Dynamics'}
         icon={(p) => <SlidersHorizontalIcon size={p.size} class="text-blue-400" />}
       >
-        {/* Radius / Size. The bucket is a point-and-click tool: it fills the
-            model, a face selection or one clicked face, none of which a radius
-            has any say in — so the whole dab geometry group is hidden for it. */}
-        <Show when={props.activeTool !== 'fill'}>
-          <Slider
-            label="Radius / Size"
-            value={brush.radius()}
-            min={brush.radiusRange().min}
-            max={brush.radiusRange().max}
-            step={brush.radiusRange().max / 200}
-            onChange={(v) => setRadius(v)}
-            displayValue={(v) => (v < 0.1 ? v.toFixed(3) : v.toFixed(2))}
-            presets={RADIUS_PRESET_FRACTIONS.map((p) => ({
-              label: p.label,
-              value: brush.sceneScale() * p.fraction
-            }))}
-            icon={(p) => <CircleDotIcon size={p.size} />}
-          />
-        </Show>
+        <div class="flex flex-col gap-4">
+          <Show when={props.activeTool !== 'fill'}>
+            <div class="flex flex-col gap-2">
+              <div class="flex items-center justify-between">
+                <Label uppercase>Radius / Size</Label>
+                <div class="w-28">
+                  <NumberInput
+                    value={brush.radius()}
+                    min={brush.radiusRange().min}
+                    max={brush.radiusRange().max}
+                    step={0.01}
+                    precision={2}
+                    unit="m"
+                    onChange={(v) => setRadius(v)}
+                  />
+                </div>
+              </div>
+              <Slider
+                value={brush.radius()}
+                min={brush.radiusRange().min}
+                max={brush.radiusRange().max}
+                step={brush.radiusRange().max / 200}
+                onChange={(v) => setRadius(v)}
+                displayValue={(v) => (v < 0.1 ? v.toFixed(3) : v.toFixed(2))}
+                presets={RADIUS_PRESET_FRACTIONS.map((p) => ({
+                  label: p.label,
+                  value: brush.sceneScale() * p.fraction
+                }))}
+                icon={(p) => <CircleDotIcon size={p.size} />}
+              />
+            </div>
+          </Show>
 
-        {/* Opacity / Flow */}
-        <Slider
-          label="Opacity / Flow"
-          value={brush.opacity()}
-          min={0}
-          max={1}
-          step={0.01}
-          onChange={(v) => setOpacity(v)}
-          displayValue={(v) => `${Math.round(v * 100)}%`}
-          presets={OPACITY_PRESETS}
-          icon={(p) => <EyeIcon size={p.size} />}
-        />
-
-        {/* Hardness (Falloff) */}
-        <Show when={props.activeTool !== 'fill'}>
           <Slider
-            label="Hardness (Falloff)"
-            value={brush.hardness()}
+            label="Opacity / Flow"
+            value={brush.opacity()}
             min={0}
             max={1}
             step={0.01}
-            onChange={(v) => setHardness(v)}
+            onChange={(v) => setOpacity(v)}
             displayValue={(v) => `${Math.round(v * 100)}%`}
-            presets={HARDNESS_PRESETS}
-            icon={(p) => <FeatherIcon size={p.size} />}
+            presets={OPACITY_PRESETS}
+            icon={(p) => <EyeIcon size={p.size} />}
           />
-        </Show>
 
-        {/* Everything below shapes a DAB — pressure, spacing, tip rotation,
-            jitter. A bucket fill has no dab: it floods the model, the face
-            selection or one clicked face, so none of it applies. */}
-        <Show when={props.activeTool !== 'fill'}>
-          {/* Stylus pressure mapping. PointerEvent.pressure is 0.5 on a mouse and
-            0 when nothing is pressed, so these toggles are inert without a
-            real tablet — no need to hide them per input device. */}
-          <div class="space-y-1.5 pt-1">
-            <Label uppercase>Stylus Pressure</Label>
-            <div class="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => brush.setPressureRadius(!brush.pressureRadius())}
-                title="Stylus pressure controls brush radius (tapered strokes)"
-                class={`flex-1 h-7 rounded-md border text-[11px] font-medium transition-colors cursor-pointer ${
-                  brush.pressureRadius()
-                    ? 'bg-blue-600/15 border-blue-500/70 text-zinc-100'
-                    : 'bg-zinc-950/50 border-zinc-800 text-zinc-400 hover:border-zinc-700'
-                }`}
-              >
-                → Size
-              </button>
-              <button
-                type="button"
-                onClick={() => brush.setPressureOpacity(!brush.pressureOpacity())}
-                title="Stylus pressure controls brush opacity (feathering and blending)"
-                class={`flex-1 h-7 rounded-md border text-[11px] font-medium transition-colors cursor-pointer ${
-                  brush.pressureOpacity()
-                    ? 'bg-blue-600/15 border-blue-500/70 text-zinc-100'
-                    : 'bg-zinc-950/50 border-zinc-800 text-zinc-400 hover:border-zinc-700'
-                }`}
-              >
-                → Opacity
-              </button>
-            </div>
+          <Show when={props.activeTool !== 'fill'}>
             <Slider
-              label="Min Pressure Floor"
-              value={brush.pressureMin()}
+              label="Hardness (Falloff)"
+              value={brush.hardness()}
               min={0}
               max={1}
               step={0.01}
-              onChange={(v) => brush.setPressureMin(v)}
+              onChange={(v) => setHardness(v)}
               displayValue={(v) => `${Math.round(v * 100)}%`}
+              presets={HARDNESS_PRESETS}
               icon={(p) => <FeatherIcon size={p.size} />}
             />
-          </div>
 
-          {/* Projector Depth — how far a dab cuts along the surface normal.
-            Lower it when paint is reaching the far side of a thin wall or the
-            opposite fold of a crease; raise it to wrap further over sharp
-            edges and tight curvature. */}
-          <Slider
-            label="Depth (Bleed Through)"
-            value={brush.projectorDepth()}
-            min={0.02}
-            max={2}
-            step={0.01}
-            onChange={(v) => brush.setProjectorDepth(v)}
-            displayValue={(v) => `${Math.round(v * 100)}%`}
-            presets={[
-              { label: 'Thin', value: 0.15 },
-              { label: 'Default', value: 0.35 },
-              { label: 'Wrap', value: 1 }
-            ]}
-            icon={(p) => <FeatherIcon size={p.size} />}
-          />
+            <div class="flex flex-col gap-2 pt-2 border-t border-[var(--border-color)]/60">
+              <Label uppercase>Stylus Pressure</Label>
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => brush.setPressureRadius(!brush.pressureRadius())}
+                  title="Stylus pressure controls brush radius (tapered strokes)"
+                  class={`flex-1 h-7 rounded-[var(--ui-radius)] border text-xs font-medium transition-colors cursor-pointer ${
+                    brush.pressureRadius()
+                      ? 'bg-[var(--accent-color)] border-[var(--accent-color)] text-[var(--accent-text)]'
+                      : 'bg-[var(--bg-input)] border-[var(--border-color)] text-[var(--text-muted)] hover:border-white/20'
+                  }`}
+                >
+                  → Size
+                </button>
+                <button
+                  type="button"
+                  onClick={() => brush.setPressureOpacity(!brush.pressureOpacity())}
+                  title="Stylus pressure controls brush opacity (feathering and blending)"
+                  class={`flex-1 h-7 rounded-[var(--ui-radius)] border text-xs font-medium transition-colors cursor-pointer ${
+                    brush.pressureOpacity()
+                      ? 'bg-[var(--accent-color)] border-[var(--accent-color)] text-[var(--accent-text)]'
+                      : 'bg-[var(--bg-input)] border-[var(--border-color)] text-[var(--text-muted)] hover:border-white/20'
+                  }`}
+                >
+                  → Opacity
+                </button>
+              </div>
+              <Slider
+                label="Min Pressure Floor"
+                value={brush.pressureMin()}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(v) => brush.setPressureMin(v)}
+                displayValue={(v) => `${Math.round(v * 100)}%`}
+                icon={(p) => <FeatherIcon size={p.size} />}
+              />
+            </div>
 
-          {/* Max Angle — widest surface-vs-brush normal angle that takes paint. */}
-          <Slider
-            label="Max Angle"
-            value={brush.maxAngle()}
-            min={5}
-            max={180}
-            step={1}
-            unit="°"
-            onChange={(v) => brush.setMaxAngle(v)}
-            presets={[
-              { label: '60°', value: 60 },
-              { label: '85°', value: 85 },
-              { label: '120°', value: 120 }
-            ]}
-            icon={(p) => <RotateIcon size={p.size} />}
-          />
+            <div class="flex flex-col gap-3.5 pt-2 border-t border-[var(--border-color)]/60">
+              <Slider
+                label="Depth (Bleed Through)"
+                value={brush.projectorDepth()}
+                min={0.02}
+                max={2}
+                step={0.01}
+                onChange={(v) => brush.setProjectorDepth(v)}
+                displayValue={(v) => `${Math.round(v * 100)}%`}
+                presets={[
+                  { label: 'Thin', value: 0.15 },
+                  { label: 'Default', value: 0.35 },
+                  { label: 'Wrap', value: 1 }
+                ]}
+                icon={(p) => <FeatherIcon size={p.size} />}
+              />
 
-          {/* Spacing (Dab Rate) */}
-          <Slider
-            label="Spacing (Dab Rate)"
-            value={brush.spacing()}
-            min={0.02}
-            max={1}
-            step={0.01}
-            onChange={(v) => setSpacing(v)}
-            displayValue={(v) => `${Math.round(v * 100)}%`}
-            presets={SPACING_PRESETS}
-            icon={(p) => <SpacingIcon size={p.size} />}
-          />
+              <Slider
+                label="Max Angle"
+                value={brush.maxAngle()}
+                min={5}
+                max={180}
+                step={1}
+                unit="°"
+                onChange={(v) => brush.setMaxAngle(v)}
+                presets={[
+                  { label: '60°', value: 60 },
+                  { label: '85°', value: 85 },
+                  { label: '120°', value: 120 }
+                ]}
+                icon={(p) => <RotateIcon size={p.size} />}
+              />
+            </div>
 
-          {/* Rotation Angle */}
-          <Slider
-            label="Rotation Angle"
-            value={brush.brushRotation()}
-            min={0}
-            max={360}
-            step={1}
-            unit="°"
-            onChange={(v) => brush.setBrushRotation(v)}
-            presets={[
-              { label: '0°', value: 0 },
-              { label: '45°', value: 45 },
-              { label: '90°', value: 90 },
-              { label: '180°', value: 180 }
-            ]}
-            icon={(p) => <RotateIcon size={p.size} />}
-          />
+            <div class="flex flex-col gap-2 pt-2 border-t border-[var(--border-color)]/60">
+              <div class="flex items-center justify-between">
+                <Label uppercase>Spacing (Dab Rate)</Label>
+                <div class="w-24">
+                  <NumberInput
+                    value={brush.spacing()}
+                    min={0.02}
+                    max={1}
+                    step={0.01}
+                    precision={2}
+                    onChange={(v) => setSpacing(v)}
+                  />
+                </div>
+              </div>
+              <Slider
+                value={brush.spacing()}
+                min={0.02}
+                max={1}
+                step={0.01}
+                onChange={(v) => setSpacing(v)}
+                displayValue={(v) => `${Math.round(v * 100)}%`}
+                presets={SPACING_PRESETS}
+                icon={(p) => <SpacingIcon size={p.size} />}
+              />
+            </div>
 
-          {/* Follow Stroke Direction Toggle */}
-          <ToggleSwitch
-            checked={brush.angleFollowStroke()}
-            onChange={(val) => brush.setAngleFollowStroke(val)}
-            label="Follow Stroke Direction"
-            icon={(p) => <RotateIcon size={p.size} />}
-            title="Automatically rotates brush tip along stroke path"
-          />
+            <div class="flex flex-col gap-3 pt-2 border-t border-[var(--border-color)]/60">
+              <Slider
+                label="Rotation Angle"
+                value={brush.brushRotation()}
+                min={0}
+                max={360}
+                step={1}
+                unit="°"
+                onChange={(v) => brush.setBrushRotation(v)}
+                presets={[
+                  { label: '0°', value: 0 },
+                  { label: '45°', value: 45 },
+                  { label: '90°', value: 90 },
+                  { label: '180°', value: 180 }
+                ]}
+                icon={(p) => <RotateIcon size={p.size} />}
+              />
 
-          {/* Jitter Controls */}
-          <Slider
-            label="Angle Jitter"
-            value={brush.angleJitter()}
-            min={0}
-            max={1}
-            step={0.05}
-            onChange={(v) => brush.setAngleJitter(v)}
-            displayValue={(v) => `${Math.round(v * 100)}%`}
-          />
+              <ToggleSwitch
+                checked={brush.angleFollowStroke()}
+                onChange={(val) => brush.setAngleFollowStroke(val)}
+                label="Follow Stroke Direction"
+                icon={(p) => <RotateIcon size={p.size} />}
+                title="Automatically rotates brush tip along stroke path"
+              />
+            </div>
 
-          <Slider
-            label="Size Jitter"
-            value={brush.sizeJitter()}
-            min={0}
-            max={1}
-            step={0.05}
-            onChange={(v) => brush.setSizeJitter(v)}
-            displayValue={(v) => `${Math.round(v * 100)}%`}
-          />
-        </Show>
+            <div class="flex flex-col gap-3 pt-2 border-t border-[var(--border-color)]/60">
+              <Slider
+                label="Angle Jitter"
+                title="Randomly varies the brush tip rotation angle per stamp dab"
+                value={brush.angleJitter()}
+                min={0}
+                max={1}
+                step={0.05}
+                onChange={(v) => brush.setAngleJitter(v)}
+                displayValue={(v) => `${Math.round(v * 100)}%`}
+              />
+
+              <Slider
+                label="Size Jitter"
+                title="Randomly varies the brush radius per stamp dab"
+                value={brush.sizeJitter()}
+                min={0}
+                max={1}
+                step={0.05}
+                onChange={(v) => brush.setSizeJitter(v)}
+                displayValue={(v) => `${Math.round(v * 100)}%`}
+              />
+            </div>
+          </Show>
+        </div>
       </PanelSection>
     </div>
   )

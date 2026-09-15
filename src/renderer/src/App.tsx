@@ -26,7 +26,6 @@ import type { LightingMode } from './viewport/scene'
 import {
   DropdownMenu,
   IconButton,
-  SegmentedControl,
   Toast,
   Label,
   type MenuItem,
@@ -43,43 +42,24 @@ const ExportWizardModal = lazy(() => import('./components/ExportWizardModal'))
 import { serializeProject, deserializeProject } from './utils/projectSerializer'
 
 import {
-  BrushIcon,
-  StampIcon,
-  ImagesIcon,
-  DropletsIcon,
-  EraserIcon,
-  FillIcon,
-  EyedropperIcon,
   SlidersIcon,
   LayersIcon,
-  SettingsIcon,
-  HelpCircleIcon,
-  StudioLightIcon,
-  FlatLightIcon,
-  OutdoorLightIcon,
-  ShowcaseLightIcon,
-  WireframeIcon,
   FocusIcon,
   FolderOpenIcon,
   DownloadIcon,
   RefreshCwIcon,
-  MousePointerIcon,
-  CompassIcon,
-  AppIcon,
   SparklesIcon,
-  LineIcon,
-  SymmetryIcon,
   PlusIcon,
   CubeIcon,
   ChevronDownIcon,
   CheckIcon,
-  PanelRightIcon,
-  EyeOffIcon
+  PanelRightIcon
 } from './components/icons'
 import ToolPanelDock from './components/ToolPanelDock'
+import WorkstationHeader from './components/WorkstationHeader'
+import WorkstationShelf from './components/WorkstationShelf'
 import { EFFECT_MODES, EFFECT_MODE_LABELS } from './paint/effectShader'
 import {
-  stencil,
   setStencilVisible,
   setStencilTransforming,
   setStencilTexturePath,
@@ -94,31 +74,6 @@ import {
   type ToolMode
 } from './paint/brush'
 import { DEFAULT_TEXTURE_SIZE, type TextureSize } from './paint/paintEngine'
-
-const LIGHTING_MODES: {
-  value: LightingMode
-  label: string
-  icon: (props: { size?: number }) => JSX.Element
-}[] = [
-  { value: 'studio', label: 'Studio', icon: (p) => <StudioLightIcon size={p.size ?? 14} /> },
-  { value: 'flat', label: 'Flat', icon: (p) => <FlatLightIcon size={p.size ?? 14} /> },
-  { value: 'outdoor', label: 'Outdoor', icon: (p) => <OutdoorLightIcon size={p.size ?? 14} /> },
-  { value: 'showcase', label: 'Showcase', icon: (p) => <ShowcaseLightIcon size={p.size ?? 14} /> }
-]
-
-/**
- * Viewport display modes. 'Material' is the shaded PBR result and the default —
- * it already shows the base color, lit, which is what painting is judged
- * against, so there is no separate Color view competing with it. The rest
- * isolate one stored map so the artist can read its values straight off the
- * surface.
- */
-const VIEW_MODES: { value: ChannelViewMode; label: string; title: string }[] = [
-  { value: 'material', label: 'Material', title: 'Full shaded PBR result (base color included)' },
-  { value: 'roughness', label: 'Rough', title: 'Roughness map only (grayscale)' },
-  { value: 'metalness', label: 'Metal', title: 'Metalness map only (grayscale)' },
-  { value: 'normal', label: 'Normal', title: 'Tangent-space normal map only' }
-]
 
 export default function App(): JSX.Element {
   const [activeTool, setActiveTool] = createSignal<ToolMode>('brush')
@@ -177,9 +132,6 @@ export default function App(): JSX.Element {
   }
 
   const [toast, setToast] = createSignal<ToastData | null>(null)
-  const [showFileMenu, setShowFileMenu] = createSignal(false)
-  const [showEditMenu, setShowEditMenu] = createSignal(false)
-  const [showPanelMenu, setShowPanelMenu] = createSignal(false)
   const [showPieceMenu, setShowPieceMenu] = createSignal(false)
   const [showEdgeWearWizard, setShowEdgeWearWizard] = createSignal(false)
   const [modelName, setModelName] = createSignal('Default Model')
@@ -265,7 +217,6 @@ export default function App(): JSX.Element {
   }
 
   async function handleSaveProject(): Promise<boolean> {
-    setShowFileMenu(false)
     const savePieces = projectPieces()
     if (savePieces.length === 0) {
       return false
@@ -303,7 +254,6 @@ export default function App(): JSX.Element {
   }
 
   async function handleSaveAsProject(): Promise<boolean> {
-    setShowFileMenu(false)
     const savePieces = projectPieces()
     if (savePieces.length === 0) {
       return false
@@ -369,7 +319,6 @@ export default function App(): JSX.Element {
   }
 
   async function handleBrowseAndOpenModel(): Promise<void> {
-    setShowFileMenu(false)
     const paths = await window.api.openFileDialog({
       filters: [{ name: '3D Models', extensions: ['glb', 'gltf', 'obj', 'blend'] }]
     })
@@ -388,7 +337,6 @@ export default function App(): JSX.Element {
   }
 
   async function handleBrowseAndOpenProject(): Promise<void> {
-    setShowFileMenu(false)
     const paths = await window.api.openFileDialog({
       filters: [{ name: 'MeshCoat Project', extensions: ['meshcoat', 'json'] }]
     })
@@ -546,7 +494,6 @@ export default function App(): JSX.Element {
   }
 
   function handleOpenExportWizard(): void {
-    setShowFileMenu(false)
     setShowExportWizard(true)
   }
 
@@ -565,12 +512,10 @@ export default function App(): JSX.Element {
   }
 
   async function handleImportTextures(): Promise<void> {
-    setShowFileMenu(false)
     await pickTextureFolder()
   }
 
   function handleClearActiveLayer(): void {
-    setShowEditMenu(false)
     const stack = viewportHandle?.getLayerStack()
     const active = stack?.active
     if (active && stack) {
@@ -581,7 +526,6 @@ export default function App(): JSX.Element {
   }
 
   function handleFillActiveLayer(): void {
-    setShowEditMenu(false)
     const stack = viewportHandle?.getLayerStack()
     const active = stack?.active
     if (active) {
@@ -936,7 +880,6 @@ export default function App(): JSX.Element {
       icon: (p) => <PanelRightIcon size={p.size} class="text-blue-400" />,
       onClick: () => {
         setShowPanelDock((v) => !v)
-        setShowPanelMenu(false)
       }
     },
     {
@@ -950,7 +893,6 @@ export default function App(): JSX.Element {
         if (next) {
           setShowPanelDock(true)
         }
-        setShowPanelMenu(false)
       }
     }
   ]
@@ -1065,402 +1007,68 @@ export default function App(): JSX.Element {
   ]
 
   return (
-    <div class="flex flex-col h-screen w-screen bg-zinc-950 text-zinc-100 select-none overflow-hidden font-sans">
-      {/* Top Application Header */}
-      <header class="h-11 min-h-11 px-3.5 bg-zinc-950 border-b border-zinc-850 flex items-center justify-between select-none z-50 flex-shrink-0">
-        <div class="flex items-center gap-3 min-w-0">
-          {/* App Branding & Document Title */}
-          <div class="flex items-center gap-2 pr-3 border-r border-zinc-800 min-w-0">
-            <AppIcon size={20} class="flex-shrink-0" />
-            <span class="text-xs font-bold tracking-tight text-zinc-100 flex-shrink-0">
-              MeshCoat
-            </span>
-            <span class="text-zinc-600 text-xs font-normal select-none">/</span>
-            <span
-              class="text-xs font-medium text-zinc-300 max-w-[220px] truncate"
-              title={modelName()}
-            >
-              {modelName()}
-              {isDirty() ? ' *' : ''}
-            </span>
-            <Show when={isRestoringSession()}>
-              <div
-                class="flex items-center gap-1 text-zinc-500 font-mono text-[10px] flex-shrink-0"
-                title="Restoring session textures"
-              >
-                <RefreshCwIcon size={10} class="animate-spin text-zinc-400" />
-              </div>
-            </Show>
-          </div>
+    <div class="flex flex-col h-screen w-screen bg-[var(--bg-main)] text-[var(--text-main)] select-none overflow-hidden font-sans">
+      <WorkstationHeader
+        modelName={modelName()}
+        isDirty={isDirty()}
+        isRestoringSession={isRestoringSession()}
+        fileMenuItems={fileMenuItems()}
+        editMenuItems={editMenuItems()}
+        panelMenuItems={panelMenuItems()}
+        lightingMode={lightingMode()}
+        onSelectLightingMode={selectLightingMode}
+        viewMode={viewMode()}
+        onSelectViewMode={selectViewMode}
+        showPanelDock={showPanelDock()}
+        onTogglePanelDock={() => setShowPanelDock((v) => !v)}
+        wireframeVisible={wireframeVisible()}
+        onToggleWireframe={toggleWireframe}
+        isolatePiece={isolatePiece()}
+        onToggleIsolatePiece={toggleIsolatePiece}
+        multiPiece={modelPieces().length > 1}
+        onToggleSymmetry={() => {
+          const axes: ('off' | 'x' | 'y' | 'z')[] = ['off', 'x', 'y', 'z']
+          const next = axes[(axes.indexOf(brush.symmetryAxis()) + 1) % axes.length]
+          brush.setSymmetryAxis(next)
+          showToast(
+            next !== 'off' ? `Symmetry: ${next.toUpperCase()} Axis` : 'Symmetry: OFF',
+            'info'
+          )
+        }}
+        onFrameCamera={frameCamera}
+        onOpenSettings={() => setShowSettings(true)}
+        onOpenHelp={() => setShowHelp(true)}
+      />
 
-          {/* Menus */}
-          <div class="flex items-center gap-1 flex-shrink-0">
-            {/* File Menu */}
-            <div class="relative">
-              <button
-                type="button"
-                class={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
-                  showFileMenu()
-                    ? 'bg-zinc-800 text-zinc-100'
-                    : 'text-zinc-300 hover:text-zinc-100 hover:bg-zinc-900'
-                }`}
-                onClick={() => {
-                  setShowFileMenu((v) => !v)
-                  setShowEditMenu(false)
-                }}
-              >
-                File
-              </button>
-              <DropdownMenu
-                isOpen={showFileMenu()}
-                onClose={() => setShowFileMenu(false)}
-                items={fileMenuItems()}
-              />
-            </div>
-
-            {/* Edit Menu */}
-            <div class="relative">
-              <button
-                type="button"
-                class={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
-                  showEditMenu()
-                    ? 'bg-zinc-800 text-zinc-100'
-                    : 'text-zinc-300 hover:text-zinc-100 hover:bg-zinc-900'
-                }`}
-                onClick={() => {
-                  setShowEditMenu((v) => !v)
-                  setShowFileMenu(false)
-                }}
-              >
-                Edit
-              </button>
-              <DropdownMenu
-                isOpen={showEditMenu()}
-                onClose={() => setShowEditMenu(false)}
-                items={editMenuItems()}
-              />
-            </div>
-
-            {/* Panels Menu — the way back for any floating panel that was closed */}
-            <div class="relative">
-              <button
-                type="button"
-                class={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
-                  showPanelMenu()
-                    ? 'bg-zinc-800 text-zinc-100'
-                    : 'text-zinc-300 hover:text-zinc-100 hover:bg-zinc-900'
-                }`}
-                onClick={() => {
-                  setShowPanelMenu((v) => !v)
-                  setShowFileMenu(false)
-                  setShowEditMenu(false)
-                }}
-              >
-                Panels
-              </button>
-              <DropdownMenu
-                isOpen={showPanelMenu()}
-                onClose={() => setShowPanelMenu(false)}
-                items={panelMenuItems()}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Top Right Quick Controls */}
-        <div class="flex items-center gap-2">
-          {/* Segmented Lighting Selector */}
-          <SegmentedControl
-            size="xs"
-            options={LIGHTING_MODES}
-            value={lightingMode()}
-            onChange={selectLightingMode}
-          />
-
-          <div class="w-px h-4 bg-zinc-800 mx-0.5" />
-
-          {/* Channel view: shaded material, or one isolated map */}
-          <SegmentedControl
-            size="xs"
-            options={VIEW_MODES}
-            value={viewMode()}
-            onChange={selectViewMode}
-          />
-
-          <div class="w-px h-4 bg-zinc-800 mx-0.5" />
-
-          {/* Tool panel dock toggle — the slide-out column beside the brush
-              settings that holds every tool panel. */}
-          <IconButton
-            size="sm"
-            active={showPanelDock()}
-            onClick={() => setShowPanelDock((v) => !v)}
-            title="Toggle tool panels (C)"
-          >
-            <PanelRightIcon size={16} />
-          </IconButton>
-
-          {/* Wireframe Button */}
-          <IconButton
-            size="sm"
-            active={wireframeVisible()}
-            onClick={toggleWireframe}
-            title="Toggle wireframe overlay (W)"
-          >
-            <WireframeIcon size={16} />
-          </IconButton>
-
-          {/* Isolate Active Piece Button */}
-          <IconButton
-            size="sm"
-            active={isolatePiece()}
-            onClick={toggleIsolatePiece}
-            disabled={modelPieces().length <= 1}
-            title={
-              modelPieces().length <= 1
-                ? 'Isolate active piece (requires multi-piece model)'
-                : isolatePiece()
-                  ? 'Show all pieces (Isolate: ON)'
-                  : 'Hide unselected pieces (Isolate active piece)'
-            }
-          >
-            <EyeOffIcon size={16} />
-          </IconButton>
-
-          {/* Symmetry Mirror Toggle */}
-          <div class="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-0.5">
-            <button
-              type="button"
-              class={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
-                brush.symmetryEnabled()
-                  ? 'bg-blue-600/20 text-blue-400 font-semibold'
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-              onClick={() => {
-                const axes: ('off' | 'x' | 'y' | 'z')[] = ['off', 'x', 'y', 'z']
-                const next = axes[(axes.indexOf(brush.symmetryAxis()) + 1) % axes.length]
-                brush.setSymmetryAxis(next)
-                showToast(
-                  next !== 'off' ? `Symmetry: ${next.toUpperCase()} Axis` : 'Symmetry: OFF',
-                  'info'
-                )
-              }}
-              title={`Symmetry: ${brush.symmetryAxis() === 'off' ? 'OFF' : brush.symmetryAxis().toUpperCase() + ' Axis'} (Alt+X)`}
-            >
-              <SymmetryIcon size={14} />
-              <span class="font-mono text-[10px] uppercase">
-                {brush.symmetryAxis() === 'off' ? 'Off' : brush.symmetryAxis()}
-              </span>
-            </button>
-          </div>
-
-          {/* Frame Model */}
-          <IconButton
-            size="sm"
-            variant="ghost"
-            onClick={frameCamera}
-            title="Frame model in viewport (F)"
-          >
-            <FocusIcon size={16} />
-          </IconButton>
-
-          <div class="w-px h-4 bg-zinc-800 mx-0.5" />
-
-          {/* Settings & Help */}
-          <IconButton
-            size="sm"
-            variant="ghost"
-            onClick={() => setShowSettings(true)}
-            title="Settings"
-          >
-            <SettingsIcon size={16} />
-          </IconButton>
-
-          <IconButton
-            size="sm"
-            variant="ghost"
-            onClick={() => setShowHelp(true)}
-            title="Quick guide & hotkeys (?)"
-          >
-            <HelpCircleIcon size={16} />
-          </IconButton>
-        </div>
-      </header>
-
-      {/* Main Workspace Body */}
       <div class="flex-1 flex overflow-hidden relative">
-        {/* Left Toolbar Dock */}
-        <nav
-          class="w-12 min-w-12 max-w-12 bg-zinc-950 border-r border-zinc-850 flex flex-col items-center py-2.5 gap-1.5 z-20 select-none flex-shrink-0"
-          aria-label="Painting tools"
-        >
-          {/* Painting Tools */}
-          <IconButton
-            size="md"
-            active={activeTool() === 'brush'}
-            onClick={() => setActiveTool('brush')}
-            shortcut="B"
-            title="Paint Brush (B)"
-          >
-            <BrushIcon size={18} />
-          </IconButton>
-
-          <IconButton
-            size="md"
-            active={activeTool() === 'line'}
-            onClick={() => setActiveTool('line')}
-            shortcut="L"
-            title="Line Tool (L)"
-          >
-            <LineIcon size={18} />
-          </IconButton>
-
-          <IconButton
-            size="md"
-            active={activeTool() === 'stamp'}
-            onClick={() => setActiveTool('stamp')}
-            shortcut="T"
-            title="Texture Stamp (T)"
-          >
-            <StampIcon size={18} />
-          </IconButton>
-
-          <IconButton
-            size="md"
-            active={activeTool() === 'eraser'}
-            onClick={() => setActiveTool('eraser')}
-            shortcut="E"
-            title="Eraser (E)"
-          >
-            <EraserIcon size={18} />
-          </IconButton>
-
-          <IconButton
-            size="md"
-            active={activeTool() === 'fill'}
-            onClick={() => setActiveTool('fill')}
-            shortcut="G"
-            title="Fill Bucket (G)"
-          >
-            <FillIcon size={18} />
-          </IconButton>
-
-          {/* Effects brush: blur / sharpen / smudge / pixelate. One tool with a
-              mode, not four tools — they share the same dab footprint and only
-              differ in the filter applied under it. */}
-          <IconButton
-            size="md"
-            active={activeTool() === 'effect'}
-            onClick={() => {
-              setActiveTool('effect')
+        <WorkstationShelf
+          activeTool={activeTool()}
+          onSelectTool={(t) => {
+            setActiveTool(t)
+            if (t === 'effect' || t === 'faceProjector') {
               setShowPanelDock(true)
-            }}
-            shortcut="U"
-            title="Effects Brush — Blur / Sharpen / Smudge / Pixelate (U)"
-          >
-            <DropletsIcon size={18} />
-          </IconButton>
-
-          {/* Screen Stencil: a projection surface the brush/stamp work through,
-              not a tool mode of its own — it stays available whichever paint
-              tool is active, so this toggles its panel rather than activeTool. */}
-          <IconButton
-            size="md"
-            active={showStencilPanel()}
-            onClick={() => {
-              const next = !showStencilPanel()
-              setShowStencilPanel(next)
-              if (next) {
-                setShowPanelDock(true)
-              }
-            }}
-            shortcut="S"
-            title="Screen Stencil (S)"
-            class="relative"
-          >
-            <ImagesIcon size={18} />
-            <Show when={stencil.texturePath()}>
-              <span
-                class="absolute top-1 right-1 w-2 h-2 rounded-full bg-teal-400 ring-2 ring-zinc-900 shadow-xs"
-                title="Screen Stencil active"
-              />
-            </Show>
-          </IconButton>
-
-          <div class="w-6 h-px bg-zinc-800 my-1" />
-
-          {/* Sampler & Selection */}
-          <IconButton
-            size="md"
-            active={activeTool() === 'eyedropper'}
-            onClick={() => setActiveTool('eyedropper')}
-            shortcut="I"
-            title="Color Eyedropper (I)"
-          >
-            <EyedropperIcon size={18} />
-          </IconButton>
-
-          <IconButton
-            size="md"
-            active={activeTool() === 'faceSelect'}
-            onClick={() => setActiveTool('faceSelect')}
-            shortcut="V"
-            title="Face Selection Mask (V)"
-          >
-            <MousePointerIcon size={18} />
-          </IconButton>
-
-          {/*
-            Its own tool rather than a mode of Face Select or Fill: those
-            tools' click behavior (paint, or start a fill drag) conflicts with
-            "click a face to preview & place a texture on it", and folding the
-            projector panel under an unrelated tool's relevance made it appear
-            unpredictably depending on what the artist happened to be doing.
-          */}
-          <IconButton
-            size="md"
-            active={activeTool() === 'faceProjector'}
-            onClick={() => {
-              setActiveTool('faceProjector')
+            }
+          }}
+          showStencilPanel={showStencilPanel()}
+          onToggleStencilPanel={() => {
+            const next = !showStencilPanel()
+            setShowStencilPanel(next)
+            if (next) {
               setShowPanelDock(true)
-            }}
-            shortcut="P"
-            title="Face UV Projector (P)"
-          >
-            <CompassIcon size={18} />
-          </IconButton>
+            }
+          }}
+          showEdgeWearWizard={showEdgeWearWizard()}
+          onToggleEdgeWearWizard={() => {
+            if (showEdgeWearWizard()) {
+              viewportHandle?.cancelEdgeWearPreview()
+              setShowEdgeWearWizard(false)
+            } else {
+              setShowEdgeWearWizard(true)
+            }
+          }}
+          onFrameCamera={frameCamera}
+        />
 
-          <div class="w-6 h-px bg-zinc-800 my-1" />
-
-          {/* Viewport & Wizard Actions */}
-          <IconButton
-            size="md"
-            variant="ghost"
-            onClick={frameCamera}
-            shortcut="F"
-            title="Frame Model (F)"
-          >
-            <FocusIcon size={18} />
-          </IconButton>
-
-          <IconButton
-            size="md"
-            active={showEdgeWearWizard()}
-            onClick={() => {
-              if (showEdgeWearWizard()) {
-                viewportHandle?.cancelEdgeWearPreview()
-                setShowEdgeWearWizard(false)
-              } else {
-                setShowEdgeWearWizard(true)
-              }
-            }}
-            title="Edge Wear & Chipping Wizard"
-          >
-            <SparklesIcon size={18} class="text-amber-400" />
-          </IconButton>
-        </nav>
-
-        {/* Vertical Texture Shelf Drawer */}
         <TextureShelf
           textures={textures()}
           onPickFolder={pickTextureFolder}
@@ -1472,8 +1080,7 @@ export default function App(): JSX.Element {
           }}
         />
 
-        {/* 3D Viewport Main Area */}
-        <main class="flex-1 relative overflow-hidden bg-zinc-950">
+        <main class="flex-1 relative overflow-hidden bg-[var(--bg-main)]">
           <Viewport
             tool={activeTool}
             textures={textures()}
@@ -1490,8 +1097,6 @@ export default function App(): JSX.Element {
             onLayersChanged={bumpLayers}
             onPiecesChanged={() => {
               setPiecesVersion((v) => v + 1)
-              // The layers panel now shows a different stack — refresh it
-              // without going through bumpLayers, which flags unsaved changes.
               setLayersVersion((v) => v + 1)
               if (modelPieces().length <= 1 && isolatePiece()) {
                 setIsolatePieceSignal(false)
@@ -1502,7 +1107,6 @@ export default function App(): JSX.Element {
             onIsolatePieceChanged={setIsolatePieceSignal}
           />
 
-          {/* Floating Toast Notification */}
           <Toast toast={toast()} onClose={() => setToast(null)} />
         </main>
 
@@ -1526,7 +1130,7 @@ export default function App(): JSX.Element {
           </div>
         </Show>
 
-        <aside class="w-[320px] min-w-[320px] max-w-[320px] h-full bg-zinc-900 border-l border-zinc-800 flex flex-col select-none z-20 flex-shrink-0">
+        <aside class="w-[320px] min-w-[320px] max-w-[320px] h-full bg-[var(--bg-panel)] border-l border-[var(--border-color)] flex flex-col select-none z-20 shrink-0">
           <Show
             when={!showEdgeWearWizard()}
             fallback={
@@ -1555,10 +1159,9 @@ export default function App(): JSX.Element {
               </Suspense>
             }
           >
-            {/* Top Half: Brush Settings (Scrollable) */}
-            <div class="flex-1 overflow-y-auto border-b border-zinc-800">
-              <div class="h-9 px-3.5 flex items-center gap-2 border-b border-zinc-800 bg-zinc-850/50">
-                <SlidersIcon size={15} class="text-blue-400" />
+            <div class="flex-1 overflow-y-auto border-b border-[var(--border-color)]">
+              <div class="h-9 px-3 flex items-center gap-2 border-b border-[var(--border-color)] bg-[var(--bg-panel-header)]">
+                <SlidersIcon size={15} class="text-[var(--accent-color)]" />
                 <Label uppercase>Brush Settings</Label>
               </div>
               <BrushSettingsTab
@@ -1573,9 +1176,8 @@ export default function App(): JSX.Element {
               />
             </div>
 
-            {/* Bottom Half: Layers (Fixed Height / Resizable) */}
-            <div class="h-[320px] flex flex-col bg-zinc-950/30">
-              <div class="h-9 px-3.5 flex items-center justify-between border-b border-zinc-800 bg-zinc-850/50 flex-shrink-0">
+            <div class="h-[340px] flex flex-col bg-[var(--bg-panel)]">
+              <div class="h-9 px-3 flex items-center justify-between border-b border-[var(--border-color)] bg-[var(--bg-panel-header)] shrink-0">
                 <div class="flex items-center gap-2">
                   <LayersIcon size={15} class="text-purple-400" />
                   <Label uppercase badge={currentLayerCount()}>
@@ -1592,40 +1194,38 @@ export default function App(): JSX.Element {
                       bumpLayers()
                     }
                   }}
-                  title="Add new painting layer"
+                  tooltip="Add new painting layer"
                 >
                   <PlusIcon size={14} />
                 </IconButton>
               </div>
-              {/* Texture-set selector: only meaningful once a model has more
-                  than one piece, and each piece owns its own layers, undo
-                  history and maps. */}
+
               <Show when={modelPieces().length > 1}>
-                <div class="px-3 py-2 border-b border-zinc-850 bg-zinc-900/30 flex items-center gap-1.5">
+                <div class="px-2.5 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-input)] flex items-center gap-1.5">
                   <div class="relative flex-1 min-w-0">
                     <button
                       type="button"
                       onClick={() => setShowPieceMenu((v) => !v)}
-                      class={`w-full flex items-center justify-between gap-1.5 px-2 py-1 rounded bg-zinc-850 border text-[11px] transition-colors cursor-pointer text-left ${
+                      class={`w-full flex items-center justify-between gap-1.5 px-2.5 py-1 rounded-[var(--ui-radius)] bg-[var(--bg-panel)] border text-xs transition-colors cursor-pointer text-left ${
                         showPieceMenu()
-                          ? 'border-purple-500/80 text-zinc-100 ring-1 ring-purple-500/20'
-                          : 'border-zinc-700/60 text-zinc-200 hover:border-zinc-600 hover:text-zinc-100'
+                          ? 'border-[var(--accent-color)] text-[var(--text-main)] ring-1 ring-[var(--accent-color)]/30'
+                          : 'border-[var(--border-color)] text-[var(--text-muted)] hover:border-white/20 hover:text-[var(--text-main)]'
                       }`}
                       title="Piece being painted — double-click a piece in the viewport, or press Tab, to switch"
                     >
                       <div class="flex items-center gap-1.5 min-w-0 flex-1">
-                        <CubeIcon size={12} class="text-purple-400 shrink-0" />
+                        <CubeIcon size={13} class="text-purple-400 shrink-0" />
                         <span class="truncate font-medium">
                           {modelPieces()[activePiece()]?.name ?? `Piece ${activePiece() + 1}`}
                         </span>
-                        <span class="text-[10px] text-zinc-500 font-mono shrink-0">
+                        <span class="text-[11px] text-[var(--text-muted)] font-mono shrink-0">
                           {modelPieces()[activePiece()]?.textureSize ?? 2048}px
                         </span>
                       </div>
                       <ChevronDownIcon
                         size={12}
-                        class={`text-zinc-400 shrink-0 transition-transform duration-150 ${
-                          showPieceMenu() ? 'rotate-180 text-zinc-200' : ''
+                        class={`text-[var(--text-muted)] shrink-0 transition-transform duration-150 ${
+                          showPieceMenu() ? 'rotate-180 text-[var(--text-main)]' : ''
                         }`}
                       />
                     </button>
@@ -1637,9 +1237,9 @@ export default function App(): JSX.Element {
                         label: `${piece.name} (${piece.textureSize}px)`,
                         icon: () =>
                           piece.index === activePiece() ? (
-                            <CheckIcon size={13} class="text-purple-400" />
+                            <CheckIcon size={14} class="text-[var(--accent-color)]" />
                           ) : (
-                            <CubeIcon size={13} class="text-zinc-500" />
+                            <CubeIcon size={14} class="text-zinc-500" />
                           ),
                         onClick: () => {
                           viewportHandle?.setActivePiece(piece.index)
@@ -1651,9 +1251,9 @@ export default function App(): JSX.Element {
                     size="xs"
                     variant="ghost"
                     onClick={() => viewportHandle?.focusPiece()}
-                    title="Frame this piece"
+                    tooltip="Frame this piece"
                   >
-                    <FocusIcon size={13} />
+                    <FocusIcon size={14} />
                   </IconButton>
                 </div>
               </Show>
