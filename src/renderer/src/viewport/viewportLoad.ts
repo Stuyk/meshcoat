@@ -247,8 +247,17 @@ export async function loadProject(
   }
   let model: LoadedModel
   if (project.modelPath) {
-    const ext = project.modelPath.split('.').pop() || 'glb'
-    const url = window.api.assetUrl(project.modelPath)
+    let modelPath = project.modelPath
+    let ext = modelPath.split('.').pop() || 'glb'
+    if (ext.toLowerCase() === 'blend') {
+      const res = await window.api.convertBlendFile(modelPath)
+      if (!res.success || !res.glbPath) {
+        throw new Error(res.error || `Failed to convert ${modelPath} with Blender.`)
+      }
+      modelPath = res.glbPath
+      ext = 'glb'
+    }
+    const url = window.api.assetUrl(modelPath)
     model = await loadModel(url, ext)
   } else {
     model = createDefaultTestModel()
