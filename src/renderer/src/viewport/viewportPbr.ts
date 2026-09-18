@@ -100,18 +100,7 @@ export function fillPieceFromTextures(
 export async function applyPbrTexturesToPiece(
   rt: ViewportRuntime,
   piece: PaintPiece,
-  texMap: InitialPbrTextures,
-  /**
-   * True for glTF-derived models (.glb/.gltf, and .blend once Blender has
-   * converted it). glTF puts the UV origin at the TOP-left and Blender's
-   * exporter flips V to match, while THREE.TextureLoader flips an ordinary
-   * image on upload so V = 0 reads the bottom row. Applied together, an
-   * external atlas lands vertically mirrored: a piece unwrapped into the top
-   * of the sheet samples the bottom of it. Not flipping the upload cancels
-   * that out. (Textures that come embedded in the file are already correct —
-   * GLTFLoader clears flipY on those itself.)
-   */
-  uvOriginTopLeft: boolean
+  texMap: InitialPbrTextures
 ): Promise<void> {
   if (!piece.stack || piece.stack.layers.length === 0) {
     return
@@ -124,7 +113,10 @@ export async function applyPbrTexturesToPiece(
    * around to the opposite edge of the sheet along every UV seam.
    */
   const prepare = (tex: THREE.Texture, srgb: boolean): THREE.Texture => {
-    tex.flipY = !uvOriginTopLeft
+    // Every model's UVs are normalized to a bottom-left origin at import
+    // (modelLoader.ts), which is the origin TextureLoader's own flip already
+    // produces — so an external map needs no further compensation.
+    tex.flipY = true
     // Data maps carry numbers, not something to look at: decoding them as
     // sRGB would bend every roughness/metalness/normal value.
     tex.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace

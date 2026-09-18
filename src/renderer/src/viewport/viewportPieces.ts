@@ -163,11 +163,11 @@ export function createPiece(
    * two slots; keeping only the first (what this used to do) drops the trim's
    * texture entirely and paints its faces with the body's.
    *
-   * flipY is deliberately left as each loader set it: GLTFLoader clears it
-   * because glTF UVs run top-down and three compensates on the texture rather
-   * than on the UV attribute, while TextureLoader sets it for an ordinary
-   * PNG. Both sample correctly against the same vUv, and forcing either one
-   * would flip that half of the imports.
+   * flipY is left as each loader set it, which is only safe because nothing
+   * samples these maps today — they are captured for import diagnostics. UVs
+   * are normalized to a bottom-left origin at import (modelLoader.ts), so a
+   * GLTFLoader-supplied map (flipY cleared for glTF's top-down origin) would
+   * need flipY set again before it could be re-bound to the material.
    */
   const groups = mesh.geometry.groups
   const embedded: EmbeddedSlot[] = slots.map((slot, slotIndex) => {

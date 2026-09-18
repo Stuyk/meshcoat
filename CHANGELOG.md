@@ -7,6 +7,7 @@
 - **Recent Textures Cap**: The Used shelf keeps every texture painted with, instead of only the last five.
 - **Reopening .blend Projects**: A `.meshcoat` project whose source model is a `.blend` now re-runs the Blender conversion on load instead of failing to open.
 - **Large .abr Imports**: Brush samples are decoded only when a brush actually references them, rather than rasterizing the whole pack on import.
+- **Exported Textures Mirrored on glTF Models**: glTF puts the UV origin at the top-left, and a `.blend` inherits that through the Blender bridge — so a map painted on one exported vertically flipped against the source asset's own UVs. UVs are now normalized to a bottom-left origin at import, matching the space the app paints and exports in. Projects saved before this are migrated on load.
 
 ## v2.2.2
 

@@ -149,8 +149,7 @@ async function resolveSizeByName(
 /** Bakes `initialTextures` into every piece's background layer, per-piece or shared across all of them. */
 async function applyInitialTextures(
   rt: ViewportRuntime,
-  initialTextures: InitialTexturePayload,
-  uvOriginTopLeft: boolean
+  initialTextures: InitialTexturePayload
 ): Promise<void> {
   if (isPerPiecePayload(initialTextures)) {
     const pieceMap = initialTextures.pieces || {}
@@ -161,14 +160,14 @@ async function applyInitialTextures(
       if (!assigned) {
         continue
       }
-      await applyPbrTexturesToPiece(rt, piece, assigned, uvOriginTopLeft)
+      await applyPbrTexturesToPiece(rt, piece, assigned)
     }
     return
   }
 
   const sharedMap = toSharedPbrTextures(initialTextures)
   for (const piece of rt.pieces) {
-    await applyPbrTexturesToPiece(rt, piece, sharedMap, uvOriginTopLeft)
+    await applyPbrTexturesToPiece(rt, piece, sharedMap)
   }
 }
 
@@ -183,9 +182,6 @@ export async function loadFromUrl(
     return
   }
   const model = await loadModel(url, extension)
-  // A .blend arrives here already converted to .glb by the Blender bridge,
-  // so it carries glTF's top-left UV origin like any other glTF model.
-  const uvOriginTopLeft = /^(glb|gltf)$/i.test(extension)
   const sizeByName = await resolveSizeByName(model, initialTextures)
 
   clearCurrentModel(rt)
@@ -202,7 +198,7 @@ export async function loadFromUrl(
 
   if (initialTextures && rt.pieces.length > 0) {
     try {
-      await applyInitialTextures(rt, initialTextures, uvOriginTopLeft)
+      await applyInitialTextures(rt, initialTextures)
       rt.props.onLayersChanged?.()
     } catch (err) {
       console.error('Failed to load initial PBR texture maps:', err)

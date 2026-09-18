@@ -24,6 +24,37 @@ function collectMeshes(root: THREE.Object3D): THREE.Mesh[] {
 }
 
 /**
+ * glTF puts the UV origin at the top-left; everything downstream of here
+ * assumes the bottom-left origin OBJ and Blender use, because uvMesh.ts
+ * rasterizes v = 0 to the bottom row of the paint target and the PNG readback
+ * preserves that. Leaving glTF UVs as-authored meant a painted texture was
+ * only ever correct inside this app: exported and taken back to the source
+ * asset (a .blend round-tripped through the Blender bridge, most visibly) it
+ * came out vertically mirrored. Normalizing to one internal convention at the
+ * import boundary is what keeps an exported map aligned with the UV layout the
+ * model was authored against.
+ */
+function flipUvsToBottomUp(meshes: THREE.Mesh[]): void {
+  const flipped = new Set<THREE.BufferGeometry>()
+  for (const mesh of meshes) {
+    const geometry = mesh.geometry
+    // One geometry can back several meshes; flipping it twice is a no-op.
+    if (flipped.has(geometry)) {
+      continue
+    }
+    flipped.add(geometry)
+    const uv = geometry.attributes.uv
+    if (!uv) {
+      continue
+    }
+    for (let i = 0; i < uv.count; i++) {
+      uv.setY(i, 1 - uv.getY(i))
+    }
+    uv.needsUpdate = true
+  }
+}
+
+/**
  * Validates UV0 presence per spec section 3, computing tangents (needed by
  * the normal-map paint channel) where missing. Meshes without UVs are
  * reported, not silently skipped, so the caller can flag/reject them.
@@ -49,6 +80,7 @@ function processGeometry(meshes: THREE.Mesh[]): string[] {
 export async function loadModel(fileUrl: string, extension: string): Promise<LoadedModel> {
   const ext = extension.toLowerCase()
   let root: THREE.Object3D
+  let uvOriginTopLeft = false
 
   // Dynamically imported so GLTFLoader/OBJLoader (Draco/KTX2/meshopt support
   // included) aren't parsed at boot — the default model never needs them,
@@ -58,6 +90,7 @@ export async function loadModel(fileUrl: string, extension: string): Promise<Loa
     const loader = new GLTFLoader()
     const gltf = await loader.loadAsync(fileUrl)
     root = gltf.scene
+    uvOriginTopLeft = true
   } else if (ext === 'obj') {
     const { OBJLoader } = await import('three/examples/jsm/loaders/OBJLoader.js')
     const loader = new OBJLoader()
@@ -67,6 +100,11 @@ export async function loadModel(fileUrl: string, extension: string): Promise<Loa
   }
 
   const meshes = collectMeshes(root)
+  // Before processGeometry: computeTangents() derives the tangent frame from
+  // the UVs, so it has to see the normalized ones.
+  if (uvOriginTopLeft) {
+    flipUvsToBottomUp(meshes)
+  }
   const missingUv = processGeometry(meshes)
   return { root, meshes, missingUv }
 }

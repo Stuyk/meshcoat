@@ -26,13 +26,20 @@ export interface SerializedLayer {
  *   1 — base color only
  *   2 — adds per-layer PBR channels (roughness / metalness / normal)
  *   3 — one texture set per model piece (`pieces`)
+ *   4 — UVs normalized to a bottom-left origin at import for every format
  *
  * Older files load unchanged. A version 1/2 project is a single-piece project:
  * its top-level `layers` become piece 0, which is also why `layers`,
  * `textureSize` and `activeLayerId` are still written at the top level —
  * an older build opening a version 3 file still finds the first piece there.
+ *
+ * Version 4 is the one break in that: a glTF-derived model (.glb/.gltf, and
+ * .blend via the Blender bridge) used to keep glTF's top-down UVs, so anything
+ * painted against it was stored vertically mirrored relative to the space this
+ * build paints in. Those pieces are flipped back on load — see
+ * `deserializeProject`. An .obj project was always bottom-up and is untouched.
  */
-export const PROJECT_VERSION = 3
+export const PROJECT_VERSION = 4
 
 export interface SerializedPiece {
   /** Mesh name, used to match saved layers back onto the reloaded model. */
@@ -79,7 +86,14 @@ export function cpuSnapshotToDataUrl(snapshot: CpuPixelSnapshot): string {
 /**
  * Decodes a PNG data URL back into a CPU pixel snapshot.
  */
-export function dataUrlToCpuSnapshot(dataUrl: string, size: number): Promise<CpuPixelSnapshot> {
+export function dataUrlToCpuSnapshot(
+  dataUrl: string,
+  size: number,
+  /** Version 3 and older stored glTF-derived pieces in the old top-down UV space — see `deserializeProject`. */
+  flipV = false,
+  /** A tangent-space normal map's G channel encodes the V slope, so a vertical flip has to invert it too. */
+  invertGreen = false
+): Promise<CpuPixelSnapshot> {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.crossOrigin = 'anonymous'
@@ -92,8 +106,19 @@ export function dataUrlToCpuSnapshot(dataUrl: string, size: number): Promise<Cpu
         reject(new Error('Failed to obtain 2d canvas context'))
         return
       }
+      if (flipV) {
+        ctx.translate(0, size)
+        ctx.scale(1, -1)
+      }
       ctx.drawImage(img, 0, 0, size, size)
+      ctx.setTransform(1, 0, 0, 1, 0, 0)
       const imgData = ctx.getImageData(0, 0, size, size)
+      if (flipV && invertGreen) {
+        const px = imgData.data
+        for (let i = 1; i < px.length; i += 4) {
+          px[i] = 255 - px[i]
+        }
+      }
       resolve({
         size,
         data: new Uint8Array(imgData.data.buffer)
@@ -182,6 +207,12 @@ export async function deserializeProject(
 ): Promise<{ project: MeshCoatProject; stackSnapshots: StackSnapshot[] }> {
   const project = JSON.parse(jsonString) as MeshCoatProject
 
+  // Pre-version-4 glTF-derived pieces were painted in glTF's top-down UV
+  // space; this build normalizes every model to bottom-up at import, so their
+  // stored pixels have to be flipped to match.
+  const modelPath = (project.modelPath ?? '').toLowerCase()
+  const flipV = (project.version ?? 1) < 4 && /\.(glb|gltf|blend)$/.test(modelPath)
+
   // A pre-version-3 file is a one-piece project stored at the top level.
   const pieces: SerializedPiece[] =
     project.pieces && project.pieces.length > 0
@@ -206,13 +237,18 @@ export async function deserializeProject(
       const textureSize = piece.textureSize || project.textureSize || 2048
       const restoredLayers = await Promise.all(
         piece.layers.map(async (l) => {
-          const pixels = await dataUrlToCpuSnapshot(l.dataUrl, textureSize)
+          const pixels = await dataUrlToCpuSnapshot(l.dataUrl, textureSize, flipV)
           for (const channel of PBR_CHANNELS) {
             const url = l.channelDataUrls?.[channel]
             if (!url) {
               continue
             }
-            const channelPixels = await dataUrlToCpuSnapshot(url, textureSize)
+            const channelPixels = await dataUrlToCpuSnapshot(
+              url,
+              textureSize,
+              flipV,
+              channel === 'normal'
+            )
             pixels.channels ??= {}
             pixels.channels[channel] = channelPixels.data
           }
