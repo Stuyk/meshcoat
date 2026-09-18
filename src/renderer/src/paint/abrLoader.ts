@@ -343,22 +343,21 @@ function parseLegacyAbr(buffer: Uint8Array, packName: string): AbrBrushPreset[] 
 
 type DescriptorBrush = NonNullable<ReturnType<typeof readAbr>['brushes']>[number]
 
-/** Rasterized samples keyed by id, skipping any with no area or that fail to encode. */
-function buildSampleMap(
-  samples: SampleInfo[]
-): Map<string, { sample: SampleInfo; dataUrl: string }> {
-  const sampleMap = new Map<string, { sample: SampleInfo; dataUrl: string }>()
+/**
+ * Samples keyed by id, skipping any with no area. Decoding to a data URL is
+ * deferred to the brush that claims a sample — a large pack carries samples no
+ * brush ever references, and rasterizing those on import is what makes a
+ * multi-gigabyte .abr stall.
+ */
+function buildSampleMap(samples: SampleInfo[]): Map<string, SampleInfo> {
+  const sampleMap = new Map<string, SampleInfo>()
   for (const sample of samples) {
     const w = sample.bounds.w
     const h = sample.bounds.h
     if (w <= 0 || h <= 0) {
       continue
     }
-    const dataUrl = sampleAlphaToDataUrl(w, h, sample.alpha)
-    if (!dataUrl) {
-      continue
-    }
-    sampleMap.set(sample.id, { sample, dataUrl })
+    sampleMap.set(sample.id, sample)
   }
   return sampleMap
 }
@@ -367,7 +366,7 @@ function buildSampleMap(
 function matchDescriptorBrush(
   b: DescriptorBrush,
   i: number,
-  sampleMap: Map<string, { sample: SampleInfo; dataUrl: string }>,
+  sampleMap: Map<string, SampleInfo>,
   matchedSampleIds: Set<string>,
   cleanPackName: string
 ): AbrBrushPreset | null {
@@ -389,18 +388,22 @@ function matchSampledBrush(
   b: DescriptorBrush,
   shape: Extract<NonNullable<DescriptorBrush['shape']>, { type: 'sampled' }>,
   i: number,
-  sampleMap: Map<string, { sample: SampleInfo; dataUrl: string }>,
+  sampleMap: Map<string, SampleInfo>,
   matchedSampleIds: Set<string>,
   cleanPackName: string
 ): AbrBrushPreset | null {
   const sampleDataId = shape.sampledData
-  const matched = sampleDataId ? sampleMap.get(sampleDataId) : undefined
-  if (!sampleDataId || !matched) {
+  const sample = sampleDataId ? sampleMap.get(sampleDataId) : undefined
+  if (!sampleDataId || !sample) {
+    return null
+  }
+  const w = sample.bounds.w
+  const h = sample.bounds.h
+  const dataUrl = sampleAlphaToDataUrl(w, h, sample.alpha)
+  if (!dataUrl) {
     return null
   }
   matchedSampleIds.add(sampleDataId)
-  const w = matched.sample.bounds.w
-  const h = matched.sample.bounds.h
   const spacingVal =
     typeof b.spacing === 'number'
       ? b.spacing
@@ -416,7 +419,7 @@ function matchSampledBrush(
     spacing: Math.max(0.02, Math.min(1.5, spacingVal)),
     diameter: shape.size || Math.max(w, h),
     angle: shape.angle || 0,
-    dataUrl: matched.dataUrl,
+    dataUrl,
     packName: cleanPackName,
     sampleId: sampleDataId
   }
@@ -457,14 +460,18 @@ function buildComputedBrush(
 
 /** Presets for every rasterized sample no descriptor brush claimed (or every sample, when there were no descriptor brushes at all). */
 function unmatchedSampleBrushes(
-  sampleMap: Map<string, { sample: SampleInfo; dataUrl: string }>,
+  sampleMap: Map<string, SampleInfo>,
   matchedSampleIds: Set<string>,
   cleanPackName: string
 ): AbrBrushPreset[] {
   const result: AbrBrushPreset[] = []
   let sampleIdx = 1
-  for (const [id, { sample, dataUrl }] of sampleMap) {
+  for (const [id, sample] of sampleMap) {
     if (matchedSampleIds.has(id)) {
+      continue
+    }
+    const dataUrl = sampleAlphaToDataUrl(sample.bounds.w, sample.bounds.h, sample.alpha)
+    if (!dataUrl) {
       continue
     }
     result.push({

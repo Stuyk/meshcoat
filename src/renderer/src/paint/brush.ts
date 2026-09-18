@@ -315,7 +315,7 @@ export function recordRecentTexture(path: string): void {
     return
   }
   setRecentTextures((prev) => {
-    const next = [path, ...prev.filter((p) => p !== path)].slice(0, 5)
+    const next = [path, ...prev.filter((p) => p !== path)]
     try {
       localStorage.setItem('slip_recent_textures', JSON.stringify(next))
     } catch {

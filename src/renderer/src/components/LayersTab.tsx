@@ -314,7 +314,7 @@ export default function LayersTab(props: {
                       onInput={(e) =>
                         run((s) => s.setOpacity(layer.id, parseFloat(e.currentTarget.value), false))
                       }
-                      class="flex-1 h-1 bg-[var(--bg-input)] rounded-[2px] appearance-none cursor-pointer accent-[var(--accent-color)]"
+                      class="flex-1 h-1 bg-black/40 rounded-[2px] appearance-none cursor-pointer accent-[var(--accent-color)]"
                     />
                     <span class="font-mono text-[9px] text-[var(--accent-color)] tabular-nums w-7 text-right">
                       {Math.round(opacity() * 100)}%
