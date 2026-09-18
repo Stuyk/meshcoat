@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.2.3
+
+### Fixed
+- **Layer Opacity Slider Contrast**: The slider track no longer matches the selected layer's background, so the filled portion is readable at a glance.
+- **Recent Textures Cap**: The Used shelf keeps every texture painted with, instead of only the last five.
+- **Reopening .blend Projects**: A `.meshcoat` project whose source model is a `.blend` now re-runs the Blender conversion on load instead of failing to open.
+- **Large .abr Imports**: Brush samples are decoded only when a brush actually references them, rather than rasterizing the whole pack on import.
+
 ## v2.2.2
 
 ### Added
