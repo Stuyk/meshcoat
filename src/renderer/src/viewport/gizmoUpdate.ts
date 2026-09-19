@@ -277,7 +277,7 @@ function applyToolVisibility(
     // cursor for a tool that has no footprint to indicate.
     gizmoHandle.group.visible = false
     updateHoverForActivePieceOnly()
-  } else if (tool === 'faceSelect' || tool === 'faceProjector') {
+  } else if (tool === 'faceSelect' || tool === 'faceProjector' || tool === 'text') {
     gizmoHandle.stampPreviewMesh.visible = false
     gizmoHandle.group.visible = false
     updateHoverForActivePieceOnly()

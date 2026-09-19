@@ -1,9 +1,11 @@
-import { For, Show, createSignal, type JSX } from 'solid-js'
+import { For, Show, createMemo, createSignal, type JSX } from 'solid-js'
 import { brush, type ToolMode } from '../paint/brush'
+import { textTool } from '../paint/textTool'
 import { stencil } from '../paint/stencil'
 import MaterialTextureHUD from './MaterialTextureHUD'
 import TextureRegionHUD from './TextureRegionHUD'
 import FaceProjectorHUD from './FaceProjectorHUD'
+import TextHUD from './TextHUD'
 import EffectHUD from './EffectHUD'
 import StencilHUD from './StencilHUD'
 import {
@@ -15,7 +17,8 @@ import {
   Trash2Icon,
   EyeIcon,
   EyeOffIcon,
-  FocusIcon
+  FocusIcon,
+  TextIcon
 } from './icons'
 import { IconButton, PanelSection, Label } from './ui'
 import { setTexturePath, resetTextureRegion } from '../paint/brush'
@@ -51,7 +54,15 @@ export default function ToolPanelDock(props: ToolPanelDockProps): JSX.Element {
     props.activeTool === 'line' ||
     props.activeTool === 'faceProjector'
 
-  const panels = (): PanelDef[] => [
+  /**
+   * Built once, not per render. `For` tracks items by reference, so rebuilding
+   * these objects on every change would tear down and recreate each panel's
+   * DOM — which pulls focus out of any field inside one. The Text tool's box
+   * edits its own texture on every keystroke, so that turned typing into a
+   * stream of tool hotkeys. Every field here is a closure over signals, so the
+   * panels stay reactive without being rebuilt.
+   */
+  const panels: PanelDef[] = [
     {
       id: 'material',
       title: 'Material Texture',
@@ -100,11 +111,19 @@ export default function ToolPanelDock(props: ToolPanelDockProps): JSX.Element {
       render: () => <TextureRegionHUD docked activeTool={props.activeTool} onClose={() => {}} />
     },
     {
+      id: 'text',
+      title: 'Text',
+      icon: (p) => <TextIcon {...p} />,
+      relevant: () => props.activeTool === 'text',
+      summary: () => textTool.options().text.split('\n')[0] || 'Empty',
+      render: () => <TextHUD docked onApply={() => props.onFillSelection?.()} />
+    },
+    {
       id: 'projector',
       title: 'Face UV Projector',
       icon: (p) => <FocusIcon {...p} />,
       relevant: () =>
-        props.activeTool === 'faceProjector' &&
+        (props.activeTool === 'faceProjector' || props.activeTool === 'text') &&
         !!brush.texturePath() &&
         brush.selectedFaces().size > 0,
       summary: () => {
@@ -131,7 +150,8 @@ export default function ToolPanelDock(props: ToolPanelDockProps): JSX.Element {
       relevant: () =>
         !!props.stencilPanelOpen &&
         props.activeTool !== 'fill' &&
-        props.activeTool !== 'faceProjector',
+        props.activeTool !== 'faceProjector' &&
+        props.activeTool !== 'text',
       summary: () => (stencil.texturePath() ? (stencil.textureLabel() ?? 'Loaded') : 'None'),
       actions: () => (
         <Show when={stencil.texturePath()}>
@@ -162,7 +182,7 @@ export default function ToolPanelDock(props: ToolPanelDockProps): JSX.Element {
     }
   ]
 
-  const active = (): PanelDef[] => panels().filter((p) => p.relevant())
+  const active = createMemo<PanelDef[]>(() => panels.filter((p) => p.relevant()))
 
   return (
     <div class="h-full flex flex-col bg-[var(--bg-panel)] border-l border-[var(--border-color)] select-none">
@@ -189,7 +209,9 @@ export default function ToolPanelDock(props: ToolPanelDockProps): JSX.Element {
         </For>
 
         <Show when={active().length === 0}>
-          <div class="p-4 text-center text-xs text-[var(--text-muted)]">No active panels for this tool.</div>
+          <div class="p-4 text-center text-xs text-[var(--text-muted)]">
+            No active panels for this tool.
+          </div>
         </Show>
       </div>
     </div>

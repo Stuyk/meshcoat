@@ -84,6 +84,18 @@ function createWindow(): void {
     mainWindow?.show()
   })
 
+  // The Text tool asks Chromium for the installed fonts (queryLocalFonts),
+  // which is gated behind the "local-fonts" permission. Electron's typings
+  // don't list that string yet, hence the widening — and everything else is
+  // refused rather than silently granted, since nothing here needs it.
+  const isAllowedPermission = (permission: string): boolean => permission === 'local-fonts'
+  mainWindow.webContents.session.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(isAllowedPermission(permission))
+  })
+  mainWindow.webContents.session.setPermissionCheckHandler((_wc, permission) =>
+    isAllowedPermission(permission)
+  )
+
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }

@@ -68,7 +68,8 @@ export {
   Hammer as EdgeWearIcon,
   SwatchBook as MaterialChannelsIcon,
   Library as LibraryIcon,
-  Bookmark as BookmarkIcon
+  Bookmark as BookmarkIcon,
+  Type as TextIcon
 } from 'lucide-solid'
 
 export function AppIcon(props: { size?: number; class?: string }) {

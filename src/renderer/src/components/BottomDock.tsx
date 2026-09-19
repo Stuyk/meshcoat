@@ -16,6 +16,7 @@ import {
   HelpCircleIcon,
   FocusIcon,
   CompassIcon,
+  TextIcon,
   XIcon
 } from './icons'
 import { Kbd } from './ui'
@@ -41,7 +42,8 @@ const TOOL_CONFIG: Record<ToolMode, { label: string; key: string; num: string; I
   eyedropper: { label: 'Eyedropper', key: 'I', num: '5', Icon: EyedropperIcon },
   faceSelect: { label: 'Face Select', key: 'V', num: '6', Icon: MousePointerIcon },
   effect: { label: 'Effects', key: 'U', num: '7', Icon: DropletsIcon },
-  faceProjector: { label: 'Face UV Projector', key: 'P', num: '8', Icon: CompassIcon }
+  faceProjector: { label: 'Face UV Projector', key: 'P', num: '8', Icon: CompassIcon },
+  text: { label: 'Text', key: 'Y', num: '9', Icon: TextIcon }
 }
 
 export default function StatusBar(props: StatusBarProps): JSX.Element {
@@ -86,9 +88,7 @@ export default function StatusBar(props: StatusBarProps): JSX.Element {
             title="Click or press Esc / Ctrl+D to clear face selection"
           >
             <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-            <span class="font-medium">
-              {props.selectedFaceCount} masked
-            </span>
+            <span class="font-medium">{props.selectedFaceCount} masked</span>
             <XIcon size={12} class="text-amber-400" />
           </button>
         </Show>
@@ -192,7 +192,9 @@ export default function StatusBar(props: StatusBarProps): JSX.Element {
                     : 'bg-zinc-600'
               }`}
             />
-            <span>Stencil {stencil.transforming() ? 'Transform' : stencil.visible() ? 'Active' : 'Off'}</span>
+            <span>
+              Stencil {stencil.transforming() ? 'Transform' : stencil.visible() ? 'Active' : 'Off'}
+            </span>
           </div>
         </Show>
       </div>
@@ -227,7 +229,9 @@ export default function StatusBar(props: StatusBarProps): JSX.Element {
                 return (
                   <span
                     class={`px-1 rounded-[2px] font-mono text-[9px] font-bold ${
-                      on() ? 'text-[var(--accent-color)] bg-[var(--accent-color)]/10' : 'text-zinc-600 line-through'
+                      on()
+                        ? 'text-[var(--accent-color)] bg-[var(--accent-color)]/10'
+                        : 'text-zinc-600 line-through'
                     }`}
                   >
                     {CHANNEL_SPECS[ch].short}
@@ -239,7 +243,9 @@ export default function StatusBar(props: StatusBarProps): JSX.Element {
         </Show>
 
         <div class="hidden md:flex items-center gap-1 font-mono text-[11px] text-[var(--text-muted)] px-1.5">
-          <span>{props.textureSize}×{props.textureSize}</span>
+          <span>
+            {props.textureSize}×{props.textureSize}
+          </span>
         </div>
 
         <button

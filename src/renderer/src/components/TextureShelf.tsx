@@ -67,7 +67,13 @@ export default function TextureShelf(props: {
   })
 
   // A new library means the old subfolder name is meaningless.
-  createEffect(on(() => props.textures, () => setFolderFilter(ALL_FOLDERS), { defer: true }))
+  createEffect(
+    on(
+      () => props.textures,
+      () => setFolderFilter(ALL_FOLDERS),
+      { defer: true }
+    )
+  )
 
   const folderOptions = (): { value: string; label: string }[] => [
     { value: ALL_FOLDERS, label: `All folders (${folders().length})` },
@@ -79,7 +85,9 @@ export default function TextureShelf(props: {
 
   const filteredByFolder = (): string[] => {
     const f = folderFilter()
-    return f === ALL_FOLDERS ? props.textures : props.textures.filter((p) => relativeFolder(p) === f)
+    return f === ALL_FOLDERS
+      ? props.textures
+      : props.textures.filter((p) => relativeFolder(p) === f)
   }
 
   const pastedUrls = (): string[] => brush.pastedTextures().map((t) => t.url)
@@ -280,11 +288,13 @@ export default function TextureShelf(props: {
           >
             <span>Used</span>
             <Show when={brush.recentTextures().length > 0}>
-              <span class={`font-mono text-[10px] px-1 rounded-full ${
-                activeShelf() === 'used'
-                  ? 'bg-black/30 text-[var(--accent-text)]'
-                  : 'bg-white/10 text-[var(--text-muted)]'
-              }`}>
+              <span
+                class={`font-mono text-[10px] px-1 rounded-full ${
+                  activeShelf() === 'used'
+                    ? 'bg-black/30 text-[var(--accent-text)]'
+                    : 'bg-white/10 text-[var(--text-muted)]'
+                }`}
+              >
                 {brush.recentTextures().length}
               </span>
             </Show>
@@ -301,11 +311,13 @@ export default function TextureShelf(props: {
           >
             <span>Pasted</span>
             <Show when={brush.pastedTextures().length > 0}>
-              <span class={`font-mono text-[10px] px-1 rounded-full ${
-                activeShelf() === 'pasted'
-                  ? 'bg-black/30 text-[var(--accent-text)]'
-                  : 'bg-white/10 text-[var(--text-muted)]'
-              }`}>
+              <span
+                class={`font-mono text-[10px] px-1 rounded-full ${
+                  activeShelf() === 'pasted'
+                    ? 'bg-black/30 text-[var(--accent-text)]'
+                    : 'bg-white/10 text-[var(--text-muted)]'
+                }`}
+              >
                 {brush.pastedTextures().length}
               </span>
             </Show>
@@ -390,7 +402,9 @@ export default function TextureShelf(props: {
               <div class="p-3 rounded-[var(--ui-radius)] bg-[var(--bg-panel-header)] text-[var(--text-muted)] group-hover:text-[var(--accent-color)] transition-colors mb-2 border border-[var(--border-color)]">
                 <StampIcon size={24} />
               </div>
-              <span class="text-xs font-semibold text-[var(--text-main)] mb-1">No textures loaded</span>
+              <span class="text-xs font-semibold text-[var(--text-main)] mb-1">
+                No textures loaded
+              </span>
               <span class="text-[11px] text-[var(--text-muted)] mb-3 max-w-[180px]">
                 Click to load a folder of PNG, JPG, or WebP textures.
               </span>
