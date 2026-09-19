@@ -389,7 +389,7 @@ export function applyToolAt(
   // no separate toggle to remember to flip.
   const selection = brush.selectedFaces()
   const restrictFaces = selection.size > 0 ? selection : null
-  if (tool === 'faceSelect' || tool === 'faceProjector') {
+  if (tool === 'faceSelect' || tool === 'faceProjector' || tool === 'text') {
     const islandMesh = activeMesh(rt)
     if (event?.altKey && islandMesh && hit.faceIndex >= 0) {
       const mesh = islandMesh
@@ -741,7 +741,10 @@ export function fillActive(rt: ViewportRuntime): void {
     // projection on the whole-model fill path below is a no-op anyway.
     projection: selection.size > 0 ? faceProjectionOptions(rt, selection) : undefined
   }
-  if (!isMask && rt.brushTexture && brush.texturePath()) {
+  // The Text tool's texture is generated and changes on every keystroke —
+  // parking those data URLs in the (persisted) Used shelf would fill it with
+  // one-off junk.
+  if (!isMask && rt.brushTexture && brush.texturePath() && rt.props.tool() !== 'text') {
     recordRecentTexture(brush.texturePath()!)
   }
   if (selection.size > 0) {
@@ -780,7 +783,12 @@ export function onPointerMove(rt: ViewportRuntime, e: PointerEvent): void {
     }
     return
   }
-  if (e.altKey && rt.props.tool() !== 'faceSelect' && rt.props.tool() !== 'faceProjector') {
+  if (
+    e.altKey &&
+    rt.props.tool() !== 'faceSelect' &&
+    rt.props.tool() !== 'faceProjector' &&
+    rt.props.tool() !== 'text'
+  ) {
     if (rt.eyedropperPreview().visible) {
       rt.setEyedropperPreview((p) => ({ ...p, visible: false }))
     }
@@ -897,7 +905,10 @@ export function onPointerDown(rt: ViewportRuntime, e: PointerEvent): void {
   }
 
   const isCtrl = e.ctrlKey || e.metaKey
-  const isFaceSelectTool = rt.props.tool() === 'faceSelect' || rt.props.tool() === 'faceProjector'
+  const isFaceSelectTool =
+    rt.props.tool() === 'faceSelect' ||
+    rt.props.tool() === 'faceProjector' ||
+    rt.props.tool() === 'text'
 
   // Connected UV Island Selection: In Face Select mode (or holding Ctrl), Alt + Click
   if ((isFaceSelectTool || isCtrl) && e.altKey && e.button === 0) {
@@ -1011,7 +1022,10 @@ export function onPointerDown(rt: ViewportRuntime, e: PointerEvent): void {
 }
 
 export function onDblClick(rt: ViewportRuntime, e: MouseEvent): void {
-  const isFaceSelectTool = rt.props.tool() === 'faceSelect' || rt.props.tool() === 'faceProjector'
+  const isFaceSelectTool =
+    rt.props.tool() === 'faceSelect' ||
+    rt.props.tool() === 'faceProjector' ||
+    rt.props.tool() === 'text'
   const isCtrl = e.ctrlKey || e.metaKey
   if ((isFaceSelectTool || isCtrl) && rt.currentModel && rt.currentModel.meshes.length > 0) {
     const hit = hitFromEvent(rt, e as unknown as PointerEvent)

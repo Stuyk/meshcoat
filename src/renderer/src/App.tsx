@@ -1,6 +1,7 @@
 import {
   createSignal,
   createEffect,
+  on,
   onMount,
   onCleanup,
   Show,
@@ -72,11 +73,14 @@ import {
   setTexturePath,
   clearFaceSelection,
   setSelectedFaces,
+  setGeneratedTexturePath,
+  resetTextureRegion,
   setTextureScale,
   stepRadius,
   type ToolMode
 } from './paint/brush'
 import { DEFAULT_TEXTURE_SIZE, type TextureSize } from './paint/paintEngine'
+import { textTool } from './paint/textTool'
 import {
   selectionGroups,
   saveSelectionGroup,
@@ -143,6 +147,32 @@ export default function App(): JSX.Element {
     void piecesVersion()
     return viewportHandle?.activePieceIndex() ?? 0
   }
+
+  /**
+   * The Text tool paints with a texture the app generates rather than one off
+   * the shelf, so entering it swaps the brush texture for the rendered string
+   * (re-rendered on every edit) and leaving puts the artist's own texture back.
+   */
+  let textureBeforeText: string | null = null
+  createEffect(
+    on([activeTool, () => textTool.dataUrl()], ([tool, dataUrl], prev) => {
+      const wasText = prev?.[0] === 'text'
+      if (tool === 'text') {
+        if (!wasText) {
+          textureBeforeText = brush.texturePath()
+          // A crop drawn on a shelf image means nothing on a line of text.
+          resetTextureRegion()
+          // The shader tints the texture by the paint color; the text carries
+          // its own color, so white leaves it as rendered.
+          brush.setColor('#ffffff')
+        }
+        setGeneratedTexturePath(dataUrl)
+      } else if (wasText) {
+        setGeneratedTexturePath(textureBeforeText)
+        textureBeforeText = null
+      }
+    })
+  )
 
   const [toast, setToast] = createSignal<ToastData | null>(null)
   const [showPieceMenu, setShowPieceMenu] = createSignal(false)
@@ -791,6 +821,11 @@ export default function App(): JSX.Element {
       case 'v':
         setActiveTool('faceSelect')
         break
+      case '9':
+      case 'y':
+        setActiveTool('text')
+        setShowPanelDock(true)
+        break
       case '8':
       case 'p':
         setActiveTool('faceProjector')
@@ -1120,12 +1155,10 @@ export default function App(): JSX.Element {
       icon: (p) => <BookmarkIcon size={p.size} />,
       disabled: selectionGroups().length === 0,
       submenu: [
-        ...selectionGroups().map(
-          (g): MenuItem => ({
-            label: modelPieces().length > 1 ? `${g.name} — ${g.piece}` : g.name,
-            onClick: () => recallSelectionGroup(g)
-          })
-        ),
+        ...selectionGroups().map((g): MenuItem => ({
+          label: modelPieces().length > 1 ? `${g.name} — ${g.piece}` : g.name,
+          onClick: () => recallSelectionGroup(g)
+        })),
         { type: 'divider' },
         { label: 'Manage Groups...', onClick: () => setLowerTab('selections') }
       ]
@@ -1171,7 +1204,7 @@ export default function App(): JSX.Element {
           activeTool={activeTool()}
           onSelectTool={(t) => {
             setActiveTool(t)
-            if (t === 'effect' || t === 'faceProjector') {
+            if (t === 'effect' || t === 'faceProjector' || t === 'text') {
               setShowPanelDock(true)
             }
           }}
@@ -1310,7 +1343,9 @@ export default function App(): JSX.Element {
                     type="button"
                     onClick={() => setLowerTab('layers')}
                     class={`h-full flex items-center gap-2 border-b-2 cursor-pointer ${
-                      lowerTab() === 'layers' ? 'border-purple-400' : 'border-transparent opacity-60 hover:opacity-100'
+                      lowerTab() === 'layers'
+                        ? 'border-purple-400'
+                        : 'border-transparent opacity-60 hover:opacity-100'
                     }`}
                   >
                     <LayersIcon size={15} class="text-purple-400" />
@@ -1323,30 +1358,35 @@ export default function App(): JSX.Element {
                     onClick={() => setLowerTab('selections')}
                     title="Saved face selection groups"
                     class={`h-full flex items-center gap-2 border-b-2 cursor-pointer ${
-                      lowerTab() === 'selections' ? 'border-amber-400' : 'border-transparent opacity-60 hover:opacity-100'
+                      lowerTab() === 'selections'
+                        ? 'border-amber-400'
+                        : 'border-transparent opacity-60 hover:opacity-100'
                     }`}
                   >
                     <BookmarkIcon size={14} class="text-amber-400" />
-                    <Label uppercase badge={selectionGroups().filter((g) => g.piece === activePieceName()).length}>
+                    <Label
+                      uppercase
+                      badge={selectionGroups().filter((g) => g.piece === activePieceName()).length}
+                    >
                       Selections
                     </Label>
                   </button>
                 </div>
                 <Show when={lowerTab() === 'layers'}>
-                <IconButton
-                  size="xs"
-                  variant="ghost"
-                  onClick={() => {
-                    const stack = viewportHandle?.getLayerStack()
-                    if (stack) {
-                      stack.addLayer()
-                      bumpLayers()
-                    }
-                  }}
-                  tooltip="Add new painting layer"
-                >
-                  <PlusIcon size={14} />
-                </IconButton>
+                  <IconButton
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => {
+                      const stack = viewportHandle?.getLayerStack()
+                      if (stack) {
+                        stack.addLayer()
+                        bumpLayers()
+                      }
+                    }}
+                    tooltip="Add new painting layer"
+                  >
+                    <PlusIcon size={14} />
+                  </IconButton>
                 </Show>
               </div>
 

@@ -14,6 +14,7 @@ export type ToolMode =
   | 'faceSelect'
   | 'effect'
   | 'faceProjector'
+  | 'text'
 export type BrushTextureMapping = 'uv' | 'triplanar' | 'tip'
 /**
  * How the selected region repeats across a stroke.
@@ -569,6 +570,20 @@ export function setTexturePath(path: string | null, resetColor = true): void {
   if (path && resetColor) {
     setColor('#ffffff')
   }
+}
+
+/**
+ * Points the brush at a texture the app generated rather than one the artist
+ * picked — currently the Text tool's rasterized string.
+ *
+ * Unlike setTexturePath this leaves the crop, the projector placement and the
+ * paint color alone: the texture is regenerated on every keystroke, and
+ * resetting the placement each time would throw away the offset/scale the
+ * artist just dialled in.
+ */
+export function setGeneratedTexturePath(path: string | null): void {
+  setMaterialSetRaw(null)
+  setTexturePathRaw(path)
 }
 
 function clamp(v: number, min: number, max: number): number {

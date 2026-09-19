@@ -133,7 +133,9 @@ export function updateProjectorPreview(rt: ViewportRuntime): void {
   // Its own tool, not folded into Face Select or Fill: those tools' click
   // behavior (paint, or start a fill drag) conflicts with "click a face to
   // preview & place a texture on it" — see the toolbar button's comment.
-  const visible = rt.props.tool() === 'faceProjector' && faces.size > 0 && !!brush.texturePath()
+  const tool = rt.props.tool()
+  const visible =
+    (tool === 'faceProjector' || tool === 'text') && faces.size > 0 && !!brush.texturePath()
 
   rt.setProjectorPreviewActive(visible)
 

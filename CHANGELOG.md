@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.4.0
+
+### Added
+- **Text Tool (Y)**: Select faces, type, and apply. Text renders to a transparent decal placed by the Face UV Projector. Font, alignment, bold/italic, spacing, fill, and outline, with a live preview. Baked into the layer, not re-editable.
+- **Font Picker**: Modal listing the system's installed fonts, each previewed in its own face, with search.
+
+### Fixed
+- **Tool Panel Focus**: Panels no longer rebuild their DOM on every state change, which stole focus from fields while typing.
+- **Brush Texture Memory**: The previous GPU texture is released on every texture swap.
+
 ## v2.3.0
 
 ### Added

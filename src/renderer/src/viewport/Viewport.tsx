@@ -573,9 +573,21 @@ export default function Viewport(props: ViewportProps): JSX.Element {
     updateProjectorPreviewUniforms(rt)
   })
 
+  // Nothing caches these loads, so every texture swap allocates a fresh GPU
+  // texture. That is invisible for shelf browsing but not for the Text tool,
+  // which regenerates on every keystroke — the old one has to be released.
+  let previousBrushTexture: THREE.Texture | null = null
+  const releasePreviousBrushTexture = (next: THREE.Texture | null): void => {
+    if (previousBrushTexture && previousBrushTexture !== next) {
+      previousBrushTexture.dispose()
+    }
+    previousBrushTexture = next
+  }
+
   createEffect(() => {
     const path = brush.texturePath()
     if (!path) {
+      releasePreviousBrushTexture(null)
       rt.brushTexture = null
       if (rt.currentHit) {
         updateGizmo(gizmoCtx, rt.currentHit)
@@ -590,6 +602,7 @@ export default function Viewport(props: ViewportProps): JSX.Element {
       // TGALoader hands back a texture with no mipmaps configured the way the
       // image loader's does; regenerate so a tiled material doesn't shimmer.
       texture.needsUpdate = true
+      releasePreviousBrushTexture(texture)
       rt.brushTexture = texture
       if (rt.currentHit) {
         updateGizmo(gizmoCtx, rt.currentHit)

@@ -11,6 +11,7 @@ import {
   MousePointerIcon,
   CompassIcon,
   FocusIcon,
+  TextIcon,
   EdgeWearIcon
 } from './icons'
 import { IconButton } from './ui'
@@ -130,6 +131,16 @@ export default function WorkstationShelf(props: WorkstationShelfProps): JSX.Elem
         tooltip="Face Selection Mask (V)"
       >
         <MousePointerIcon size={18} />
+      </IconButton>
+
+      <IconButton
+        size="sm"
+        active={props.activeTool === 'text'}
+        onClick={() => props.onSelectTool('text')}
+        shortcut="Y"
+        tooltip="Text on Faces (Y)"
+      >
+        <TextIcon size={18} />
       </IconButton>
 
       <IconButton
