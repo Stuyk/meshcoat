@@ -9,7 +9,7 @@ import {
 } from '../paint/brush'
 import { groupMaterialSets, paintableChannels, type MaterialSet } from '../paint/materialSets'
 import { CHANNEL_SPECS } from '../paint/channels'
-import { Button, IconButton, SearchInput, Label } from './ui'
+import { Button, IconButton, SearchInput, Label, Select } from './ui'
 import { FolderOpenIcon, XIcon, CheckIcon, StampIcon, ClipboardIcon, Trash2Icon } from './icons'
 import { toAssetUrl } from '../utils/assetUrl'
 import { isBrowserDisplayable } from '../utils/textureLoad'
@@ -21,12 +21,17 @@ const ROW_GAP = 10
 const ROW_STEP = ROW_CONTENT_HEIGHT + ROW_GAP
 const OVERSCAN_ROWS = 4
 
+/** Folder-filter value meaning "don't filter" — not a legal relative path. */
+const ALL_FOLDERS = '\u0000all'
+
 const SOLID_CARD = Symbol('solid-card')
 /** A shelf entry: the solid-color swatch, a grouped PBR material set, or a loose image. */
 type ShelfItem = string | typeof SOLID_CARD | MaterialSet
 
 export default function TextureShelf(props: {
   textures: string[]
+  /** Folder the textures were loaded from; enables the subfolder filter. */
+  textureRoot?: string | null
   onPickFolder: () => void
   onClearFolder: () => void
   isMaskTarget?: () => boolean
@@ -34,6 +39,48 @@ export default function TextureShelf(props: {
 }) {
   const [searchQuery, setSearchQuery] = createSignal('')
   const [activeShelf, setActiveShelf] = createSignal<'all' | 'used' | 'pasted'>('all')
+  /** Subfolder filter for the All tab: ALL_FOLDERS, '' for the root, or a relative path. */
+  const [folderFilter, setFolderFilter] = createSignal(ALL_FOLDERS)
+
+  /**
+   * Folder of `path` relative to the loaded root, '/'-separated, '' for files
+   * sitting in the root itself. Paths outside the root (shouldn't happen) are
+   * treated as root files so they never vanish behind the filter.
+   */
+  const relativeFolder = (path: string): string => {
+    const root = props.textureRoot
+    if (!root) {
+      return ''
+    }
+    const norm = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '')
+    const dir = norm(path).replace(/\/[^/]*$/, '')
+    const base = norm(root)
+    if (dir === base || !dir.startsWith(base + '/')) {
+      return ''
+    }
+    return dir.slice(base.length + 1)
+  }
+
+  const folders = createMemo<string[]>(() => {
+    const set = new Set(props.textures.map(relativeFolder))
+    return [...set].sort((a, b) => (a === '' ? -1 : b === '' ? 1 : a.localeCompare(b)))
+  })
+
+  // A new library means the old subfolder name is meaningless.
+  createEffect(on(() => props.textures, () => setFolderFilter(ALL_FOLDERS), { defer: true }))
+
+  const folderOptions = (): { value: string; label: string }[] => [
+    { value: ALL_FOLDERS, label: `All folders (${folders().length})` },
+    ...folders().map((f) => ({
+      value: f,
+      label: f === '' ? `${fileName(props.textureRoot, 'Root')} (root)` : f
+    }))
+  ]
+
+  const filteredByFolder = (): string[] => {
+    const f = folderFilter()
+    return f === ALL_FOLDERS ? props.textures : props.textures.filter((p) => relativeFolder(p) === f)
+  }
 
   const pastedUrls = (): string[] => brush.pastedTextures().map((t) => t.url)
 
@@ -55,7 +102,7 @@ export default function TextureShelf(props: {
       ? brush.recentTextures()
       : activeShelf() === 'pasted'
         ? pastedUrls()
-        : props.textures
+        : filteredByFolder()
 
   /**
    * Pulls whatever image is on the system clipboard onto the Pasted shelf and
@@ -304,7 +351,20 @@ export default function TextureShelf(props: {
         </div>
       </Show>
 
-      <Show when={sourceTextures().length > 0}>
+      <Show when={activeShelf() === 'all' && folders().length > 1}>
+        <div class="px-2 pt-1.5 bg-[var(--bg-panel)] shrink-0">
+          <Select
+            size="xs"
+            class="w-full"
+            value={folderFilter()}
+            onChange={setFolderFilter}
+            options={folderOptions()}
+            title="Show textures from one subfolder of the loaded library"
+          />
+        </div>
+      </Show>
+
+      <Show when={sourceTextures().length > 0 || folderFilter() !== ALL_FOLDERS}>
         <div class="px-2 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-panel)] shrink-0">
           <SearchInput
             value={searchQuery()}

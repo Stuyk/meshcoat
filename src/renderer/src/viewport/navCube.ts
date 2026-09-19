@@ -4,6 +4,12 @@ export interface NavCubeHandle {
   renderer: THREE.WebGLRenderer
   render: (mainCamera: THREE.Camera) => void
   resize: (size: number) => void
+  /**
+   * The face under a point on the cube's canvas, as the world direction from
+   * the orbit target to where the camera should sit to look at that side —
+   * or null when the click missed the cube.
+   */
+  pickFace: (clientX: number, clientY: number) => THREE.Vector3 | null
   dispose: () => void
 }
 
@@ -63,6 +69,8 @@ export function createNavCube(canvas: HTMLCanvasElement, size: number): NavCubeH
   cube.add(edges)
 
   const inverseQuat = new THREE.Quaternion()
+  const raycaster = new THREE.Raycaster()
+  const ndc = new THREE.Vector2()
 
   return {
     renderer,
@@ -73,6 +81,19 @@ export function createNavCube(canvas: HTMLCanvasElement, size: number): NavCubeH
     },
     resize: (newSize: number) => {
       renderer.setSize(newSize, newSize, false)
+    },
+    pickFace: (clientX: number, clientY: number) => {
+      const rect = canvas.getBoundingClientRect()
+      ndc.set(
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        -((clientY - rect.top) / rect.height) * 2 + 1
+      )
+      raycaster.setFromCamera(ndc, camera)
+      const hit = raycaster.intersectObject(cube, false)[0]
+      // The cube carries the inverse camera rotation, so a face's normal in
+      // the cube's own (unrotated) space is exactly the world direction the
+      // camera looks from when that face is square to the screen.
+      return hit?.face ? hit.face.normal.clone() : null
     },
     dispose: () => {
       materials.forEach((m) => {

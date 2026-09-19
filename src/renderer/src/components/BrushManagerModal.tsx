@@ -1,7 +1,7 @@
 import { createSignal, createMemo, Show, For } from 'solid-js'
 import { Modal, Button, SearchInput, Label } from './ui'
 import { brushPresets, type AbrBrushPreset } from '../paint/brushPresets'
-import { TrashIcon, UploadIcon, FolderOpenIcon, SparklesIcon, LayersPlusIcon } from './icons'
+import { TrashIcon, UploadIcon, FolderOpenIcon, LibraryIcon, LayersPlusIcon } from './icons'
 
 export default function BrushManagerModal(props: { isOpen: boolean; onClose: () => void }) {
   let fileInputRef: HTMLInputElement | undefined
@@ -103,7 +103,7 @@ export default function BrushManagerModal(props: { isOpen: boolean; onClose: () 
       isOpen={props.isOpen}
       onClose={props.onClose}
       title="Brush Preset Manager"
-      icon={(p) => <SparklesIcon size={p.size} class="text-amber-400" />}
+      icon={(p) => <LibraryIcon size={p.size} class="text-amber-400" />}
       size="xl"
       footer={
         <div class="flex items-center justify-between w-full">

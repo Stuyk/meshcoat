@@ -61,8 +61,9 @@ const api = {
   pickTextureFolder: (): Promise<string[] | null> => ipcRenderer.invoke('folder:pick-textures'),
   loadLastTextureFolder: (): Promise<string[] | null> =>
     ipcRenderer.invoke('folder:load-last-textures'),
-  listTexturesInFolder: (dir: string): Promise<string[] | null> =>
-    ipcRenderer.invoke('folder:list-textures-in', dir),
+  listTexturesInFolder: (dir: string, recursive?: boolean): Promise<string[] | null> =>
+    ipcRenderer.invoke('folder:list-textures-in', dir, recursive),
+  getTextureFolderRoot: (): Promise<string | null> => ipcRenderer.invoke('folder:last-texture-root'),
   savePng: (filePath: string, dataUrl: string): Promise<boolean> =>
     ipcRenderer.invoke('file:save-png', filePath, dataUrl),
   readClipboardImage: (): Promise<{ dataUrl: string; width: number; height: number } | null> =>

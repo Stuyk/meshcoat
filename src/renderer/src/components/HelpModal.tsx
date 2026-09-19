@@ -13,6 +13,7 @@ import {
   FillIcon,
   EyedropperIcon,
   SparklesIcon,
+  EdgeWearIcon,
   ImagesIcon,
   SymmetryIcon,
   CubeIcon,
@@ -811,7 +812,7 @@ export default function HelpModal(props: { isOpen: boolean; onClose: () => void 
             <div class="p-3.5 bg-gradient-to-r from-amber-950/30 to-zinc-950/60 border border-amber-500/30 rounded-xl flex flex-col gap-2">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
-                  <SparklesIcon size={16} class="text-amber-400" />
+                  <EdgeWearIcon size={16} class="text-amber-400" />
                   <h3 class="text-xs font-semibold text-zinc-100">Procedural Edge Wear Wizard</h3>
                 </div>
                 <span class="text-[10px] text-amber-300 font-mono">Curvature Detection</span>

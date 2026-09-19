@@ -64,7 +64,11 @@ export {
   Clock as ClockIcon,
   BookOpen as BookOpenIcon,
   Compass as CompassIcon,
-  FileText as FileTextIcon
+  FileText as FileTextIcon,
+  Hammer as EdgeWearIcon,
+  SwatchBook as MaterialChannelsIcon,
+  Library as LibraryIcon,
+  Bookmark as BookmarkIcon
 } from 'lucide-solid'
 
 export function AppIcon(props: { size?: number; class?: string }) {

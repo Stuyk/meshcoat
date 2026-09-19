@@ -62,6 +62,9 @@ export default function Viewport(props: ViewportProps): JSX.Element {
   let orbitGizmoDragging = false
   let orbitGizmoLastX = 0
   let orbitGizmoLastY = 0
+  // Total travel of the current press — under a few pixels it's a click,
+  // which snaps the view to the clicked face instead of orbiting.
+  let orbitGizmoTravel = 0
   let navCubeCanvasRef: HTMLCanvasElement | undefined
   let navCubeHandle: NavCubeHandle | undefined
 
@@ -73,10 +76,17 @@ export default function Viewport(props: ViewportProps): JSX.Element {
     const dy = e.clientY - orbitGizmoLastY
     orbitGizmoLastX = e.clientX
     orbitGizmoLastY = e.clientY
+    orbitGizmoTravel += Math.abs(dx) + Math.abs(dy)
     rt.sceneHandle.controls.orbitBy(dx, dy)
   }
 
-  const onOrbitGizmoPointerUp = (): void => {
+  const onOrbitGizmoPointerUp = (e: PointerEvent): void => {
+    if (orbitGizmoDragging && orbitGizmoTravel < 4 && rt.sceneHandle) {
+      const direction = navCubeHandle?.pickFace(e.clientX, e.clientY)
+      if (direction) {
+        rt.sceneHandle.controls.snapToDirection(direction)
+      }
+    }
     orbitGizmoDragging = false
     window.removeEventListener('pointermove', onOrbitGizmoPointerMove)
     window.removeEventListener('pointerup', onOrbitGizmoPointerUp)
@@ -86,6 +96,7 @@ export default function Viewport(props: ViewportProps): JSX.Element {
     e.preventDefault()
     e.stopPropagation()
     orbitGizmoDragging = true
+    orbitGizmoTravel = 0
     orbitGizmoLastX = e.clientX
     orbitGizmoLastY = e.clientY
     window.addEventListener('pointermove', onOrbitGizmoPointerMove)
@@ -325,7 +336,7 @@ export default function Viewport(props: ViewportProps): JSX.Element {
       loadFromUrl: (url, extension, textureSize, initialTextures) =>
         loadFromUrl(rt, url, extension, textureSize, initialTextures),
       loadDefaultModel: (textureSize, primitive) => loadDefaultModel(rt, textureSize, primitive),
-      loadProject: (project, snapshots) => loadProject(rt, project, snapshots),
+      loadProject: (project, snapshots, options) => loadProject(rt, project, snapshots, options),
       focusModel: () => frameSelectionOrModel(rt),
       pieces: () =>
         rt.pieces.map((piece, index) => ({
@@ -763,7 +774,7 @@ export default function Viewport(props: ViewportProps): JSX.Element {
         width={108}
         height={108}
         class="absolute top-3 right-3 z-20 w-[108px] h-[108px] cursor-grab active:cursor-grabbing select-none touch-none"
-        title="Drag to orbit camera"
+        title="Drag to orbit camera, click a face to snap to that view"
         onPointerDown={onOrbitGizmoPointerDown}
       />
       {/* Screen-space stencil sheet. Positioned from the exact same

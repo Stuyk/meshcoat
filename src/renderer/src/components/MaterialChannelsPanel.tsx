@@ -2,7 +2,7 @@ import { For, Show, type JSX } from 'solid-js'
 import { brush } from '../paint/brush'
 import { CHANNEL_SPECS, PAINT_CHANNELS, type PaintChannel } from '../paint/channels'
 import { PanelSection, Slider, Label } from './ui'
-import { SparklesIcon, CircleDotIcon, FeatherIcon, CheckIcon } from './icons'
+import { SparklesIcon, MaterialChannelsIcon, CircleDotIcon, FeatherIcon, CheckIcon } from './icons'
 
 /** Distinct accent colors per channel for quick recognition. */
 const CHANNEL_ACCENT: Record<PaintChannel, string> = {
@@ -34,7 +34,7 @@ export default function MaterialChannelsPanel(props: MaterialChannelsPanelProps)
   return (
     <PanelSection
       title="Material Channels"
-      icon={(p) => <SparklesIcon size={p.size} class="text-amber-400" />}
+      icon={(p) => <MaterialChannelsIcon size={p.size} class="text-amber-400" />}
       badge={enabledCount()}
     >
       <Show

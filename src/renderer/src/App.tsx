@@ -49,6 +49,8 @@ import {
   DownloadIcon,
   RefreshCwIcon,
   SparklesIcon,
+  EdgeWearIcon,
+  BookmarkIcon,
   PlusIcon,
   CubeIcon,
   ChevronDownIcon,
@@ -69,11 +71,20 @@ import {
   brush,
   setTexturePath,
   clearFaceSelection,
+  setSelectedFaces,
   setTextureScale,
   stepRadius,
   type ToolMode
 } from './paint/brush'
 import { DEFAULT_TEXTURE_SIZE, type TextureSize } from './paint/paintEngine'
+import {
+  selectionGroups,
+  saveSelectionGroup,
+  setSelectionGroups,
+  type SelectionGroup
+} from './paint/selectionGroups'
+import type { MeshCoatProject } from './utils/projectSerializer'
+import SelectionGroupsPanel from './components/SelectionGroupsPanel'
 
 export default function App(): JSX.Element {
   const [activeTool, setActiveTool] = createSignal<ToolMode>('brush')
@@ -84,6 +95,8 @@ export default function App(): JSX.Element {
   const [wireframeVisible, setWireframeVisibleSignal] = createSignal(false)
   const [isolatePiece, setIsolatePieceSignal] = createSignal(false)
   const [textures, setTextures] = createSignal<string[]>([])
+  /** Folder the shelf was loaded from, so it can offer its subfolders as a filter. */
+  const [textureRoot, setTextureRoot] = createSignal<string | null>(null)
   const [layersVersion, setLayersVersion] = createSignal(0)
   const [piecesVersion, setPiecesVersion] = createSignal(0)
   const [showStencilPanel, setShowStencilPanel] = createSignal(false)
@@ -134,6 +147,46 @@ export default function App(): JSX.Element {
   const [toast, setToast] = createSignal<ToastData | null>(null)
   const [showPieceMenu, setShowPieceMenu] = createSignal(false)
   const [showEdgeWearWizard, setShowEdgeWearWizard] = createSignal(false)
+  /** Which view the lower sidebar panel shows. */
+  const [lowerTab, setLowerTab] = createSignal<'layers' | 'selections'>('layers')
+
+  const activePieceName = (): string => modelPieces()[activePiece()]?.name ?? ''
+
+  /** Switches to the group's piece if needed, then restores its faces. */
+  function recallSelectionGroup(group: SelectionGroup): void {
+    const piece = modelPieces().find((p) => p.name === group.piece)
+    if (!piece) {
+      showToast(`"${group.name}" belongs to a piece this model no longer has`, 'warning')
+      return
+    }
+    if (piece.index !== activePiece()) {
+      // Switching pieces clears the selection, so it has to happen first.
+      viewportHandle?.setActivePiece(piece.index)
+    }
+    // Guard against a model whose topology changed since the group was saved.
+    const faces = group.faces.filter((f) => f >= 0 && f < piece.faceCount)
+    setSelectedFaces(faces)
+    showToast(`Selected "${group.name}" (${faces.length} faces)`, 'info')
+  }
+
+  function saveCurrentSelectionGroup(name: string): void {
+    saveSelectionGroup(name, activePieceName(), brush.selectedFaces())
+    setIsDirty(true)
+    showToast(`Saved selection group "${name}"`, 'success')
+  }
+
+  /** Loads the groups a project file carries (none for older files). */
+  function restoreSelectionGroups(project: MeshCoatProject): void {
+    setSelectionGroups(
+      (project.pieces ?? []).flatMap((piece) =>
+        (piece.selectionGroups ?? []).map((g) => ({
+          name: g.name,
+          piece: piece.name,
+          faces: g.faces
+        }))
+      )
+    )
+  }
   const [modelName, setModelName] = createSignal('Default Model')
   const [textureSize, setTextureSize] = createSignal<TextureSize>(DEFAULT_TEXTURE_SIZE)
   const [showStartWizard, setShowStartWizard] = createSignal(true)
@@ -155,6 +208,7 @@ export default function App(): JSX.Element {
     lastFolderLoaded = true
     const paths = await window.api.loadLastTextureFolder()
     if (paths && paths.length > 0) {
+      setTextureRoot(await window.api.getTextureFolderRoot())
       setTextures(paths)
     }
   }
@@ -386,6 +440,7 @@ export default function App(): JSX.Element {
       showToast(`Painting at ${allocated}px to match the imported textures`, 'info')
     }
     setModelName(filename)
+    setSelectionGroups([])
     setCurrentModelPath(path)
     setCurrentProjectPath(null)
     setIsDirty(false)
@@ -393,8 +448,9 @@ export default function App(): JSX.Element {
 
     if (textureFolderPath) {
       try {
-        const files = await window.api.listTexturesInFolder(textureFolderPath)
+        const files = await window.api.listTexturesInFolder(textureFolderPath, true)
         if (files && files.length > 0) {
+          setTextureRoot(textureFolderPath)
           setTextures(files)
         }
       } catch {
@@ -432,6 +488,7 @@ export default function App(): JSX.Element {
     }
     const { project, stackSnapshots } = await deserializeProject(content)
     await handle.loadProject(project, stackSnapshots)
+    restoreSelectionGroups(project)
     setTextureSize(project.textureSize as TextureSize)
     setModelName(project.name || project.modelName)
     setCurrentModelPath(project.modelPath)
@@ -441,10 +498,50 @@ export default function App(): JSX.Element {
     showToast(`Loaded project: ${project.name}`, 'success')
   }
 
+  /**
+   * Re-imports the model from disk after it was edited elsewhere (Blender,
+   * etc.), keeping every layer. Round-trips through the project format, so
+   * layers land back on pieces by name exactly as opening a saved project does.
+   */
+  async function handleReloadModel(): Promise<void> {
+    const modelPath = currentModelPath()
+    const handle = viewportHandle
+    if (!modelPath || !handle) {
+      showToast('No model file to reload — open one from disk first', 'warning')
+      return
+    }
+    const ok = window.confirm(
+      'Reload the model from disk?\n\n' +
+        'Your layers are kept, but they are stored against the UV layout. ' +
+        'If you changed the UVs, existing paint will no longer line up. ' +
+        'Undo history is cleared.'
+    )
+    if (!ok) {
+      return
+    }
+    try {
+      const content = serializeProject({
+        modelPath,
+        modelName: modelName(),
+        pieces: projectPieces(),
+        activePieceIndex: handle.activePieceIndex()
+      })
+      const { project, stackSnapshots } = await deserializeProject(content)
+      await handle.loadProject(project, stackSnapshots, { reload: true })
+      restoreSelectionGroups(project)
+      setIsDirty(true)
+      showToast(`Reloaded ${modelPath.split(/[/\\]/).pop()}`, 'success')
+    } catch (err) {
+      console.error('Model reload failed:', err)
+      showToast(`Reload failed: ${err instanceof Error ? err.message : String(err)}`, 'error')
+    }
+  }
+
   async function handleRestoreRecovery(recoveryData: string): Promise<void> {
     const handle = await getReadyViewport()
     const { project, stackSnapshots } = await deserializeProject(recoveryData)
     await handle.loadProject(project, stackSnapshots)
+    restoreSelectionGroups(project)
     setTextureSize(project.textureSize as TextureSize)
     setModelName(project.name || project.modelName)
     setCurrentModelPath(project.modelPath)
@@ -500,6 +597,7 @@ export default function App(): JSX.Element {
   async function pickTextureFolder(): Promise<void> {
     const paths = await window.api.pickTextureFolder()
     if (paths && paths.length > 0) {
+      setTextureRoot(await window.api.getTextureFolderRoot())
       setTextures(paths)
       showToast(`Loaded ${paths.length} textures`, 'info')
     }
@@ -507,6 +605,7 @@ export default function App(): JSX.Element {
 
   function clearTextureFolder(): void {
     setTextures([])
+    setTextureRoot(null)
     setTexturePath(null)
     showToast('Cleared texture shelf', 'info')
   }
@@ -911,6 +1010,12 @@ export default function App(): JSX.Element {
       onClick: () => void handleBrowseAndOpenModel()
     },
     {
+      label: 'Reload Model from Disk',
+      icon: (p) => <RefreshCwIcon size={p.size} />,
+      disabled: !currentModelPath(),
+      onClick: () => void handleReloadModel()
+    },
+    {
       label: 'Open Project File...',
       icon: (p) => <FolderOpenIcon size={p.size} />,
       onClick: () => void handleBrowseAndOpenProject()
@@ -989,7 +1094,7 @@ export default function App(): JSX.Element {
     { type: 'divider' },
     {
       label: 'Edge Wear & Highlights...',
-      icon: (p) => <SparklesIcon size={p.size} class="text-amber-400" />,
+      icon: (p) => <EdgeWearIcon size={p.size} class="text-amber-400" />,
       onClick: () => setShowEdgeWearWizard(true)
     },
     { type: 'divider' },
@@ -1003,6 +1108,27 @@ export default function App(): JSX.Element {
       label: 'Deselect Faces',
       shortcut: 'Esc',
       onClick: clearFaceSelection
+    },
+    {
+      label: 'Save Selection as Group...',
+      icon: (p) => <BookmarkIcon size={p.size} class="text-amber-400" />,
+      disabled: brush.selectedFaces().size === 0,
+      onClick: () => setLowerTab('selections')
+    },
+    {
+      label: 'Selection Groups',
+      icon: (p) => <BookmarkIcon size={p.size} />,
+      disabled: selectionGroups().length === 0,
+      submenu: [
+        ...selectionGroups().map(
+          (g): MenuItem => ({
+            label: modelPieces().length > 1 ? `${g.name} — ${g.piece}` : g.name,
+            onClick: () => recallSelectionGroup(g)
+          })
+        ),
+        { type: 'divider' },
+        { label: 'Manage Groups...', onClick: () => setLowerTab('selections') }
+      ]
     }
   ]
 
@@ -1071,6 +1197,7 @@ export default function App(): JSX.Element {
 
         <TextureShelf
           textures={textures()}
+          textureRoot={textureRoot()}
           onPickFolder={pickTextureFolder}
           onClearFolder={clearTextureFolder}
           onToast={showToast}
@@ -1178,12 +1305,34 @@ export default function App(): JSX.Element {
 
             <div class="h-[340px] flex flex-col bg-[var(--bg-panel)]">
               <div class="h-9 px-3 flex items-center justify-between border-b border-[var(--border-color)] bg-[var(--bg-panel-header)] shrink-0">
-                <div class="flex items-center gap-2">
-                  <LayersIcon size={15} class="text-purple-400" />
-                  <Label uppercase badge={currentLayerCount()}>
-                    Layers
-                  </Label>
+                <div class="flex items-center gap-3 h-full">
+                  <button
+                    type="button"
+                    onClick={() => setLowerTab('layers')}
+                    class={`h-full flex items-center gap-2 border-b-2 cursor-pointer ${
+                      lowerTab() === 'layers' ? 'border-purple-400' : 'border-transparent opacity-60 hover:opacity-100'
+                    }`}
+                  >
+                    <LayersIcon size={15} class="text-purple-400" />
+                    <Label uppercase badge={currentLayerCount()}>
+                      Layers
+                    </Label>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLowerTab('selections')}
+                    title="Saved face selection groups"
+                    class={`h-full flex items-center gap-2 border-b-2 cursor-pointer ${
+                      lowerTab() === 'selections' ? 'border-amber-400' : 'border-transparent opacity-60 hover:opacity-100'
+                    }`}
+                  >
+                    <BookmarkIcon size={14} class="text-amber-400" />
+                    <Label uppercase badge={selectionGroups().filter((g) => g.piece === activePieceName()).length}>
+                      Selections
+                    </Label>
+                  </button>
                 </div>
+                <Show when={lowerTab() === 'layers'}>
                 <IconButton
                   size="xs"
                   variant="ghost"
@@ -1198,6 +1347,7 @@ export default function App(): JSX.Element {
                 >
                   <PlusIcon size={14} />
                 </IconButton>
+                </Show>
               </div>
 
               <Show when={modelPieces().length > 1}>
@@ -1258,12 +1408,23 @@ export default function App(): JSX.Element {
                 </div>
               </Show>
               <div class="flex-1 overflow-hidden">
-                <LayersTab
-                  getStack={() => viewportHandle?.getLayerStack()}
-                  version={layersVersion()}
-                  onChange={bumpLayers}
-                  hideHeader={true}
-                />
+                <Show
+                  when={lowerTab() === 'layers'}
+                  fallback={
+                    <SelectionGroupsPanel
+                      pieceName={activePieceName()}
+                      onSave={saveCurrentSelectionGroup}
+                      onRecall={recallSelectionGroup}
+                    />
+                  }
+                >
+                  <LayersTab
+                    getStack={() => viewportHandle?.getLayerStack()}
+                    version={layersVersion()}
+                    onChange={bumpLayers}
+                    hideHeader={true}
+                  />
+                </Show>
               </div>
             </div>
           </Show>

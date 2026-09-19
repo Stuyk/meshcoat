@@ -32,6 +32,7 @@ export class OrbitPanZoomControls {
   private dragging: 'orbit' | 'pan' | 'zoom' | null = null
   private lastX = 0
   private lastY = 0
+  private snapRaf = 0
 
   constructor(camera: THREE.PerspectiveCamera, domElement: HTMLElement) {
     this.camera = camera
@@ -50,6 +51,7 @@ export class OrbitPanZoomControls {
   }
 
   dispose(): void {
+    cancelAnimationFrame(this.snapRaf)
     this.domElement.removeEventListener('pointerdown', this.onPointerDown)
     this.domElement.removeEventListener('wheel', this.onWheel)
     this.domElement.removeEventListener('contextmenu', this.onContextMenu)
@@ -103,6 +105,8 @@ export class OrbitPanZoomControls {
     if (!this.dragging) {
       return
     }
+    // Grabbing the view mid-snap hands control back to the artist.
+    cancelAnimationFrame(this.snapRaf)
     const dx = e.clientX - this.lastX
     const dy = e.clientY - this.lastY
     this.lastX = e.clientX
@@ -147,6 +151,56 @@ export class OrbitPanZoomControls {
     this.spherical.theta -= dx * 0.005
     this.spherical.phi -= dy * 0.005
     this.spherical.phi = Math.max(0.001, Math.min(Math.PI - 0.001, this.spherical.phi))
+    this.applySpherical()
+  }
+
+  /**
+   * Swings the camera round `target` until it looks along -`direction` (so
+   * `direction` points from the target back at the camera), keeping the
+   * current distance. Used by the nav cube: click RIGHT, see the right side.
+   * Animated so the artist keeps their bearings; the shorter way round wins.
+   */
+  snapToDirection(direction: THREE.Vector3, durationMs = 220): void {
+    cancelAnimationFrame(this.snapRaf)
+    this.syncSphericalFromCamera()
+    const goal = new THREE.Spherical().setFromVector3(direction.clone().normalize())
+    // Straight up/down would put the camera on the pole, where lookAt has no
+    // defined "up" and the view spins — stop just short, like orbitBy does.
+    goal.phi = Math.max(0.001, Math.min(Math.PI - 0.001, goal.phi))
+    const startTheta = this.spherical.theta
+    const startPhi = this.spherical.phi
+    // On a pole theta is meaningless, so keep the current heading rather than
+    // spinning to an arbitrary one.
+    const poleGoal = Math.abs(direction.x) < 1e-6 && Math.abs(direction.z) < 1e-6
+    const goalTheta = poleGoal ? startTheta : goal.theta
+    let deltaTheta = (goalTheta - startTheta) % (Math.PI * 2)
+    if (deltaTheta > Math.PI) {
+      deltaTheta -= Math.PI * 2
+    } else if (deltaTheta < -Math.PI) {
+      deltaTheta += Math.PI * 2
+    }
+    const deltaPhi = goal.phi - startPhi
+    const start = performance.now()
+
+    const step = (now: number): void => {
+      const t = Math.min(1, (now - start) / durationMs)
+      const eased = 1 - Math.pow(1 - t, 3)
+      this.spherical.theta = startTheta + deltaTheta * eased
+      this.spherical.phi = startPhi + deltaPhi * eased
+      this.applySpherical()
+      if (t < 1) {
+        this.snapRaf = requestAnimationFrame(step)
+      }
+    }
+    this.snapRaf = requestAnimationFrame(step)
+  }
+
+  /** Puts the camera back at a saved position/target, keeping orbit state in step. */
+  setView(position: THREE.Vector3, target: THREE.Vector3): void {
+    cancelAnimationFrame(this.snapRaf)
+    this.target.copy(target)
+    this.camera.position.copy(position)
+    this.syncSphericalFromCamera()
     this.applySpherical()
   }
 

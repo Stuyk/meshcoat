@@ -760,6 +760,11 @@ export function invertFaceSelection(totalFaces: number): void {
   setSelectedFacesRaw(next)
 }
 
+/** Replaces the selection wholesale, e.g. when recalling a saved selection group. */
+export function setSelectedFaces(faces: Iterable<number>): void {
+  setSelectedFacesRaw(new Set<number>(faces))
+}
+
 export function clearFaceSelection(): void {
   setSelectedFacesRaw(new Set<number>())
 }
