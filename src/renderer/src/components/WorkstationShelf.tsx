@@ -11,7 +11,7 @@ import {
   MousePointerIcon,
   CompassIcon,
   FocusIcon,
-  SparklesIcon
+  EdgeWearIcon
 } from './icons'
 import { IconButton } from './ui'
 import type { ToolMode } from '../paint/brush'
@@ -160,7 +160,7 @@ export default function WorkstationShelf(props: WorkstationShelfProps): JSX.Elem
         onClick={props.onToggleEdgeWearWizard}
         tooltip="Edge Wear & Chipping Wizard"
       >
-        <SparklesIcon size={18} class="text-amber-400" />
+        <EdgeWearIcon size={18} class="text-amber-400" />
       </IconButton>
     </nav>
   )

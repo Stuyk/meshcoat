@@ -2,6 +2,7 @@ import type { LayerStack, StackSnapshot } from '../paint/layers'
 import type { CpuPixelSnapshot } from '../paint/paintEngine'
 import type { BlendMode } from '../paint/blendShader'
 import { PBR_CHANNELS, type PbrChannel } from '../paint/channels'
+import { groupsForPiece } from '../paint/selectionGroups'
 
 export interface SerializedLayer {
   id: number
@@ -47,6 +48,8 @@ export interface SerializedPiece {
   textureSize: number
   activeLayerId: number
   layers: SerializedLayer[]
+  /** Named face selections on this piece. Optional — absent in older files. */
+  selectionGroups?: { name: string; faces: number[] }[]
 }
 
 export interface MeshCoatProject {
@@ -177,6 +180,10 @@ export function serializeProject(options: {
         blendMode: l.blendMode,
         dataUrl: cpuSnapshotToDataUrl(l.pixels),
         channelDataUrls: serializeChannels(l.pixels)
+      })),
+      selectionGroups: groupsForPiece(name).map(({ name: groupName, faces }) => ({
+        name: groupName,
+        faces
       }))
     }
   })

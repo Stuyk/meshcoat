@@ -496,11 +496,9 @@ export default function StartWizardModal(props: StartWizardModalProps) {
   async function browseTextureFolder(): Promise<void> {
     const files = await window.api.pickTextureFolder()
     if (files && files.length > 0) {
-      const firstFile = files[0]
-      const slash = Math.max(firstFile.lastIndexOf('/'), firstFile.lastIndexOf('\\'))
-      if (slash >= 0) {
-        setTextureFolderPath(firstFile.slice(0, slash))
-      }
+      // The listing includes subfolders, so the first file's directory isn't
+      // necessarily the picked one — ask for the folder itself.
+      setTextureFolderPath(await window.api.getTextureFolderRoot())
     }
   }
 

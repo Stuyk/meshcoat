@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.3.0
+
+### Added
+- **Selection Groups**: Save face selections by name and reselect them from the new Selections tab. Stored in the project file.
+- **Reload Model from Disk**: File menu option to re-import an edited model while keeping layers.
+- **Texture Subfolders**: Texture folders load their subfolders, with a dropdown to filter by folder.
+- **Nav Cube Snap**: Click a face of the top-right cube to snap the camera to that view.
+- **Texture Region Angle Input**: Type an exact rotation or snap to 0°/90°/180°/-90°.
+
+### Changed
+- **Distinct Icons**: Material Channels, Edge Wear, and Brush Library each have their own icon.
+
 ## v2.2.4
 
 ### Fixed

@@ -1,7 +1,7 @@
 import { Show, createSignal, onCleanup, type JSX } from 'solid-js'
 import { brush, setTextureRegion, resetTextureRegion, type ToolMode } from '../paint/brush'
 import { CropIcon, RefreshCwIcon, XIcon } from './icons'
-import { IconButton, Slider, Label } from './ui'
+import { IconButton, Slider, Label, NumberInput } from './ui'
 import { toAssetUrl } from '../utils/assetUrl'
 
 export interface TextureRegionHUDProps {
@@ -185,6 +185,37 @@ export default function TextureRegionHUD(props: TextureRegionHUDProps): JSX.Elem
           onChange={(v) => setTextureRegion({ rotation: v })}
           displayValue={(v) => `${Math.round(v)}°`}
         />
+
+        {/* Exact angle entry plus quarter-turn snaps: dragging the slider to
+            precisely 90° is fiddly, and trim pieces are almost always square
+            to the sheet. */}
+        <div class="flex items-center gap-1">
+          <NumberInput
+            class="w-16"
+            value={region().rotation}
+            min={-180}
+            max={180}
+            step={1}
+            precision={0}
+            unit="°"
+            title="Type an exact rotation"
+            onChange={(v) => setTextureRegion({ rotation: v })}
+          />
+          {[0, 90, 180, -90].map((deg) => (
+            <button
+              type="button"
+              onClick={() => setTextureRegion({ rotation: deg })}
+              title={`Snap rotation to ${deg}°`}
+              class={`flex-1 h-6 rounded border text-[10px] transition-colors cursor-pointer ${
+                Math.round(region().rotation) === deg
+                  ? 'bg-teal-500/20 border-teal-400/60 text-teal-200'
+                  : 'bg-zinc-850 hover:bg-zinc-800 border-zinc-700/80 text-zinc-300'
+              }`}
+            >
+              {deg}°
+            </button>
+          ))}
+        </div>
 
         {/* Grid quick-picks: a trim sheet or a stamp pack is laid out in cells,
             so slicing by 2x2 / 3x3 / 4x4 lands on one every time. */}

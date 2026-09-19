@@ -2,7 +2,7 @@ import { createSignal, createEffect, onMount, onCleanup, Show, For } from 'solid
 import * as THREE from 'three'
 import {
   XIcon,
-  SparklesIcon,
+  EdgeWearIcon,
   CheckIcon,
   PaletteIcon,
   ImagesIcon,
@@ -372,7 +372,7 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
       <div class="h-11 px-3.5 flex items-center justify-between border-b border-zinc-800 bg-zinc-950/60 flex-shrink-0">
         <div class="flex items-center gap-2.5">
           <div class="p-1 rounded-lg bg-amber-500/20 text-amber-400">
-            <SparklesIcon size={16} />
+            <EdgeWearIcon size={16} />
           </div>
           <div class="flex flex-col">
             <span class="text-xs font-semibold text-zinc-100">

@@ -151,12 +151,34 @@ app.whenReady().then(() => {
     }
   )
 
-  async function listTextures(dir: string): Promise<string[]> {
+  /**
+   * Image files in `dir`. With `depth` > 0 it also walks that many levels of
+   * subfolders, so a library split into metal/ grass/ stamps/ loads whole and
+   * the shelf can filter by folder. Root files come first; hidden folders are
+   * skipped.
+   */
+  async function listTextures(dir: string, depth = 0): Promise<string[]> {
     const entries = await readdir(dir, { withFileTypes: true })
-    return entries
+    const files = entries
       .filter((e) => e.isFile() && IMAGE_EXTENSIONS.has(extname(e.name).toLowerCase()))
       .map((e) => join(dir, e.name))
+    if (depth <= 0) {
+      return files
+    }
+    const subdirs = entries
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+      .sort((a, b) => a.name.localeCompare(b.name))
+    for (const sub of subdirs) {
+      try {
+        files.push(...(await listTextures(join(dir, sub.name), depth - 1)))
+      } catch {
+        // An unreadable subfolder shouldn't cost the rest of the library.
+      }
+    }
+    return files
   }
+
+  const TEXTURE_FOLDER_DEPTH = 3
 
   ipcMain.handle('folder:pick-textures', async () => {
     if (!mainWindow) {
@@ -172,7 +194,7 @@ app.whenReady().then(() => {
     }
     const dir = result.filePaths[0]
     setLastTextureFolder(dir)
-    return listTextures(dir)
+    return listTextures(dir, TEXTURE_FOLDER_DEPTH)
   })
 
   ipcMain.handle('folder:load-last-textures', async () => {
@@ -180,14 +202,16 @@ app.whenReady().then(() => {
     if (!dir || !existsSync(dir)) {
       return null
     }
-    return listTextures(dir)
+    return listTextures(dir, TEXTURE_FOLDER_DEPTH)
   })
 
-  ipcMain.handle('folder:list-textures-in', async (_e, dir: string) => {
+  ipcMain.handle('folder:last-texture-root', () => getLastTextureFolder() ?? null)
+
+  ipcMain.handle('folder:list-textures-in', async (_e, dir: string, recursive?: boolean) => {
     if (!dir || !existsSync(dir)) {
       return null
     }
-    return listTextures(dir)
+    return listTextures(dir, recursive ? TEXTURE_FOLDER_DEPTH : 0)
   })
 
   ipcMain.handle('file:save-png', async (_e, filePath: string, dataUrl: string) => {

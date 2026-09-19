@@ -236,7 +236,12 @@ export async function loadDefaultModel(
 export async function loadProject(
   rt: ViewportRuntime,
   project: MeshCoatProject,
-  snapshots: StackSnapshot[]
+  snapshots: StackSnapshot[],
+  /**
+   * Re-reading the same model after it was edited on disk: skip any cached
+   * copy and leave the camera where the artist had it.
+   */
+  options: { reload?: boolean } = {}
 ): Promise<void> {
   if (!rt.sceneHandle) {
     return
@@ -253,7 +258,8 @@ export async function loadProject(
       modelPath = res.glbPath
       ext = 'glb'
     }
-    const url = window.api.assetUrl(modelPath)
+    // The asset protocol ignores the query, so it only defeats caching.
+    const url = window.api.assetUrl(modelPath) + (options.reload ? `?v=${Date.now()}` : '')
     model = await loadModel(url, ext)
   } else {
     model = createDefaultTestModel()
@@ -261,7 +267,16 @@ export async function loadProject(
   clearCurrentModel(rt)
   rt.currentModel = model
   rt.sceneHandle.scene.add(model.root)
-  frameModel(rt, model)
+  if (options.reload) {
+    // frameModel also sizes shadows and the brush to the model; keep that
+    // without moving the camera.
+    const savedPos = rt.sceneHandle.camera.position.clone()
+    const savedTarget = rt.sceneHandle.controls.target.clone()
+    frameModel(rt, model)
+    rt.sceneHandle.controls.setView(savedPos, savedTarget)
+  } else {
+    frameModel(rt, model)
+  }
   const sizeByName: Record<string, number> = {}
   for (const saved of project.pieces ?? []) {
     if (saved.textureSize) {

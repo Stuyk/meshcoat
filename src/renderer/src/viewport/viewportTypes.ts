@@ -35,7 +35,11 @@ export interface ViewportHandle {
   ) => Promise<void>
   loadDefaultModel: (textureSize?: number, primitive?: 'sphere' | 'cube') => Promise<void>
   /** `snapshots` is one entry per saved piece, in the project's piece order. */
-  loadProject: (project: MeshCoatProject, snapshots: StackSnapshot[]) => Promise<void>
+  loadProject: (
+    project: MeshCoatProject,
+    snapshots: StackSnapshot[],
+    options?: { reload?: boolean }
+  ) => Promise<void>
   focusModel: () => void
   /** Every paintable piece of the loaded model, in mesh order. */
   pieces: () => PieceInfo[]
