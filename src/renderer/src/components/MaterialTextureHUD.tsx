@@ -6,13 +6,14 @@ import {
   setTextureMapping,
   setTextureRepeat,
   setFillMode,
+  setFaceProjection,
   type ToolMode,
   type FillMode,
   type BrushTextureMapping,
   type BrushTextureRepeat
 } from '../paint/brush'
 import { ImagesIcon, XIcon, Trash2Icon, SparklesIcon } from './icons'
-import { Slider, SegmentedControl, IconButton, Label, Button } from './ui'
+import { Slider, SegmentedControl, IconButton, Label, Button, NumberInput } from './ui'
 import { brushPresets } from '../paint/brushPresets'
 import { toAssetUrl } from '../utils/assetUrl'
 import { fileName } from '../utils/paths'
@@ -28,19 +29,14 @@ export interface MaterialTextureHUDProps {
 }
 
 export default function MaterialTextureHUD(props: MaterialTextureHUDProps): JSX.Element {
-  const isApplicableTool = (): boolean =>
-    props.activeTool === 'brush' ||
-    props.activeTool === 'fill' ||
-    props.activeTool === 'stamp' ||
-    props.activeTool === 'faceProjector'
-
-  const isVisible = (): boolean =>
-    props.isOpen && ((!!brush.texturePath() && isApplicableTool()) || props.activeTool === 'fill')
+  // Which tools show this panel at all is declared in paint/toolPanels.ts.
+  // This component only renders; it does not test the active tool to decide
+  // its own visibility.
 
   const filename = (): string => fileName(brush.texturePath())
 
   return (
-    <Show when={isVisible()}>
+    <Show when={props.isOpen}>
       <div
         class={
           props.docked
@@ -182,6 +178,91 @@ export default function MaterialTextureHUD(props: MaterialTextureHUDProps): JSX.
               class="w-full justify-between"
             />
           </div>
+
+          {/* What the crop does with the area being filled. This is the same
+              `fit` flag the Face UV Projector exposes, surfaced here because
+              the fill tool never shows that panel — without it, "fill this face
+              with this region" had no way to say whether the region should
+              cover the face or tile across it. */}
+          <div class="space-y-1">
+            <Label uppercase>Region Placement</Label>
+            <SegmentedControl
+              size="xs"
+              options={[
+                {
+                  value: 'fit',
+                  label: 'Fill Area',
+                  title:
+                    'Stretch one copy of the selected region across the filled face or selection'
+                },
+                {
+                  value: 'tile',
+                  label: 'Tile',
+                  title:
+                    "Repeat the region across the model's own UV at the tiling scale below, ignoring the filled area's size"
+                }
+              ]}
+              value={brush.faceProjection().fit ? 'fit' : 'tile'}
+              onChange={(m) => setFaceProjection({ fit: m === 'fit' })}
+              class="w-full justify-between"
+            />
+          </div>
+
+          {/*
+            Rotation of the PLACED copy, which is not the same thing as the
+            Rotation slider in the Texture Region panel.
+
+            Region rotation spins which pixels the crop reads, inside the crop —
+            so on a fitted fill its corners run out of crop and clamp to the
+            border texels. This one rotates the copy within the area being
+            filled (uProjRotation, applied before the fit remap), so a 45° decal
+            stays a clean 45° decal and whatever falls outside the area is
+            masked rather than smeared. In Tile mode it turns the whole tiling
+            lattice instead.
+          */}
+          <div class="space-y-1">
+            <Slider
+              label={brush.faceProjection().fit ? 'Fill Rotation' : 'Tiling Rotation'}
+              value={brush.faceProjection().rotation}
+              min={-180}
+              max={180}
+              step={1}
+              unit="°"
+              onChange={(v) => setFaceProjection({ rotation: v })}
+              displayValue={(v) => `${Math.round(v)}°`}
+            />
+
+            {/* Exact entry plus quarter-turn snaps, same as the region panel:
+                dragging to precisely 90° is fiddly and most placements are
+                square to the face. */}
+            <div class="flex items-center gap-1">
+              <NumberInput
+                class="w-16"
+                value={brush.faceProjection().rotation}
+                min={-180}
+                max={180}
+                step={1}
+                precision={0}
+                unit="°"
+                title="Type an exact rotation for the filled area"
+                onChange={(v) => setFaceProjection({ rotation: v })}
+              />
+              {[0, 90, 180, -90].map((deg) => (
+                <button
+                  type="button"
+                  onClick={() => setFaceProjection({ rotation: deg })}
+                  title={`Snap the fill rotation to ${deg}°`}
+                  class={`flex-1 h-6 rounded border text-[10px] transition-colors cursor-pointer ${
+                    Math.round(brush.faceProjection().rotation) === deg
+                      ? 'bg-teal-500/20 border-teal-400/60 text-teal-200'
+                      : 'bg-zinc-850 hover:bg-zinc-800 border-zinc-700/80 text-zinc-300'
+                  }`}
+                >
+                  {deg}°
+                </button>
+              ))}
+            </div>
+          </div>
         </Show>
 
         {/* Placement + Repeat (Brush Tool only).
@@ -245,8 +326,14 @@ export default function MaterialTextureHUD(props: MaterialTextureHUDProps): JSX.
           </div>
         </Show>
 
-        {/* Tiling Scale Slider */}
-        <Show when={props.activeTool === 'brush' || props.activeTool === 'fill'}>
+        {/* Tiling Scale Slider. A fitted fill sizes itself from the area it
+            covers, so the tiling number has nothing to act on there. */}
+        <Show
+          when={
+            props.activeTool === 'brush' ||
+            (props.activeTool === 'fill' && !brush.faceProjection().fit)
+          }
+        >
           <Slider
             label={
               brush.textureMapping() === 'triplanar'

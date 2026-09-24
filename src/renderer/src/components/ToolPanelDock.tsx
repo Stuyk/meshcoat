@@ -2,6 +2,7 @@ import { For, Show, createMemo, createSignal, type JSX } from 'solid-js'
 import { brush, type ToolMode } from '../paint/brush'
 import { textTool } from '../paint/textTool'
 import { stencil } from '../paint/stencil'
+import { panelsForTool, type ToolPanelId } from '../paint/toolPanels'
 import MaterialTextureHUD from './MaterialTextureHUD'
 import TextureRegionHUD from './TextureRegionHUD'
 import FaceProjectorHUD from './FaceProjectorHUD'
@@ -35,10 +36,8 @@ export interface ToolPanelDockProps {
 }
 
 interface PanelDef {
-  id: string
   title: string
   icon: (props: { size?: number; class?: string }) => JSX.Element
-  relevant: () => boolean
   summary?: () => string | null
   actions?: () => JSX.Element
   render: () => JSX.Element
@@ -47,13 +46,6 @@ interface PanelDef {
 export default function ToolPanelDock(props: ToolPanelDockProps): JSX.Element {
   const [collapsed, setCollapsed] = createSignal<Record<string, boolean>>({})
 
-  const isTextured = (): boolean =>
-    props.activeTool === 'brush' ||
-    props.activeTool === 'stamp' ||
-    props.activeTool === 'fill' ||
-    props.activeTool === 'line' ||
-    props.activeTool === 'faceProjector'
-
   /**
    * Built once, not per render. `For` tracks items by reference, so rebuilding
    * these objects on every change would tear down and recreate each panel's
@@ -61,13 +53,15 @@ export default function ToolPanelDock(props: ToolPanelDockProps): JSX.Element {
    * edits its own texture on every keystroke, so that turned typing into a
    * stream of tool hotkeys. Every field here is a closure over signals, so the
    * panels stay reactive without being rebuilt.
+   *
+   * These are renderers only. Which tool shows which panel lives in
+   * `paint/toolPanels.ts` — panels never test `activeTool` to decide their own
+   * visibility, because that is how they ended up shared across every tool.
    */
-  const panels: PanelDef[] = [
-    {
-      id: 'material',
+  const PANELS: Record<ToolPanelId, PanelDef> = {
+    material: {
       title: 'Material Texture',
       icon: (p) => <ImagesIcon {...p} />,
-      relevant: () => (isTextured() && !!brush.texturePath()) || props.activeTool === 'fill',
       actions: () => (
         <IconButton
           size="xs"
@@ -88,11 +82,9 @@ export default function ToolPanelDock(props: ToolPanelDockProps): JSX.Element {
         />
       )
     },
-    {
-      id: 'region',
+    region: {
       title: 'Texture Region',
       icon: (p) => <CropIcon {...p} />,
-      relevant: () => isTextured() && !!brush.texturePath(),
       summary: () => {
         const r = brush.textureRegion()
         const cropped = r.x !== 0 || r.y !== 0 || r.w !== 1 || r.h !== 1
@@ -108,24 +100,17 @@ export default function ToolPanelDock(props: ToolPanelDockProps): JSX.Element {
           <RefreshCwIcon size={12} />
         </IconButton>
       ),
-      render: () => <TextureRegionHUD docked activeTool={props.activeTool} onClose={() => {}} />
+      render: () => <TextureRegionHUD docked onClose={() => {}} />
     },
-    {
-      id: 'text',
+    text: {
       title: 'Text',
       icon: (p) => <TextIcon {...p} />,
-      relevant: () => props.activeTool === 'text',
       summary: () => textTool.options().text.split('\n')[0] || 'Empty',
       render: () => <TextHUD docked onApply={() => props.onFillSelection?.()} />
     },
-    {
-      id: 'projector',
+    projector: {
       title: 'Face UV Projector',
       icon: (p) => <FocusIcon {...p} />,
-      relevant: () =>
-        (props.activeTool === 'faceProjector' || props.activeTool === 'text') &&
-        !!brush.texturePath() &&
-        brush.selectedFaces().size > 0,
       summary: () => {
         const p = brush.faceProjection()
         const identity =
@@ -135,23 +120,15 @@ export default function ToolPanelDock(props: ToolPanelDockProps): JSX.Element {
       },
       render: () => <FaceProjectorHUD docked onApply={() => props.onFillSelection?.()} />
     },
-    {
-      id: 'effect',
+    effect: {
       title: 'Effects Brush',
       icon: (p) => <DropletsIcon {...p} />,
-      relevant: () => props.activeTool === 'effect',
       summary: () => brush.effectMode(),
-      render: () => <EffectHUD docked activeTool={props.activeTool} isOpen onClose={() => {}} />
+      render: () => <EffectHUD docked isOpen onClose={() => {}} />
     },
-    {
-      id: 'stencil',
+    stencil: {
       title: 'Screen Stencil',
       icon: (p) => <SlidersIcon {...p} />,
-      relevant: () =>
-        !!props.stencilPanelOpen &&
-        props.activeTool !== 'fill' &&
-        props.activeTool !== 'faceProjector' &&
-        props.activeTool !== 'text',
       summary: () => (stencil.texturePath() ? (stencil.textureLabel() ?? 'Loaded') : 'None'),
       actions: () => (
         <Show when={stencil.texturePath()}>
@@ -180,35 +157,44 @@ export default function ToolPanelDock(props: ToolPanelDockProps): JSX.Element {
         />
       )
     }
-  ]
+  }
 
-  const active = createMemo<PanelDef[]>(() => panels.filter((p) => p.relevant()))
+  const activeIds = createMemo<ToolPanelId[]>(() =>
+    panelsForTool(props.activeTool, {
+      hasTexture: !!brush.texturePath(),
+      hasFaceSelection: brush.selectedFaces().size > 0,
+      stencilPanelOpen: !!props.stencilPanelOpen
+    })
+  )
 
   return (
     <div class="h-full flex flex-col bg-[var(--bg-panel)] border-l border-[var(--border-color)] select-none">
       <div class="h-9 px-3 flex items-center justify-between border-b border-[var(--border-color)] bg-[var(--bg-panel-header)] shrink-0">
-        <Label uppercase badge={active().length}>
+        <Label uppercase badge={activeIds().length}>
           Tool Panels
         </Label>
       </div>
 
       <div class="flex-1 overflow-y-auto">
-        <For each={active()}>
-          {(panel) => (
-            <PanelSection
-              title={panel.title}
-              icon={panel.icon}
-              summary={panel.summary?.()}
-              actions={panel.actions?.()}
-              open={!collapsed()[panel.id]}
-              onToggle={() => setCollapsed((prev) => ({ ...prev, [panel.id]: !prev[panel.id] }))}
-            >
-              {panel.render()}
-            </PanelSection>
-          )}
+        <For each={activeIds()}>
+          {(id) => {
+            const panel = PANELS[id]
+            return (
+              <PanelSection
+                title={panel.title}
+                icon={panel.icon}
+                summary={panel.summary?.()}
+                actions={panel.actions?.()}
+                open={!collapsed()[id]}
+                onToggle={() => setCollapsed((prev) => ({ ...prev, [id]: !prev[id] }))}
+              >
+                {panel.render()}
+              </PanelSection>
+            )
+          }}
         </For>
 
-        <Show when={active().length === 0}>
+        <Show when={activeIds().length === 0}>
           <div class="p-4 text-center text-xs text-[var(--text-muted)]">
             No active panels for this tool.
           </div>

@@ -271,12 +271,10 @@ export function selectionUvBounds(
 }
 
 /** The projector transform plus the fit box for the faces it will land on. */
-export function faceProjectionOptions(
-  rt: ViewportRuntime,
-  faces: ReadonlySet<number>
+function withFitRect(
+  proj: ReturnType<typeof brush.faceProjection>,
+  fitRect: { x: number; y: number; w: number; h: number } | undefined
 ): FaceProjectionOptions {
-  const proj = brush.faceProjection()
-  const fitRect = proj.fit ? (selectionUvBounds(rt, faces) ?? undefined) : undefined
   if (!fitRect) {
     return { ...proj, fitRect: undefined }
   }
@@ -295,6 +293,23 @@ export function faceProjectionOptions(
     scaleY: 1 / Math.max(proj.scaleY, 0.01),
     fitRect
   }
+}
+
+export function faceProjectionOptions(
+  rt: ViewportRuntime,
+  faces: ReadonlySet<number>
+): FaceProjectionOptions {
+  const proj = brush.faceProjection()
+  return withFitRect(proj, proj.fit ? (selectionUvBounds(rt, faces) ?? undefined) : undefined)
+}
+
+/**
+ * The same placement for a fill with no face selection: the area being filled
+ * is the entire UV square, so that is what one copy of the crop is fitted to.
+ */
+export function wholeUvProjectionOptions(): FaceProjectionOptions {
+  const proj = brush.faceProjection()
+  return withFitRect(proj, proj.fit ? { x: 0, y: 0, w: 1, h: 1 } : undefined)
 }
 
 /** Pushes texture + crop-region + projector-transform state into the preview material, without touching geometry. */

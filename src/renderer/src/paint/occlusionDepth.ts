@@ -120,8 +120,22 @@ export class OcclusionDepthPass {
     const prevTarget = renderer.getRenderTarget()
     const prevOverride = scene.overrideMaterial
     const prevAlpha = renderer.getClearAlpha()
+    const prevBackground = scene.background
     renderer.getClearColor(this.prevClearColor)
 
+    /**
+     * The background has to go for the duration of the pass.
+     *
+     * three renders a cube/equirect `scene.background` by unshifting its own
+     * box mesh into the opaque render list, which means `overrideMaterial`
+     * catches it like any other object — and the override writes depth. The
+     * result is a map with 100% coverage at the backdrop's distance, so the
+     * 3x3 neighbourhood max in brushMask.ts reads the backdrop instead of the
+     * far plane along every silhouette and the occlusion test quietly stops
+     * rejecting anything there. Clearing to white already means "nothing in
+     * front of you", which is exactly what the background should contribute.
+     */
+    scene.background = null
     scene.overrideMaterial = this.overrideMaterial
     renderer.setRenderTarget(this.target)
     // White = far plane: anywhere the model didn't rasterise must read as
@@ -133,6 +147,7 @@ export class OcclusionDepthPass {
     renderer.setClearColor(this.prevClearColor, prevAlpha)
     renderer.setRenderTarget(prevTarget)
     scene.overrideMaterial = prevOverride
+    scene.background = prevBackground
     this.restoreHidden()
   }
 

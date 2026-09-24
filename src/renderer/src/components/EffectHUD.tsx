@@ -5,8 +5,7 @@ import {
   setEffectStrength,
   setEffectRadius,
   setPixelSize,
-  setSmudgeLength,
-  type ToolMode
+  setSmudgeLength
 } from '../paint/brush'
 import { EFFECT_MODES, EFFECT_MODE_LABELS, type EffectMode } from '../paint/effectShader'
 import { brushPresets } from '../paint/brushPresets'
@@ -17,7 +16,6 @@ import { toAssetUrl } from '../utils/assetUrl'
 export interface EffectHUDProps {
   /** Rendered inside the tool panel dock rather than floating over the viewport. */
   docked?: boolean
-  activeTool: ToolMode
   isOpen?: boolean
   onClose?: () => void
 }
@@ -37,7 +35,8 @@ const EFFECT_ICONS: Record<EffectMode, (props: { size?: number; class?: string }
 }
 
 export default function EffectHUD(props: EffectHUDProps) {
-  const isVisible = () => props.activeTool === 'effect' && (props.isOpen ?? true)
+  // The set of tools that show this panel lives in paint/toolPanels.ts.
+  const isVisible = () => props.isOpen ?? true
 
   const activeMode = () => brush.effectMode()
 

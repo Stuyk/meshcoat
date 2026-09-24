@@ -18,7 +18,8 @@ import {
   MoonIcon,
   CubeIcon,
   UnlinkIcon,
-  CornerDownRightIcon
+  CornerDownRightIcon,
+  PopoutIcon
 } from './icons'
 import { IconButton, Label, Select, TextInput } from './ui'
 
@@ -27,6 +28,10 @@ export default function LayersTab(props: {
   version: number
   onChange: () => void
   hideHeader?: boolean
+  /** Pops one layer's sheet out into its own window at full resolution. */
+  onInspectLayer?: (layer: Layer) => void
+  /** Same, for the flattened result of the whole stack. */
+  onInspectFlattened?: () => void
 }) {
   const [editingId, setEditingId] = createSignal<number | null>(null)
   const [editName, setEditName] = createSignal('')
@@ -80,14 +85,26 @@ export default function LayersTab(props: {
           <Label uppercase>
             {layerCount()} {layerCount() === 1 ? 'Layer' : 'Layers'}
           </Label>
-          <IconButton
-            size="xs"
-            variant="ghost"
-            onClick={() => run((s) => s.addLayer())}
-            title="Add new painting layer"
-          >
-            <PlusIcon size={15} />
-          </IconButton>
+          <div class="flex items-center gap-1">
+            <Show when={props.onInspectFlattened}>
+              <IconButton
+                size="xs"
+                variant="ghost"
+                onClick={() => props.onInspectFlattened?.()}
+                title="Inspect the flattened sheet in its own window"
+              >
+                <PopoutIcon size={14} />
+              </IconButton>
+            </Show>
+            <IconButton
+              size="xs"
+              variant="ghost"
+              onClick={() => run((s) => s.addLayer())}
+              title="Add new painting layer"
+            >
+              <PlusIcon size={15} />
+            </IconButton>
+          </div>
         </div>
       </Show>
 
@@ -201,8 +218,30 @@ export default function LayersTab(props: {
                       )}
                     </button>
 
-                    <div class="relative w-7 h-7 rounded-[var(--ui-radius)] overflow-hidden checkerboard-bg border border-[var(--border-color)] shrink-0">
+                    {/* The thumbnail is the popout trigger: it is the thing
+                        whose full-size version the artist wants to see. */}
+                    <button
+                      type="button"
+                      class="relative w-7 h-7 rounded-[var(--ui-radius)] overflow-hidden checkerboard-bg border border-[var(--border-color)] shrink-0 group/thumb cursor-pointer hover:border-[var(--accent-color)] transition-colors"
+                      title={
+                        props.onInspectLayer
+                          ? `Inspect "${name()}" full size in its own window`
+                          : undefined
+                      }
+                      onClick={(e) => {
+                        if (!props.onInspectLayer) {
+                          return
+                        }
+                        e.stopPropagation()
+                        props.onInspectLayer(layer)
+                      }}
+                    >
                       <img src={preview()} alt="" class="w-full h-full object-cover" />
+                      <Show when={props.onInspectLayer}>
+                        <span class="absolute inset-0 hidden group-hover/thumb:flex items-center justify-center bg-black/55 text-white">
+                          <PopoutIcon size={11} />
+                        </span>
+                      </Show>
                       <Show when={isMaskFlag()}>
                         <span
                           class="absolute bottom-0 right-0 p-0.5 bg-[var(--accent-color)] text-[var(--accent-text)] rounded-tl text-[8px]"
@@ -211,7 +250,7 @@ export default function LayersTab(props: {
                           <DramaIcon size={8} />
                         </span>
                       </Show>
-                    </div>
+                    </button>
 
                     <div class="flex-1 min-w-0">
                       <Show
@@ -223,7 +262,10 @@ export default function LayersTab(props: {
                             title="Double-click to rename"
                           >
                             <Show when={isClipped()}>
-                              <CornerDownRightIcon size={11} class="text-[var(--text-muted)] shrink-0" />
+                              <CornerDownRightIcon
+                                size={11}
+                                class="text-[var(--text-muted)] shrink-0"
+                              />
                             </Show>
                             <span class="text-[11px] font-semibold text-[var(--text-main)] truncate">
                               {name()}
@@ -288,7 +330,9 @@ export default function LayersTab(props: {
                     <Show
                       when={!isMaskFlag()}
                       fallback={
-                        <span class="text-[9px] font-medium text-[var(--text-muted)] w-14">Strength</span>
+                        <span class="text-[9px] font-medium text-[var(--text-muted)] w-14">
+                          Strength
+                        </span>
                       }
                     >
                       <Select

@@ -1,6 +1,7 @@
 export {
   Clipboard as ClipboardIcon,
   Crop as CropIcon,
+  Maximize2 as PopoutIcon,
   PanelRightOpen as PanelRightIcon,
   Folder as FolderIcon,
   FolderOpen as FolderOpenIcon,

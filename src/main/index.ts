@@ -97,6 +97,29 @@ function createWindow(): void {
   )
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
+    /**
+     * A blank popup is one of our own inspector windows: the renderer calls
+     * window.open('') and then writes the document itself (see
+     * utils/uvInspector.ts), which needs same-origin access from the opener —
+     * so it has to be a real child window rather than an external URL.
+     *
+     * Everything with an actual URL is a link and still goes to the browser;
+     * this app never navigates a child window to remote content.
+     */
+    if (details.url === 'about:blank' || details.url === '') {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 900,
+          height: 900,
+          backgroundColor: '#141416',
+          autoHideMenuBar: true,
+          // Node stays out of the popup. It only ever shows a data-URL image
+          // the main window handed it.
+          webPreferences: { nodeIntegration: false, contextIsolation: true, preload: undefined }
+        }
+      }
+    }
     shell.openExternal(details.url)
     return { action: 'deny' }
   })

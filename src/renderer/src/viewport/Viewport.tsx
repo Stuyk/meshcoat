@@ -17,6 +17,7 @@ import { ViewportRuntime } from './viewportRuntime'
 import type { ViewportProps, ViewportHandle } from './viewportTypes'
 import {
   activeMesh,
+  occluderMeshes,
   applyPieceVisibility,
   applyViewMode,
   frameModel,
@@ -33,6 +34,7 @@ import {
   updateProjectorPreviewUniforms
 } from './viewportHighlight'
 import { frameSelectionOrModel, loadDefaultModel, loadFromUrl, loadProject } from './viewportLoad'
+import { raycastMeshes, screenToNdc } from './raycast'
 import {
   fillActive,
   onDblClick,
@@ -40,6 +42,7 @@ import {
   onPointerDown,
   onWheel,
   stampStencilNow,
+  type StampDiagnostics,
   buildGizmoCtx
 } from './viewportPointer'
 
@@ -298,6 +301,253 @@ export default function Viewport(props: ViewportProps): JSX.Element {
         )
         return r
       },
+      /**
+       * Why a stencil stamp produced nothing. Runs a real stamp on the active
+       * piece and reports every input it was decided from, plus how many texels
+       * of the active layer actually changed — a `changedTexels` of 0 with a
+       * healthy depth map means the mask rejected everything, not that the
+       * stamp never ran.
+       */
+      stamp: () => {
+        const engine = rt.layerStack?.active?.engine
+        if (!engine || !rt.sceneHandle) {
+          return 'no active layer'
+        }
+        const stack = rt.layerStack!
+        const size = stack.textureSize
+        const readComposite = (): Uint8Array => {
+          const px = new Uint8Array(size * size * 4)
+          rt.sceneHandle!.renderer.readRenderTargetPixels(
+            stack.compositeTarget,
+            0,
+            0,
+            size,
+            size,
+            px
+          )
+          return px
+        }
+        const compositeBefore = readComposite()
+        const before = engine.createCpuSnapshot()
+        const diag: StampDiagnostics = {}
+        const ran = stampStencilNow(rt, diag)
+        rt.layerStack?.recomposite()
+        const after = engine.createCpuSnapshot()
+        const compositeAfter = readComposite()
+
+        // Did the change survive compositing? A layer that changed while the
+        // composite did not is hidden, zero-opacity, a mask, or clipped — the
+        // paint landed and simply never reaches the material.
+        let compositeChanged = 0
+        for (let i = 0; i < compositeBefore.length; i++) {
+          if (compositeBefore[i] !== compositeAfter[i]) {
+            compositeChanged++
+          }
+        }
+        // Where in UV space the layer's change landed.
+        let uMin = Infinity
+        let uMax = -Infinity
+        let vMin = Infinity
+        let vMax = -Infinity
+        for (let y = 0; y < before.size; y++) {
+          for (let x = 0; x < before.size; x++) {
+            const i = (y * before.size + x) * 4
+            if (
+              before.data[i] === after.data[i] &&
+              before.data[i + 1] === after.data[i + 1] &&
+              before.data[i + 2] === after.data[i + 2] &&
+              before.data[i + 3] === after.data[i + 3]
+            ) {
+              continue
+            }
+            const u = x / before.size
+            // Snapshots read bottom-up, same as the paint target.
+            const v = y / before.size
+            uMin = Math.min(uMin, u)
+            uMax = Math.max(uMax, u)
+            vMin = Math.min(vMin, v)
+            vMax = Math.max(vMax, v)
+          }
+        }
+        // Mean colour, to catch a decal that landed but is white-on-white.
+        const meanRgb = (px: Uint8Array): string => {
+          let r = 0
+          let g = 0
+          let b = 0
+          const n = px.length / 4
+          for (let i = 0; i < px.length; i += 4) {
+            r += px[i]
+            g += px[i + 1]
+            b += px[i + 2]
+          }
+          return `${Math.round(r / n)},${Math.round(g / n)},${Math.round(b / n)}`
+        }
+
+        /**
+         * The change's footprint in UV space, as an image: red where the stamp
+         * wrote, the composite underneath at half strength for orientation. A
+         * decal-shaped blob means the projection is right and the problem is
+         * elsewhere; a sheet-wide spray means it is writing every texel it can
+         * reach.
+         */
+        const dumpDiff = (): string => {
+          const cv = document.createElement('canvas')
+          cv.width = size
+          cv.height = size
+          const ctx = cv.getContext('2d')!
+          const img = ctx.createImageData(size, size)
+          for (let y = 0; y < size; y++) {
+            for (let x = 0; x < size; x++) {
+              const src = (y * size + x) * 4
+              // Canvas is top-down, the render target is bottom-up.
+              const dst = ((size - 1 - y) * size + x) * 4
+              const touched =
+                compositeBefore[src] !== compositeAfter[src] ||
+                compositeBefore[src + 1] !== compositeAfter[src + 1] ||
+                compositeBefore[src + 2] !== compositeAfter[src + 2] ||
+                compositeBefore[src + 3] !== compositeAfter[src + 3]
+              img.data[dst] = touched ? 255 : compositeAfter[src] >> 1
+              img.data[dst + 1] = touched ? 0 : compositeAfter[src + 1] >> 1
+              img.data[dst + 2] = touched ? 0 : compositeAfter[src + 2] >> 1
+              img.data[dst + 3] = 255
+            }
+          }
+          ctx.putImageData(img, 0, 0)
+          return cv.toDataURL('image/png')
+        }
+
+        const diffUrl = dumpDiff()
+        console.log('[slip] stamp footprint (red = written):', diffUrl)
+        ;(window as unknown as { slipStampDiff: string }).slipStampDiff = diffUrl
+
+        const activeLayer = stack.active!
+        const layerInfo = {
+          index: stack.layers.indexOf(activeLayer),
+          name: activeLayer.name,
+          visible: activeLayer.visible,
+          opacity: activeLayer.opacity,
+          blendMode: activeLayer.blendMode ?? 'normal',
+          isMask: !!activeLayer.isMask,
+          clippedToMaskId: activeLayer.clippedToMaskId ?? null,
+          layerCount: stack.layers.length
+        }
+        let changed = 0
+        let alphaBefore = 0
+        let alphaAfter = 0
+        for (let i = 3; i < before.data.length; i += 4) {
+          alphaBefore += before.data[i]
+          alphaAfter += after.data[i]
+        }
+        for (let i = 0; i < before.data.length; i++) {
+          if (before.data[i] !== after.data[i]) {
+            changed++
+          }
+        }
+        const texels = before.data.length / 4
+        // Control captures, AFTER the stamp so they can't disturb the map it
+        // sampled. An "empty" set that still covers the map means
+        // hideEverythingElse is leaking geometry into the depth pass.
+        const probes: Record<string, unknown> = {}
+        if (rt.occlusionPass && rt.currentModel) {
+          const { renderer, scene, camera } = rt.sceneHandle
+          const statsFor = (meshes: readonly THREE.Object3D[]): unknown => {
+            rt.occlusionPass!.invalidate()
+            rt.occlusionPass!.capture(renderer, scene, camera, meshes)
+            return rt.occlusionPass!.debugStats(renderer, camera.far)
+          }
+          probes.depthWithNoOccluders = statsFor([])
+          probes.depthWithActivePieceOnly = statsFor(occluderMeshes(rt))
+          probes.depthWithAllMeshes = statsFor(rt.currentModel.meshes)
+          rt.occlusionPass.invalidate()
+
+          // Where the active piece actually is on screen, in the same canvas
+          // pixels the stencil rect is expressed in.
+          const mesh = activeMesh(rt)
+          const rect = rt.canvasRef!.getBoundingClientRect()
+          if (mesh) {
+            mesh.updateWorldMatrix(true, false)
+            const box = new THREE.Box3().setFromObject(mesh)
+            const v = new THREE.Vector3()
+            let minX = Infinity
+            let minY = Infinity
+            let maxX = -Infinity
+            let maxY = -Infinity
+            for (let i = 0; i < 8; i++) {
+              v.set(
+                i & 1 ? box.max.x : box.min.x,
+                i & 2 ? box.max.y : box.min.y,
+                i & 4 ? box.max.z : box.min.z
+              ).project(camera)
+              const px = (v.x * 0.5 + 0.5) * rect.width
+              const py = (1 - (v.y * 0.5 + 0.5)) * rect.height
+              minX = Math.min(minX, px)
+              minY = Math.min(minY, py)
+              maxX = Math.max(maxX, px)
+              maxY = Math.max(maxY, py)
+            }
+            probes.pieceScreenBox = {
+              minX: Math.round(minX),
+              minY: Math.round(minY),
+              maxX: Math.round(maxX),
+              maxY: Math.round(maxY)
+            }
+            probes.pieceWorldBox = { min: box.min.toArray(), max: box.max.toArray() }
+            probes.cameraPos = camera.getWorldPosition(new THREE.Vector3()).toArray()
+
+            // Same ray the stamp uses for its normal sign, but told which
+            // material side it hit: a front-side-only miss over a covered
+            // pixel means the camera is looking at BACK faces.
+            const r = stencil.stencilRect(rect.width, rect.height)
+            const ndc = screenToNdc(rect.left + r.centerX, rect.top + r.centerY, rt.canvasRef!)
+            const mat = mesh.material as THREE.Material
+            const prevSide = mat.side
+            probes.centerHitFrontSide = !!raycastMeshes(ndc.x, ndc.y, camera, [mesh])
+            mat.side = THREE.DoubleSide
+            const both = raycastMeshes(ndc.x, ndc.y, camera, [mesh])
+            mat.side = prevSide
+            probes.centerHitDoubleSide = !!both
+            if (both) {
+              const toCam = camera.getWorldPosition(new THREE.Vector3()).sub(both.point).normalize()
+              probes.centerNormalDotToCamera = +both.normal.dot(toCam).toFixed(3)
+            }
+            // Which piece is really under the stencil centre.
+            const anyHit = raycastMeshes(
+              ndc.x,
+              ndc.y,
+              camera,
+              rt.pieces.map((pc) => pc.mesh)
+            )
+            probes.pieceUnderStencilCenter = anyHit?.mesh?.name ?? null
+          }
+        }
+
+        const report = {
+          ran,
+          changedTexels: changed,
+          meanAlphaBefore: +(alphaBefore / texels / 255).toFixed(4),
+          meanAlphaAfter: +(alphaAfter / texels / 255).toFixed(4),
+          compositeChangedBytes: compositeChanged,
+          compositeMeanRgbBefore: meanRgb(compositeBefore),
+          compositeMeanRgbAfter: meanRgb(compositeAfter),
+          layerMeanRgbBefore: meanRgb(before.data),
+          layerMeanRgbAfter: meanRgb(after.data),
+          changedUvBox: Number.isFinite(uMin)
+            ? {
+                uMin: +uMin.toFixed(3),
+                uMax: +uMax.toFixed(3),
+                vMin: +vMin.toFixed(3),
+                vMax: +vMax.toFixed(3)
+              }
+            : null,
+          layer: layerInfo,
+          viewMode: rt.viewMode,
+          textureSize: size,
+          ...diag,
+          ...probes
+        }
+        console.log('[slip] stencil stamp', report)
+        return report
+      },
       occlusion: () => {
         if (!rt.sceneHandle || !rt.currentModel) {
           return 'no model'
@@ -366,6 +616,15 @@ export default function Viewport(props: ViewportProps): JSX.Element {
           return undefined
         }
         return renderTargetToPngDataUrl(rt.sceneHandle.renderer, stack.compositeTarget)
+      },
+      exportLayerPng: (layerId: number, channel: PaintChannel = 'baseColor', pieceIndex?) => {
+        const stack = stackFor(rt, pieceIndex)
+        const layer = stack?.layers.find((l) => l.id === layerId)
+        const target = layer?.engine.targetFor(channel)
+        if (!rt.sceneHandle || !target) {
+          return undefined
+        }
+        return renderTargetToPngDataUrl(rt.sceneHandle.renderer, target)
       },
       exportChannelPng: (channel: PaintChannel, pieceIndex?: number) => {
         const stack = stackFor(rt, pieceIndex)

@@ -40,7 +40,7 @@ import {
   setWireframeVisible,
   updatePieceOutlines
 } from './viewportPieces'
-import { faceProjectionOptions } from './viewportHighlight'
+import { faceProjectionOptions, wholeUvProjectionOptions } from './viewportHighlight'
 import { frameSelectionOrModel } from './viewportLoad'
 import { updateGizmo, makeGizmoUpdateContext } from './gizmoUpdate'
 import type { ViewportRuntime } from './viewportRuntime'
@@ -272,6 +272,15 @@ export function strokeLineFrom(
 }
 
 /**
+ * Everything `stampStencilNow` decided, for `slipDebug.stamp()`. Filled only
+ * when a diagnostics object is passed in, so the normal stamp path costs
+ * nothing (the depth readback in particular is expensive).
+ */
+export interface StampDiagnostics {
+  [key: string]: unknown
+}
+
+/**
  * One-shot projection of the screen-space stencil onto the model (the
  * "stamp it on" action, as opposed to brushing through the stencil).
  *
@@ -279,15 +288,24 @@ export function strokeLineFrom(
  * here even though no brush dab is involved — without it a planar projection
  * reprints itself on the far side of the model.
  */
-export function stampStencilNow(rt: ViewportRuntime): boolean {
+export function stampStencilNow(rt: ViewportRuntime, diag?: StampDiagnostics): boolean {
   const layer = rt.layerStack?.active
   if (!rt.layerStack || !layer || !rt.sceneHandle || !rt.canvasRef || !rt.currentModel) {
+    if (diag) {
+      diag.bail = 'no layer stack / active layer / scene / canvas / model'
+    }
     return false
   }
   if (!rt.stencilTexture || !stencil.texturePath()) {
+    if (diag) {
+      diag.bail = 'no stencil texture loaded'
+    }
     return false
   }
   if (rt.currentModel.meshes.length === 0) {
+    if (diag) {
+      diag.bail = 'model has no meshes'
+    }
     return false
   }
 
@@ -319,6 +337,27 @@ export function stampStencilNow(rt: ViewportRuntime): boolean {
     camera.projectionMatrix,
     camera.matrixWorldInverse
   )
+
+  if (diag) {
+    const occluders = occluderMeshes(rt)
+    diag.piece = { index: rt.activePieceIndex, name: rt.pieces[rt.activePieceIndex]?.name }
+    diag.isolated = rt.isolateActivePiece
+    diag.stampMeshVisible = stampMesh?.visible
+    diag.occluders = occluders.map((m) => ({ name: m.name, visible: m.visible }))
+    diag.canvas = { width: rect.width, height: rect.height }
+    diag.rect = r
+    diag.centerHit = centerHit
+      ? { point: centerHit.point.toArray(), face: centerHit.faceIndex }
+      : null
+    diag.normalSign = normalSign
+    diag.stencil = {
+      useLuminance: stencil.stampUseLuminance(),
+      invert: stencil.invert(),
+      opacity: brush.opacity()
+    }
+    diag.restrictedFaces = brush.selectedFaces().size
+    diag.depth = rt.occlusionPass.debugStats(rt.sceneHandle.renderer, camera.far)
+  }
 
   rt.layerStack.history.record()
   layer.engine.stampStencil({
@@ -701,13 +740,31 @@ export function applyToolAt(
       // of the faces the cursor crosses join that same undo step.
       const isDragContinuation = !!rt.fillDragFaces && rt.fillDragFaces.size > 1
       if (hit.faceIndex >= 0) {
-        rt.layerStack.fillActiveFaces(new Set([hit.faceIndex]), fillOpts, 1, !isDragContinuation)
+        // Fit the crop to THIS face's own UV box. "Fill Face" means the picture
+        // lands on the face you clicked; tiling the crop from the sheet's raw
+        // origin instead put an arbitrary slice of the pattern there, which is
+        // the same texture region reading completely differently from one face
+        // to the next. The Placement control (Fit / Tile) is what chooses.
+        const clicked = new Set([hit.faceIndex])
+        rt.layerStack.fillActiveFaces(
+          clicked,
+          { ...fillOpts, projection: faceProjectionOptions(rt, clicked) },
+          1,
+          !isDragContinuation
+        )
       }
     } else if (restrictFaces && restrictFaces.size > 0) {
-      rt.layerStack.fillActiveFaces(restrictFaces, fillOpts)
+      // Same treatment for a masked fill, and the same options the panel's
+      // Fill button builds (see fillActive) — clicking in the viewport and
+      // pressing the button have to mean the same thing.
+      rt.layerStack.fillActiveFaces(restrictFaces, {
+        ...fillOpts,
+        projection: faceProjectionOptions(rt, restrictFaces)
+      })
     } else {
       rt.layerStack.history.record()
-      layer.engine.fill(fillOpts)
+      // No selection: the area is the whole UV square.
+      layer.engine.fill({ ...fillOpts, projection: wholeUvProjectionOptions() })
       rt.layerStack.recomposite()
     }
   } else if (tool === 'eyedropper') {
@@ -737,9 +794,10 @@ export function fillActive(rt: ViewportRuntime): void {
       baseColorOnly: isMask
     }),
     channelMaps: isMask ? undefined : rt.channelMaps,
-    // Only meaningful when filling an actual face selection — an identity
-    // projection on the whole-model fill path below is a no-op anyway.
-    projection: selection.size > 0 ? faceProjectionOptions(rt, selection) : undefined
+    // Fitted to the selection when there is one, otherwise to the whole UV
+    // square — either way "Fill Area" means the area actually being filled.
+    projection:
+      selection.size > 0 ? faceProjectionOptions(rt, selection) : wholeUvProjectionOptions()
   }
   // The Text tool's texture is generated and changes on every keystroke —
   // parking those data URLs in the (persisted) Used shelf would fill it with

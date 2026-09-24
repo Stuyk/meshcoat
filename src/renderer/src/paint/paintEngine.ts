@@ -357,6 +357,15 @@ export class PaintEngine {
     return this.buffers.get(channel)?.read.texture ?? null
   }
 
+  /**
+   * The render target behind textureFor — what a readback needs. Deliberately
+   * does NOT allocate: asking to inspect a channel this layer never painted
+   * answers "nothing here" instead of quietly costing three render targets.
+   */
+  targetFor(channel: PaintChannel): THREE.WebGLRenderTarget | null {
+    return this.buffers.get(channel)?.read ?? null
+  }
+
   private buf(channel: PaintChannel): ChannelBuffers {
     return this.ensureChannel(channel)
   }
@@ -1075,6 +1084,11 @@ export class PaintEngine {
     const maps = options instanceof THREE.Color ? undefined : options?.channelMaps
     const region = options instanceof THREE.Color ? undefined : options?.textureRegion
     const repeat = options instanceof THREE.Color ? undefined : options?.textureRepeat
+    // A whole-model fill has no face selection, but it does have an area: the
+    // whole UV square. Passing the projection through means "Fill Area" means
+    // the same thing here as it does for a face fill, instead of silently
+    // falling back to tiling.
+    const projection = options instanceof THREE.Color ? undefined : options?.projection
     for (const channel of channels) {
       // A material-set fill goes through the textured path even when the base
       // color itself is a flat swatch, since the data channels still have maps
@@ -1089,7 +1103,8 @@ export class PaintEngine {
           null,
           maps,
           region,
-          repeat
+          repeat,
+          projection
         )
       } else {
         this.fillChannelFlat(channel, payload, alpha)

@@ -1,5 +1,5 @@
 import { Show, createSignal, onCleanup, type JSX } from 'solid-js'
-import { brush, setTextureRegion, resetTextureRegion, type ToolMode } from '../paint/brush'
+import { brush, setTextureRegion, resetTextureRegion } from '../paint/brush'
 import { CropIcon, RefreshCwIcon, XIcon } from './icons'
 import { IconButton, Slider, Label, NumberInput } from './ui'
 import { toAssetUrl } from '../utils/assetUrl'
@@ -7,7 +7,6 @@ import { toAssetUrl } from '../utils/assetUrl'
 export interface TextureRegionHUDProps {
   /** Rendered inside the tool panel dock rather than floating over the viewport. */
   docked?: boolean
-  activeTool: ToolMode
   onClose: () => void
 }
 
@@ -30,15 +29,8 @@ export default function TextureRegionHUD(props: TextureRegionHUDProps): JSX.Elem
 
   const region = (): ReturnType<typeof brush.textureRegion> => brush.textureRegion()
 
-  /** Tools whose paint actually samples the shelf texture. */
-  const isApplicable = (): boolean =>
-    props.activeTool === 'brush' ||
-    props.activeTool === 'stamp' ||
-    props.activeTool === 'fill' ||
-    props.activeTool === 'line' ||
-    props.activeTool === 'faceProjector'
-
-  const isVisible = (): boolean => !!brush.texturePath() && isApplicable()
+  // Which tools show this panel is declared in paint/toolPanels.ts, together
+  // with the texture requirement it used to check here itself.
 
   function onPointerDown(mode: DragMode, e: PointerEvent): void {
     e.preventDefault()
@@ -87,7 +79,7 @@ export default function TextureRegionHUD(props: TextureRegionHUDProps): JSX.Elem
   }
 
   return (
-    <Show when={isVisible()}>
+    <Show when={brush.texturePath()}>
       <div
         class={
           props.docked

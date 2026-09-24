@@ -51,6 +51,16 @@ export interface ViewportHandle {
   /** The active piece's stack, or a specific piece's when given an index. */
   getLayerStack: (pieceIndex?: number) => LayerStack | undefined
   exportBaseColorPng: (pieceIndex?: number) => string | undefined
+  /**
+   * One LAYER's own full-resolution pixels for one channel, unflattened — what
+   * the UV inspector shows. Undefined when that layer never painted the
+   * channel, which is not an error: most layers only carry base color.
+   */
+  exportLayerPng: (
+    layerId: number,
+    channel?: PaintChannel,
+    pieceIndex?: number
+  ) => string | undefined
   /** Flattened, export-ready PNG for one channel, or undefined if unpainted. */
   exportChannelPng: (channel: PaintChannel, pieceIndex?: number) => string | undefined
   /** Which channels the current project actually carries. */

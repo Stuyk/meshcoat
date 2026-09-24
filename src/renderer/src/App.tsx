@@ -59,6 +59,8 @@ import {
   PanelRightIcon
 } from './components/icons'
 import ToolPanelDock from './components/ToolPanelDock'
+import { panelsForTool, toolUsesPanel } from './paint/toolPanels'
+import { openUvInspector, closeAllUvInspectors } from './utils/uvInspector'
 import WorkstationHeader from './components/WorkstationHeader'
 import WorkstationShelf from './components/WorkstationShelf'
 import { EFFECT_MODES, EFFECT_MODE_LABELS } from './paint/effectShader'
@@ -111,8 +113,9 @@ export default function App(): JSX.Element {
 
   createEffect(() => {
     // Picking a texture makes the material and crop panels relevant, so make
-    // sure the dock they live in is actually on screen.
-    if (brush.texturePath()) {
+    // sure the dock they live in is actually on screen — but only if the active
+    // tool is one that owns a material panel.
+    if (brush.texturePath() && toolUsesPanel(activeTool(), 'material')) {
       setShowPanelDock(true)
     }
   })
@@ -124,6 +127,64 @@ export default function App(): JSX.Element {
       setStencilTransforming(false)
     }
   })
+
+  /**
+   * Pops a layer's own sheet out into its own window at full resolution.
+   *
+   * Keyed per piece + layer, so inspecting the same layer twice refocuses that
+   * window instead of opening another, while two different layers can sit open
+   * side by side for comparison. `render` is re-run on the popout's Refresh
+   * button, which is what makes it useful while painting: paint a stroke, hit
+   * Refresh, see exactly which texels moved.
+   */
+  function inspectLayer(layer: { id: number; name: string; isMask?: boolean }): void {
+    const handle = viewportHandle
+    if (!handle) {
+      return
+    }
+    const pieceIndex = handle.activePieceIndex()
+    const size = handle.pieces()[pieceIndex]?.textureSize
+    const ok = openUvInspector({
+      key: `meshcoat-layer-${pieceIndex}-${layer.id}`,
+      title: layer.name,
+      subtitle: [
+        activePieceName() || `Piece ${pieceIndex + 1}`,
+        layer.isMask ? 'mask coverage' : 'base color',
+        size ? `${size}x${size}` : null
+      ]
+        .filter(Boolean)
+        .join('  ·  '),
+      render: () => handle.exportLayerPng(layer.id, 'baseColor', pieceIndex)
+    })
+    if (!ok) {
+      showToast('Could not open the inspector window', 'error')
+    }
+  }
+
+  /** Same, for the flattened stack — what the model actually shows. */
+  function inspectFlattened(): void {
+    const handle = viewportHandle
+    if (!handle) {
+      return
+    }
+    const pieceIndex = handle.activePieceIndex()
+    const size = handle.pieces()[pieceIndex]?.textureSize
+    const ok = openUvInspector({
+      key: `meshcoat-flattened-${pieceIndex}`,
+      title: 'Flattened',
+      subtitle: [
+        activePieceName() || `Piece ${pieceIndex + 1}`,
+        'all layers composited',
+        size ? `${size}x${size}` : null
+      ]
+        .filter(Boolean)
+        .join('  ·  '),
+      render: () => handle.exportBaseColorPng(pieceIndex)
+    })
+    if (!ok) {
+      showToast('Could not open the inspector window', 'error')
+    }
+  }
 
   const currentLayerCount = (): number => {
     void layersVersion()
@@ -390,6 +451,8 @@ export default function App(): JSX.Element {
     primitive: 'sphere' | 'cube' = 'sphere'
   ): Promise<void> {
     const handle = await getReadyViewport()
+    // Every open inspector is showing pixels that are about to be disposed.
+    closeAllUvInspectors()
     await handle.loadDefaultModel(size, primitive)
     setTextureSize(size)
     setModelName(primitive === 'cube' ? 'Default Cube' : 'Default Sphere')
@@ -460,6 +523,7 @@ export default function App(): JSX.Element {
     }
 
     const url = window.api.assetUrl(actualPath)
+    closeAllUvInspectors()
     await handle.loadFromUrl(url, extension, size, initialTextures)
     // The viewport may have overridden the requested size: imported maps are
     // painted at their own resolution, and a many-piece model is scaled down to
@@ -846,7 +910,12 @@ export default function App(): JSX.Element {
       case 's': {
         if (!e.ctrlKey && !e.metaKey && !e.altKey) {
           e.preventDefault()
+          if (!toolUsesPanel(activeTool(), 'stencil')) {
+            showToast(`The ${activeTool()} tool does not use the screen stencil`, 'info', 1200)
+            break
+          }
           setShowStencilPanel((v) => !v)
+          setShowPanelDock(true)
         }
         break
       }
@@ -1204,7 +1273,15 @@ export default function App(): JSX.Element {
           activeTool={activeTool()}
           onSelectTool={(t) => {
             setActiveTool(t)
-            if (t === 'effect' || t === 'faceProjector' || t === 'text') {
+            // Open the dock only if the tool it switched to actually owns
+            // panels right now (see paint/toolPanels.ts).
+            if (
+              panelsForTool(t, {
+                hasTexture: !!brush.texturePath(),
+                hasFaceSelection: brush.selectedFaces().size > 0,
+                stencilPanelOpen: showStencilPanel()
+              }).length > 0
+            ) {
               setShowPanelDock(true)
             }
           }}
@@ -1212,7 +1289,9 @@ export default function App(): JSX.Element {
           onToggleStencilPanel={() => {
             const next = !showStencilPanel()
             setShowStencilPanel(next)
-            if (next) {
+            // Only reveal the dock if the active tool is one that shows the
+            // stencil panel — the eyedropper and face tools never do.
+            if (next && toolUsesPanel(activeTool(), 'stencil')) {
               setShowPanelDock(true)
             }
           }}
@@ -1463,6 +1542,8 @@ export default function App(): JSX.Element {
                     version={layersVersion()}
                     onChange={bumpLayers}
                     hideHeader={true}
+                    onInspectLayer={inspectLayer}
+                    onInspectFlattened={inspectFlattened}
                   />
                 </Show>
               </div>

@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.5.0
+
+### Added
+- **Layer Inspector**: Click a layer's thumbnail to pop that sheet out into its own window at full resolution — zoom, pan, and a readout of the texel and UV under the cursor. The panel header button does the same for the flattened result.
+- **Fill Region Placement**: The Fill tool chooses whether the selected texture region covers the area being filled or tiles across it.
+- **Fill Rotation**: Rotates the placed copy inside the filled area, with exact entry and quarter-turn snaps. Separate from the region's own rotation, which spins what the crop reads.
+
+### Changed
+- **Per-Tool Panels**: Each tool declares its own panel set instead of panels deciding from OR'd tool lists, so no tool inherits panels from another. Eyedropper and Face Select no longer show the stencil panel.
+- **Modifiers Read as Modifiers**: The screen stencil and edge wear wizard moved out of the tool strip into their own group with an outlined toggle style, so an enabled stencil no longer looks like a second selected tool. The stencil button disables on tools that don't use it.
+
+### Fixed
+- **Fill Face Ignored the Texture Region**: Clicking to fill tiled the crop from the sheet's origin instead of fitting it to the face, so one region read differently from face to face. Viewport fills now use the same placement as the panel's Fill button.
+- **Occlusion Depth Pass Included the Backdrop**: three renders `scene.background` through `overrideMaterial`, which filled the depth map at the backdrop's distance and quietly stopped the occlusion test rejecting anything near a silhouette.
+
 ## v2.4.0
 
 ### Added
