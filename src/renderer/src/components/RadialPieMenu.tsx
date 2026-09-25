@@ -1,4 +1,6 @@
-import { createSignal, onMount, onCleanup, For, Show } from 'solid-js'
+import { colorLibrary } from '../paint/colorLibrary'
+import { PALETTE_PRESETS, type PalettePreset } from '../paint/palettePresets'
+import { createSignal, onMount, onCleanup, For, Show, type JSX } from 'solid-js'
 import { brush, setTexturePath, type ToolMode } from '../paint/brush'
 import {
   BrushIcon,
@@ -46,24 +48,45 @@ const WEDGES: ToolWedge[] = [
   }
 ]
 
-const QUICK_COLORS = [
-  '#ffffff',
-  '#94a3b8',
-  '#1e293b',
-  '#000000',
-  '#ef4444',
-  '#f97316',
-  '#eab308',
-  '#22c55e',
-  '#06b6d4',
-  '#3b82f6',
-  '#a855f7',
-  '#ec4899'
-]
+const PIE_PALETTE_KEY = 'meshcoat:pie_palette'
+
+function loadPiePalette(): string {
+  try {
+    return localStorage.getItem(PIE_PALETTE_KEY) ?? 'essentials'
+  } catch {
+    return 'essentials'
+  }
+}
 
 export default function RadialPieMenu(props: PieMenuProps) {
   const [hoveredTool, setHoveredTool] = createSignal<ToolMode | null>(props.activeTool)
   let colorInputRef: HTMLInputElement | undefined
+  const [piePaletteId, setPiePaletteId] = createSignal(loadPiePalette())
+  const piePalette = (): PalettePreset =>
+    colorLibrary.customPalettes().find((p) => p.id === piePaletteId()) ??
+    PALETTE_PRESETS.find((p) => p.id === piePaletteId()) ??
+    PALETTE_PRESETS[0]
+
+  onMount(() => void colorLibrary.hydrateColorLibrary())
+
+  function PieSwatch(p: { color: string }): JSX.Element {
+    return (
+      <button
+        type="button"
+        class={`w-full aspect-square rounded-full border transition-transform cursor-pointer ${
+          brush.color().toLowerCase() === p.color.toLowerCase()
+            ? 'ring-2 ring-blue-500 scale-110 border-white'
+            : 'border-white/20 hover:scale-110'
+        }`}
+        style={{ 'background-color': p.color }}
+        title={p.color.toUpperCase()}
+        onClick={(e) => {
+          e.stopPropagation()
+          brush.setColor(p.color)
+        }}
+      />
+    )
+  }
 
   const RADIUS_INNER = 42
   const RADIUS_OUTER = 98
@@ -294,31 +317,16 @@ export default function RadialPieMenu(props: PieMenuProps) {
           class="absolute left-1/2 -translate-x-1/2 top-[245px] w-[270px] p-2.5 bg-zinc-900/95 border border-zinc-750 rounded-xl shadow-2xl backdrop-blur-md flex flex-col gap-2.5 text-xs"
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Row 1: Quick Color Swatches */}
+          {/* Row 1: the artist's own saved colors, then a palette to pick from */}
           <div class="flex flex-col gap-1">
-            <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
-              Color
-            </span>
-            <div class="flex items-center gap-1 flex-wrap">
-              <For each={QUICK_COLORS}>
-                {(col) => (
-                  <button
-                    type="button"
-                    class={`w-4 h-4 rounded-full border transition-transform cursor-pointer ${
-                      brush.color().toLowerCase() === col.toLowerCase()
-                        ? 'ring-2 ring-blue-500 scale-110 border-white'
-                        : 'border-white/20 hover:scale-110'
-                    }`}
-                    style={{ 'background-color': col }}
-                    title={`Select color: ${col}`}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      brush.setColor(col)
-                    }}
-                  />
-                )}
-              </For>
-              <label class="relative w-4 h-4 rounded-full border border-white/30 overflow-hidden cursor-pointer flex items-center justify-center">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
+                Saved Colors
+              </span>
+              <label
+                class="relative w-4 h-4 rounded-full border border-white/40 overflow-hidden cursor-pointer"
+                title="Current color — click for the system color dialog"
+              >
                 <input
                   ref={colorInputRef}
                   type="color"
@@ -326,8 +334,61 @@ export default function RadialPieMenu(props: PieMenuProps) {
                   value={brush.color()}
                   onInput={(e) => brush.setColor(e.currentTarget.value)}
                 />
-                <span class="w-full h-full" style={{ 'background-color': brush.color() }} />
+                <span class="block w-full h-full" style={{ 'background-color': brush.color() }} />
               </label>
+            </div>
+            <Show
+              when={colorLibrary.savedSwatches().length > 0}
+              fallback={
+                <span class="text-[10px] text-zinc-500 italic">
+                  No saved colors yet — use Save in the color panel
+                </span>
+              }
+            >
+              <div class="grid grid-cols-12 gap-1">
+                <For each={colorLibrary.savedSwatches().slice(0, 24)}>
+                  {(col) => <PieSwatch color={col} />}
+                </For>
+              </div>
+            </Show>
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
+                Palette
+              </span>
+              <select
+                class="min-w-0 max-w-[150px] bg-zinc-950 border border-zinc-700 rounded px-1 py-0.5 text-[10px] text-zinc-200 cursor-pointer"
+                value={piePalette().id}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  setPiePaletteId(e.currentTarget.value)
+                  try {
+                    localStorage.setItem(PIE_PALETTE_KEY, e.currentTarget.value)
+                  } catch {
+                    // Remembered choice is a convenience only.
+                  }
+                }}
+              >
+                <Show when={colorLibrary.customPalettes().length > 0}>
+                  <optgroup label="My Palettes">
+                    <For each={colorLibrary.customPalettes()}>
+                      {(pal) => <option value={pal.id}>{pal.name}</option>}
+                    </For>
+                  </optgroup>
+                </Show>
+                <optgroup label="Built-in">
+                  <For each={PALETTE_PRESETS}>
+                    {(pal) => <option value={pal.id}>{pal.name}</option>}
+                  </For>
+                </optgroup>
+              </select>
+            </div>
+            <div class="grid grid-cols-12 gap-1">
+              <For each={piePalette().colors.slice(0, 24)}>
+                {(col) => <PieSwatch color={col} />}
+              </For>
             </div>
           </div>
 
