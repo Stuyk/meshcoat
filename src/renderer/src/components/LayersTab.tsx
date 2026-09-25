@@ -19,7 +19,8 @@ import {
   CubeIcon,
   UnlinkIcon,
   CornerDownRightIcon,
-  PopoutIcon
+  PopoutIcon,
+  CopyToPieceIcon
 } from './icons'
 import { IconButton, Label, Select, TextInput } from './ui'
 
@@ -32,7 +33,50 @@ export default function LayersTab(props: {
   onInspectLayer?: (layer: Layer) => void
   /** Same, for the flattened result of the whole stack. */
   onInspectFlattened?: () => void
+  /** Every piece of the model, for copying a layer onto another one (#21). */
+  pieces?: { index: number; name: string; textureSize: number }[]
+  activePiece?: number
+  getPieceStack?: (pieceIndex: number) => LayerStack | undefined
+  onToast?: (text: string, type?: 'info' | 'success' | 'warning' | 'error') => void
 }) {
+  const [copyingId, setCopyingId] = createSignal<number | null>(null)
+  const [copyTarget, setCopyTarget] = createSignal<number>(-1)
+  const [flipU, setFlipU] = createSignal(false)
+  const [flipV, setFlipV] = createSignal(false)
+  const otherPieces = (): { index: number; name: string; textureSize: number }[] =>
+    (props.pieces ?? []).filter((p) => p.index !== props.activePiece)
+
+  function openCopy(layerId: number): void {
+    if (copyingId() === layerId) {
+      setCopyingId(null)
+      return
+    }
+    const first = otherPieces()[0]
+    setCopyTarget(first ? first.index : -1)
+    setCopyingId(layerId)
+  }
+
+  function copyToPiece(layer: Layer): void {
+    const target = props.getPieceStack?.(copyTarget())
+    const piece = (props.pieces ?? []).find((p) => p.index === copyTarget())
+    const fromName = (props.pieces ?? []).find((p) => p.index === props.activePiece)?.name
+    if (!target || !piece) {
+      return
+    }
+    target.importLayer(layer, fromName ? `${layer.name} (${fromName})` : layer.name, {
+      flipU: flipU(),
+      flipV: flipV()
+    })
+    setCopyingId(null)
+    props.onChange()
+    const source = props.getStack()
+    const resampled = source && source.textureSize !== target.textureSize
+    props.onToast?.(
+      `Copied "${layer.name}" to ${piece.name}${resampled ? ` (resampled to ${target.textureSize}px)` : ''}`,
+      'success'
+    )
+  }
+
   const [editingId, setEditingId] = createSignal<number | null>(null)
   const [editName, setEditName] = createSignal('')
 
@@ -480,6 +524,20 @@ export default function LayersTab(props: {
                       >
                         <CopyIcon size={13} />
                       </button>
+                      <Show when={otherPieces().length > 0}>
+                        <button
+                          type="button"
+                          onClick={() => openCopy(layer.id)}
+                          class={`p-1.5 rounded transition-colors cursor-pointer ${
+                            copyingId() === layer.id
+                              ? 'text-blue-300 bg-blue-950/50'
+                              : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
+                          }`}
+                          title="Copy this layer onto another piece (same UV layout)"
+                        >
+                          <CopyToPieceIcon size={13} />
+                        </button>
+                      </Show>
                       <Show when={!isMaskFlag()}>
                         <button
                           type="button"
@@ -503,6 +561,61 @@ export default function LayersTab(props: {
                         <Trash2Icon size={13} />
                       </button>
                     </div>
+                    <Show when={copyingId() === layer.id}>
+                      <div class="mt-1.5 flex flex-col gap-1.5 p-2 rounded border border-blue-900/60 bg-blue-950/20">
+                        <div class="flex items-center gap-2">
+                          <span class="text-[10px] font-semibold uppercase tracking-wide text-zinc-400 shrink-0">
+                            Copy to
+                          </span>
+                          <select
+                            class="flex-1 min-w-0 bg-zinc-950 border border-zinc-700 rounded px-1.5 py-0.5 text-[11px] text-zinc-200 cursor-pointer"
+                            value={copyTarget()}
+                            onChange={(e) => setCopyTarget(Number(e.currentTarget.value))}
+                          >
+                            <For each={otherPieces()}>
+                              {(p) => <option value={p.index}>{p.name}</option>}
+                            </For>
+                          </select>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setFlipU((v) => !v)}
+                            title="Mirror left-right in UV space (for a reflected UV island)"
+                            class={`flex-1 h-6 rounded text-[10px] font-medium border cursor-pointer ${
+                              flipU()
+                                ? 'bg-blue-600 border-blue-500 text-white'
+                                : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-zinc-200'
+                            }`}
+                          >
+                            Flip H
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFlipV((v) => !v)}
+                            title="Mirror top-bottom in UV space"
+                            class={`flex-1 h-6 rounded text-[10px] font-medium border cursor-pointer ${
+                              flipV()
+                                ? 'bg-blue-600 border-blue-500 text-white'
+                                : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-zinc-200'
+                            }`}
+                          >
+                            Flip V
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => copyToPiece(layer)}
+                            class="flex-1 h-6 rounded text-[10px] font-semibold bg-blue-600 hover:bg-blue-500 text-white cursor-pointer"
+                          >
+                            Copy
+                          </button>
+                        </div>
+                        <span class="text-[10px] text-zinc-500 leading-snug">
+                          Copies pixels by UV position — lines up when both pieces share the same
+                          unwrap. Undo on the target piece removes it.
+                        </span>
+                      </div>
+                    </Show>
                   </Show>
                 </div>
               </div>

@@ -1,14 +1,16 @@
-import { createSignal, Show, type JSX } from 'solid-js'
+import { createSignal, Show, For, type JSX } from 'solid-js'
 import {
   AppIcon,
   RefreshCwIcon,
-  PanelRightIcon,
   WireframeIcon,
+  UvPanelIcon,
   EyeOffIcon,
   SymmetryIcon,
   FocusIcon,
   SettingsIcon,
-  HelpCircleIcon
+  HelpCircleIcon,
+  ChevronDownIcon,
+  CheckIcon
 } from './icons'
 import { DropdownMenu, IconButton, SegmentedControl, type MenuItem } from './ui'
 import type { LightingMode } from '../viewport/scene'
@@ -21,15 +23,20 @@ export interface WorkstationHeaderProps {
   isRestoringSession: boolean
   fileMenuItems: MenuItem[]
   editMenuItems: MenuItem[]
+  selectionMenuItems: MenuItem[]
   panelMenuItems: MenuItem[]
   lightingMode: LightingMode
   onSelectLightingMode: (m: LightingMode) => void
   viewMode: ChannelViewMode
   onSelectViewMode: (m: ChannelViewMode) => void
-  showPanelDock: boolean
-  onTogglePanelDock: () => void
+  showPanelDock?: boolean
+  onTogglePanelDock?: () => void
+  sidebarCollapsed?: boolean
+  onToggleSidebar?: () => void
   wireframeVisible: boolean
   onToggleWireframe: () => void
+  showUvPanel: boolean
+  onToggleUvPanel: () => void
   isolatePiece: boolean
   onToggleIsolatePiece: () => void
   multiPiece: boolean
@@ -39,11 +46,50 @@ export interface WorkstationHeaderProps {
   onOpenHelp: () => void
 }
 
-const LIGHTING_OPTIONS: { value: LightingMode; label: string; title: string }[] = [
-  { value: 'studio', label: 'Studio', title: 'Studio Lighting: Balanced three-point setup with soft key light and fill' },
-  { value: 'flat', label: 'Flat', title: 'Flat Lighting: Unshaded albedo view without lighting or shadows' },
-  { value: 'outdoor', label: 'Outdoor', title: 'Outdoor Lighting: High-contrast directional sunlight with sky fill' },
-  { value: 'showcase', label: 'Showcase', title: 'Showcase Lighting: Dramatic rim lighting for inspecting material details' }
+export interface LightingOption {
+  value: LightingMode
+  label: string
+  subtitle: string
+  color: string
+  swatch: string
+}
+
+export const LIGHTING_OPTIONS: LightingOption[] = [
+  {
+    value: 'neutral',
+    label: 'Neutral',
+    subtitle: 'Balanced 5600K 3-point studio',
+    color: '#94a3b8',
+    swatch: 'linear-gradient(135deg, #f8fafc 0%, #94a3b8 100%)'
+  },
+  {
+    value: 'flat',
+    label: 'Flat',
+    subtitle: 'Albedo with delicate soft shadows',
+    color: '#cbd5e1',
+    swatch: 'linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%)'
+  },
+  {
+    value: 'outdoor',
+    label: 'Outdoor',
+    subtitle: 'Sunlight & sky ambient fill',
+    color: '#f59e0b',
+    swatch: 'linear-gradient(135deg, #fbbf24 0%, #38bdf8 100%)'
+  },
+  {
+    value: 'warm',
+    label: 'Warm Light',
+    subtitle: 'Cozy 3200K tungsten & amber glow',
+    color: '#f97316',
+    swatch: 'linear-gradient(135deg, #fb923c 0%, #ea580c 100%)'
+  },
+  {
+    value: 'cool',
+    label: 'Cool Light',
+    subtitle: 'Crisp 7500K blue hour & cyan rim',
+    color: '#06b6d4',
+    swatch: 'linear-gradient(135deg, #38bdf8 0%, #3b82f6 100%)'
+  }
 ]
 
 const VIEW_OPTIONS: { value: ChannelViewMode; label: string; title: string }[] = [
@@ -56,7 +102,12 @@ const VIEW_OPTIONS: { value: ChannelViewMode; label: string; title: string }[] =
 export default function WorkstationHeader(props: WorkstationHeaderProps): JSX.Element {
   const [showFileMenu, setShowFileMenu] = createSignal(false)
   const [showEditMenu, setShowEditMenu] = createSignal(false)
+  const [showSelectionMenu, setShowSelectionMenu] = createSignal(false)
   const [showPanelMenu, setShowPanelMenu] = createSignal(false)
+  const [showLightingMenu, setShowLightingMenu] = createSignal(false)
+
+  const currentLighting = () =>
+    LIGHTING_OPTIONS.find((o) => o.value === props.lightingMode) ?? LIGHTING_OPTIONS[0]
 
   return (
     <header class="h-10 min-h-10 px-3 bg-[var(--bg-panel-header)] border-b border-[var(--border-color)] flex items-center justify-between select-none z-40 shrink-0 text-xs text-[var(--text-main)]">
@@ -92,7 +143,9 @@ export default function WorkstationHeader(props: WorkstationHeaderProps): JSX.El
               onClick={() => {
                 setShowFileMenu((v) => !v)
                 setShowEditMenu(false)
+                setShowSelectionMenu(false)
                 setShowPanelMenu(false)
+                setShowLightingMenu(false)
               }}
             >
               File
@@ -116,7 +169,9 @@ export default function WorkstationHeader(props: WorkstationHeaderProps): JSX.El
               onClick={() => {
                 setShowEditMenu((v) => !v)
                 setShowFileMenu(false)
+                setShowSelectionMenu(false)
                 setShowPanelMenu(false)
+                setShowLightingMenu(false)
               }}
             >
               Edit
@@ -125,6 +180,32 @@ export default function WorkstationHeader(props: WorkstationHeaderProps): JSX.El
               isOpen={showEditMenu()}
               onClose={() => setShowEditMenu(false)}
               items={props.editMenuItems}
+            />
+          </div>
+
+          <div class="relative">
+            <button
+              type="button"
+              title="Face selection operations & saved groups"
+              class={`px-2.5 py-1 rounded-[var(--ui-radius)] text-xs font-medium transition-colors cursor-pointer ${
+                showSelectionMenu()
+                  ? 'bg-[var(--accent-color)] text-[var(--accent-text)]'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5'
+              }`}
+              onClick={() => {
+                setShowSelectionMenu((v) => !v)
+                setShowFileMenu(false)
+                setShowEditMenu(false)
+                setShowPanelMenu(false)
+                setShowLightingMenu(false)
+              }}
+            >
+              Selection
+            </button>
+            <DropdownMenu
+              isOpen={showSelectionMenu()}
+              onClose={() => setShowSelectionMenu(false)}
+              items={props.selectionMenuItems}
             />
           </div>
 
@@ -141,6 +222,8 @@ export default function WorkstationHeader(props: WorkstationHeaderProps): JSX.El
                 setShowPanelMenu((v) => !v)
                 setShowFileMenu(false)
                 setShowEditMenu(false)
+                setShowSelectionMenu(false)
+                setShowLightingMenu(false)
               }}
             >
               Panels
@@ -155,12 +238,81 @@ export default function WorkstationHeader(props: WorkstationHeaderProps): JSX.El
       </div>
 
       <div class="flex items-center gap-2 shrink-0">
-        <SegmentedControl
-          size="xs"
-          options={LIGHTING_OPTIONS}
-          value={props.lightingMode}
-          onChange={props.onSelectLightingMode}
-        />
+        {/* Lighting Mode Dropdown */}
+        <div class="relative">
+          <button
+            type="button"
+            class={`flex items-center gap-2 h-7 px-2.5 rounded-[var(--ui-radius)] border text-xs transition-colors cursor-pointer select-none ${
+              showLightingMenu()
+                ? 'bg-[var(--bg-input-hover)] border-blue-500/50 text-[var(--text-main)] shadow-sm'
+                : 'bg-[var(--bg-input)] hover:bg-[var(--bg-input-hover)] border-[var(--border-color)] text-[var(--text-main)]'
+            }`}
+            onClick={() => {
+              setShowLightingMenu((v) => !v)
+              setShowFileMenu(false)
+              setShowEditMenu(false)
+              setShowSelectionMenu(false)
+              setShowPanelMenu(false)
+            }}
+            title={`Lighting: ${currentLighting().label} — ${currentLighting().subtitle}`}
+          >
+            <span
+              class="w-2.5 h-2.5 rounded-full shrink-0 shadow-xs border border-white/20"
+              style={{ background: currentLighting().swatch }}
+            />
+            <span class="font-medium">{currentLighting().label}</span>
+            <ChevronDownIcon size={12} class="text-[var(--text-muted)] ml-0.5" />
+          </button>
+
+          <Show when={showLightingMenu()}>
+            {/* Invisible backdrop to capture clicks outside */}
+            <div class="fixed inset-0 z-40" onClick={() => setShowLightingMenu(false)} />
+
+            <div class="absolute left-0 top-full mt-1.5 z-50 min-w-[240px] p-1.5 bg-zinc-900/98 backdrop-blur-md border border-zinc-750/90 rounded-xl shadow-2xl shadow-black/80 flex flex-col gap-0.5 select-none">
+              <div class="px-2.5 pt-1.5 pb-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                Lighting Preset
+              </div>
+              <For each={LIGHTING_OPTIONS}>
+                {(item) => {
+                  const isSelected = () => props.lightingMode === item.value
+                  return (
+                    <button
+                      type="button"
+                      class={`flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg text-left transition-colors cursor-pointer group ${
+                        isSelected()
+                          ? 'bg-blue-600 text-white'
+                          : 'text-zinc-200 hover:bg-zinc-800/80 hover:text-white'
+                      }`}
+                      onClick={() => {
+                        props.onSelectLightingMode(item.value)
+                        setShowLightingMenu(false)
+                      }}
+                    >
+                      <span
+                        class="w-3.5 h-3.5 rounded-full shrink-0 shadow-sm border border-white/25 group-hover:scale-105 transition-transform"
+                        style={{ background: item.swatch }}
+                      />
+                      <div class="flex flex-col min-w-0 flex-1">
+                        <span class="text-xs font-semibold leading-tight">{item.label}</span>
+                        <span
+                          class={`text-[10px] leading-tight truncate ${
+                            isSelected() ? 'text-blue-100' : 'text-zinc-400 group-hover:text-zinc-300'
+                          }`}
+                        >
+                          {item.subtitle}
+                        </span>
+                      </div>
+                      <Show when={isSelected()}>
+                        <CheckIcon size={14} class="shrink-0 ml-1 text-white" />
+                      </Show>
+                    </button>
+                  )
+                }}
+              </For>
+            </div>
+          </Show>
+        </div>
+
 
         <div class="w-px h-4 bg-[var(--border-color)]" />
 
@@ -175,20 +327,20 @@ export default function WorkstationHeader(props: WorkstationHeaderProps): JSX.El
 
         <IconButton
           size="xs"
-          active={props.showPanelDock}
-          onClick={props.onTogglePanelDock}
-          tooltip="Toggle Tool Panels (C)"
-        >
-          <PanelRightIcon size={15} />
-        </IconButton>
-
-        <IconButton
-          size="xs"
           active={props.wireframeVisible}
           onClick={props.onToggleWireframe}
           tooltip="Toggle Wireframe (W)"
         >
           <WireframeIcon size={15} />
+        </IconButton>
+
+        <IconButton
+          size="xs"
+          active={props.showUvPanel}
+          onClick={props.onToggleUvPanel}
+          tooltip="2D Paint panel: paint directly on the UV layout"
+        >
+          <UvPanelIcon size={15} />
         </IconButton>
 
         <Show when={props.multiPiece}>

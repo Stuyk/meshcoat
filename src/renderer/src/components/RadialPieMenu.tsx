@@ -1,5 +1,8 @@
-import { createSignal, onMount, onCleanup, For, Show } from 'solid-js'
+import { colorLibrary } from '../paint/colorLibrary'
+import { PALETTE_PRESETS, type PalettePreset } from '../paint/palettePresets'
+import { createSignal, onMount, onCleanup, For, Show, type JSX } from 'solid-js'
 import { brush, setTexturePath, type ToolMode } from '../paint/brush'
+import { brushPresets } from '../paint/brushPresets'
 import {
   BrushIcon,
   EraserIcon,
@@ -7,6 +10,9 @@ import {
   StampIcon,
   EyedropperIcon,
   LineIcon,
+  GradientIcon,
+  DropletsIcon,
+  SparklesIcon,
   RotateIcon,
   SymmetryIcon
 } from './icons'
@@ -33,37 +39,60 @@ interface ToolWedge {
 
 const WEDGES: ToolWedge[] = [
   { id: 'brush', name: 'Brush', shortcut: 'B', angleDeg: 270, icon: (p) => <BrushIcon {...p} /> },
-  { id: 'line', name: 'Line Tool', shortcut: 'L', angleDeg: 330, icon: (p) => <LineIcon {...p} /> },
-  { id: 'stamp', name: 'Stamp', shortcut: 'S', angleDeg: 30, icon: (p) => <StampIcon {...p} /> },
+  { id: 'line', name: 'Line Tool', shortcut: 'L', angleDeg: 315, icon: (p) => <LineIcon {...p} /> },
+  { id: 'stamp', name: 'Stamp', shortcut: 'T', angleDeg: 0, icon: (p) => <StampIcon {...p} /> },
+  { id: 'gradient', name: 'Gradient', shortcut: 'D', angleDeg: 45, icon: (p) => <GradientIcon {...p} /> },
   { id: 'eraser', name: 'Eraser', shortcut: 'E', angleDeg: 90, icon: (p) => <EraserIcon {...p} /> },
-  { id: 'fill', name: 'Fill', shortcut: 'G', angleDeg: 150, icon: (p) => <FillIcon {...p} /> },
+  { id: 'fill', name: 'Fill', shortcut: 'G', angleDeg: 135, icon: (p) => <FillIcon {...p} /> },
+  { id: 'effect', name: 'Filters', shortcut: 'U', angleDeg: 180, icon: (p) => <DropletsIcon {...p} /> },
   {
     id: 'eyedropper',
-    name: 'Picker',
+    name: 'Eyedropper',
     shortcut: 'I',
-    angleDeg: 210,
+    angleDeg: 225,
     icon: (p) => <EyedropperIcon {...p} />
   }
 ]
 
-const QUICK_COLORS = [
-  '#ffffff',
-  '#94a3b8',
-  '#1e293b',
-  '#000000',
-  '#ef4444',
-  '#f97316',
-  '#eab308',
-  '#22c55e',
-  '#06b6d4',
-  '#3b82f6',
-  '#a855f7',
-  '#ec4899'
-]
+const PIE_PALETTE_KEY = 'meshcoat:pie_palette'
+
+function loadPiePalette(): string {
+  try {
+    return localStorage.getItem(PIE_PALETTE_KEY) ?? 'essentials'
+  } catch {
+    return 'essentials'
+  }
+}
 
 export default function RadialPieMenu(props: PieMenuProps) {
   const [hoveredTool, setHoveredTool] = createSignal<ToolMode | null>(props.activeTool)
   let colorInputRef: HTMLInputElement | undefined
+  const [piePaletteId, setPiePaletteId] = createSignal(loadPiePalette())
+  const piePalette = (): PalettePreset =>
+    colorLibrary.customPalettes().find((p) => p.id === piePaletteId()) ??
+    PALETTE_PRESETS.find((p) => p.id === piePaletteId()) ??
+    PALETTE_PRESETS[0]
+
+  onMount(() => void colorLibrary.hydrateColorLibrary())
+
+  function PieSwatch(p: { color: string }): JSX.Element {
+    return (
+      <button
+        type="button"
+        class={`w-full aspect-square rounded-full border transition-transform cursor-pointer ${
+          brush.color().toLowerCase() === p.color.toLowerCase()
+            ? 'ring-2 ring-blue-500 scale-110 border-white'
+            : 'border-white/20 hover:scale-110'
+        }`}
+        style={{ 'background-color': p.color }}
+        title={p.color.toUpperCase()}
+        onClick={(e) => {
+          e.stopPropagation()
+          brush.setColor(p.color)
+        }}
+      />
+    )
+  }
 
   const RADIUS_INNER = 42
   const RADIUS_OUTER = 98
@@ -127,7 +156,7 @@ export default function RadialPieMenu(props: PieMenuProps) {
   })
 
   function getSectorPath(centerAngleDeg: number) {
-    const halfSweep = 29.5 * (Math.PI / 180)
+    const halfSweep = 21 * (Math.PI / 180)
     const centerRad = (centerAngleDeg * Math.PI) / 180
     const startRad = centerRad - halfSweep
     const endRad = centerRad + halfSweep
@@ -242,12 +271,12 @@ export default function RadialPieMenu(props: PieMenuProps) {
                     stroke-width="1.5"
                   />
                   <g
-                    transform={`translate(${ix - 11}, ${iy - 11})`}
+                    transform={`translate(${ix - 10}, ${iy - 10})`}
                     class={
                       isHovered() ? 'text-white' : isActive() ? 'text-blue-300' : 'text-zinc-300'
                     }
                   >
-                    {w.icon({ size: 22 })}
+                    {w.icon({ size: 20 })}
                   </g>
                 </g>
               )
@@ -289,36 +318,63 @@ export default function RadialPieMenu(props: PieMenuProps) {
           )}
         </Show>
 
-        {/* Quick Access HUD Card (Colors, Textures, Symmetry, Rotation) */}
+        {/* Quick Access HUD Card (Brush Library, Colors, Textures, Symmetry, Rotation) */}
         <div
           class="absolute left-1/2 -translate-x-1/2 top-[245px] w-[270px] p-2.5 bg-zinc-900/95 border border-zinc-750 rounded-xl shadow-2xl backdrop-blur-md flex flex-col gap-2.5 text-xs"
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Row 1: Quick Color Swatches */}
-          <div class="flex flex-col gap-1">
-            <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
-              Color
-            </span>
-            <div class="flex items-center gap-1 flex-wrap">
-              <For each={QUICK_COLORS}>
-                {(col) => (
-                  <button
-                    type="button"
-                    class={`w-4 h-4 rounded-full border transition-transform cursor-pointer ${
-                      brush.color().toLowerCase() === col.toLowerCase()
-                        ? 'ring-2 ring-blue-500 scale-110 border-white'
-                        : 'border-white/20 hover:scale-110'
-                    }`}
-                    style={{ 'background-color': col }}
-                    title={`Select color: ${col}`}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      brush.setColor(col)
-                    }}
+          {/* Row 0: Brush Preset / Library Picker */}
+          <div class="flex items-center justify-between pb-2 border-b border-zinc-800">
+            <div class="flex items-center gap-2 min-w-0">
+              <div
+                class="w-6 h-6 rounded bg-zinc-950 border border-zinc-700 flex items-center justify-center overflow-hidden shrink-0 shadow-xs"
+                title="Current brush preset"
+              >
+                <Show
+                  when={brush.tipTexturePath()}
+                  fallback={<SparklesIcon size={13} class="text-amber-300" />}
+                >
+                  <img
+                    src={toAssetUrl(brush.tipTexturePath()!)}
+                    alt="Brush Tip"
+                    class="w-full h-full object-contain p-0.5"
                   />
-                )}
-              </For>
-              <label class="relative w-4 h-4 rounded-full border border-white/30 overflow-hidden cursor-pointer flex items-center justify-center">
+                </Show>
+              </div>
+              <div class="flex flex-col min-w-0">
+                <span class="text-[11px] font-semibold text-zinc-200 truncate">
+                  {brushPresets.active() ? brushPresets.active()!.name : 'Standard Round Tip'}
+                </span>
+                <span class="text-[10px] text-zinc-400 font-mono">
+                  R: {brush.radius().toFixed(2)} · {Math.round(brush.opacity() * 100)}% Op
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[var(--accent-color)] text-[var(--accent-text)] font-semibold text-[11px] shadow-xs hover:brightness-110 active:brightness-95 transition-all cursor-pointer shrink-0"
+              title="Open Brush Preset Library / Picker"
+              onClick={(e) => {
+                e.stopPropagation()
+                props.onClose()
+                brushPresets.openManager()
+              }}
+            >
+              <SparklesIcon size={12} class="text-amber-300" />
+              <span>Brushes</span>
+            </button>
+          </div>
+
+          {/* Row 1: the artist's own saved colors, then a palette to pick from */}
+          <div class="flex flex-col gap-1">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
+                Saved Colors
+              </span>
+              <label
+                class="relative w-4 h-4 rounded-full border border-white/40 overflow-hidden cursor-pointer"
+                title="Current color — click for the system color dialog"
+              >
                 <input
                   ref={colorInputRef}
                   type="color"
@@ -326,8 +382,61 @@ export default function RadialPieMenu(props: PieMenuProps) {
                   value={brush.color()}
                   onInput={(e) => brush.setColor(e.currentTarget.value)}
                 />
-                <span class="w-full h-full" style={{ 'background-color': brush.color() }} />
+                <span class="block w-full h-full" style={{ 'background-color': brush.color() }} />
               </label>
+            </div>
+            <Show
+              when={colorLibrary.savedSwatches().length > 0}
+              fallback={
+                <span class="text-[10px] text-zinc-500 italic">
+                  No saved colors yet — use Save in the color panel
+                </span>
+              }
+            >
+              <div class="grid grid-cols-12 gap-1">
+                <For each={colorLibrary.savedSwatches().slice(0, 24)}>
+                  {(col) => <PieSwatch color={col} />}
+                </For>
+              </div>
+            </Show>
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
+                Palette
+              </span>
+              <select
+                class="min-w-0 max-w-[150px] bg-zinc-950 border border-zinc-700 rounded px-1 py-0.5 text-[10px] text-zinc-200 cursor-pointer"
+                value={piePalette().id}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  setPiePaletteId(e.currentTarget.value)
+                  try {
+                    localStorage.setItem(PIE_PALETTE_KEY, e.currentTarget.value)
+                  } catch {
+                    // Remembered choice is a convenience only.
+                  }
+                }}
+              >
+                <Show when={colorLibrary.customPalettes().length > 0}>
+                  <optgroup label="My Palettes">
+                    <For each={colorLibrary.customPalettes()}>
+                      {(pal) => <option value={pal.id}>{pal.name}</option>}
+                    </For>
+                  </optgroup>
+                </Show>
+                <optgroup label="Built-in">
+                  <For each={PALETTE_PRESETS}>
+                    {(pal) => <option value={pal.id}>{pal.name}</option>}
+                  </For>
+                </optgroup>
+              </select>
+            </div>
+            <div class="grid grid-cols-12 gap-1">
+              <For each={piePalette().colors.slice(0, 24)}>
+                {(col) => <PieSwatch color={col} />}
+              </For>
             </div>
           </div>
 

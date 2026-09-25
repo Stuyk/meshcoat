@@ -15,6 +15,7 @@ export type ToolMode =
   | 'effect'
   | 'faceProjector'
   | 'text'
+  | 'gradient'
 export type BrushTextureMapping = 'uv' | 'triplanar' | 'tip'
 /**
  * How the selected region repeats across a stroke.
@@ -410,6 +411,57 @@ const [angleFollowStroke, setAngleFollowStrokeRaw] = createSignal(false)
 const [angleJitter, setAngleJitterRaw] = createSignal(0)
 /** Random size jitter fraction (0 - 1). */
 const [sizeJitter, setSizeJitterRaw] = createSignal(0)
+/** Random hue shift, as a fraction of ±60° (0 - 1). */
+const [hueJitter, setHueJitterRaw] = createSignal(0)
+/** Random saturation shift, as a fraction of ±0.5 (0 - 1). */
+const [saturationJitter, setSaturationJitterRaw] = createSignal(0)
+/** Random lightness shift, as a fraction of ±0.35 (0 - 1). */
+const [valueJitter, setValueJitterRaw] = createSignal(0)
+/**
+ * When the jitters re-roll: every dab (texture within a stroke), or once per
+ * stroke — each click/drag gets its own angle, size and color variation while
+ * the stroke itself stays consistent.
+ */
+export type JitterScope = 'dab' | 'stroke'
+const [jitterScope, setJitterScopeRaw] = createSignal<JitterScope>('dab')
+
+type JitterChannel = 'angle' | 'size' | 'hue' | 'saturation' | 'value'
+const rollAll = (): Record<JitterChannel, number> => ({
+  angle: Math.random(),
+  size: Math.random(),
+  hue: Math.random(),
+  saturation: Math.random(),
+  value: Math.random()
+})
+let strokeRoll = rollAll()
+
+/** Re-rolls the per-stroke random values. Call when a stroke starts. */
+export function beginStrokeJitter(): void {
+  strokeRoll = rollAll()
+}
+
+/** A uniform random value in [-1, 1] for `channel`, per dab or per stroke by jitterScope. */
+export function jitterSample(channel: JitterChannel): number {
+  const u = jitterScope() === 'stroke' ? strokeRoll[channel] : Math.random()
+  return u * 2 - 1
+}
+
+/**
+ * The brush color for this application, with any hue/saturation/lightness
+ * variation applied. Returns the plain color when no color jitter is set.
+ */
+export function jitteredColor(): THREE.Color {
+  const base = new THREE.Color(color())
+  if (hueJitter() <= 0 && saturationJitter() <= 0 && valueJitter() <= 0) {
+    return base
+  }
+  const hsl = { h: 0, s: 0, l: 0 }
+  base.getHSL(hsl)
+  const h = hsl.h + (jitterSample('hue') * hueJitter() * 60) / 360
+  const s = clamp(hsl.s + jitterSample('saturation') * saturationJitter() * 0.5, 0, 1)
+  const l = clamp(hsl.l + jitterSample('value') * valueJitter() * 0.35, 0, 1)
+  return base.setHSL(((h % 1) + 1) % 1, s, l)
+}
 /** Map stylus pressure onto brush radius (tapered strokes). */
 const [pressureRadius, setPressureRadiusRaw] = createSignal(true)
 /** Map stylus pressure onto brush opacity (natural feathering/blending). */
@@ -451,6 +503,54 @@ export function setAngleJitter(v: number): void {
 
 export function setSizeJitter(v: number): void {
   setSizeJitterRaw(clamp(v, 0, 1))
+}
+
+export function setHueJitter(v: number): void {
+  setHueJitterRaw(clamp(v, 0, 1))
+}
+
+export function setSaturationJitter(v: number): void {
+  setSaturationJitterRaw(clamp(v, 0, 1))
+}
+
+export function setValueJitter(v: number): void {
+  setValueJitterRaw(clamp(v, 0, 1))
+}
+
+export function setJitterScope(v: JitterScope): void {
+  setJitterScopeRaw(v)
+}
+
+/**
+ * "Chaos mode": every stroke lands with its own rotation, size and a little
+ * color drift — for grunge and organic breakup without touching the sliders
+ * between strokes. Calling it again with false zeroes the jitters.
+ */
+export function setChaos(enabled: boolean): void {
+  if (enabled) {
+    setAngleJitterRaw(1)
+    setSizeJitterRaw(0.4)
+    setHueJitterRaw(0.1)
+    setSaturationJitterRaw(0.2)
+    setValueJitterRaw(0.2)
+    setJitterScopeRaw('stroke')
+  } else {
+    setAngleJitterRaw(0)
+    setSizeJitterRaw(0)
+    setHueJitterRaw(0)
+    setSaturationJitterRaw(0)
+    setValueJitterRaw(0)
+  }
+}
+
+export function chaosActive(): boolean {
+  return (
+    angleJitter() > 0 ||
+    sizeJitter() > 0 ||
+    hueJitter() > 0 ||
+    saturationJitter() > 0 ||
+    valueJitter() > 0
+  )
 }
 
 export function setPressureRadius(enabled: boolean): void {
@@ -537,7 +637,24 @@ export function setTipTexturePath(path: string | null): void {
  * automatically confines brush/stamp/eraser/fill to them — Esc (or
  * clearFaceSelection) drops back to painting the whole model.
  */
-const [selectedFaces, setSelectedFacesRaw] = createSignal<ReadonlySet<number>>(new Set())
+const [selectedFaces, setSelectedFacesSignal] = createSignal<ReadonlySet<number>>(new Set())
+
+/**
+ * Hides the selection outline/wash without dropping the selection — for fine
+ * work in a color close to the highlight's. Any change to the selection turns
+ * it back on, so a selection can never silently outlive the moment the artist
+ * chose to hide it.
+ */
+const [selectionHighlightHidden, setSelectionHighlightHiddenRaw] = createSignal(false)
+
+export function setSelectionHighlightHidden(v: boolean): void {
+  setSelectionHighlightHiddenRaw(v && selectedFaces().size > 0)
+}
+
+function setSelectedFacesRaw(next: ReadonlySet<number>): void {
+  setSelectionHighlightHiddenRaw(false)
+  setSelectedFacesSignal(next)
+}
 
 /**
  * Selects a texture-shelf image for the brush. Resets paint color to white by
@@ -813,6 +930,8 @@ export const brush = {
   tipTexturePath,
   setTipTexturePath,
   selectedFaces,
+  selectionHighlightHidden,
+  setSelectionHighlightHidden,
   textureMapping,
   setTextureMapping,
   fillMode,
@@ -834,6 +953,19 @@ export const brush = {
   setAngleJitter,
   sizeJitter,
   setSizeJitter,
+  hueJitter,
+  setHueJitter,
+  saturationJitter,
+  setSaturationJitter,
+  valueJitter,
+  setValueJitter,
+  jitterScope,
+  setJitterScope,
+  setChaos,
+  chaosActive,
+  beginStrokeJitter,
+  jitterSample,
+  jitteredColor,
   pressureRadius,
   setPressureRadius,
   pressureOpacity,

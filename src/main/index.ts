@@ -25,7 +25,10 @@ import {
   setLastTextureFolder,
   isBlenderPromptDismissed,
   setBlenderPromptDismissed,
-  setBlenderPath
+  setBlenderPath,
+  getColorLibrary,
+  setColorLibrary,
+  type ColorLibrary
 } from './prefs'
 import { saveAutosave, loadAutosave, clearAutosave } from './recovery'
 import { existsSync } from 'fs'
@@ -423,6 +426,15 @@ app.whenReady().then(() => {
 
   ipcMain.handle('blender:set-prompt-dismissed', (_e, dismissed: boolean) => {
     setBlenderPromptDismissed(dismissed)
+    return true
+  })
+
+  ipcMain.handle('prefs:get-color-library', () => {
+    return getColorLibrary() ?? null
+  })
+
+  ipcMain.handle('prefs:set-color-library', (_e, library: ColorLibrary) => {
+    setColorLibrary(library)
     return true
   })
 

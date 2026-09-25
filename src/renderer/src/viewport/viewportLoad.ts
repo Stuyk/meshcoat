@@ -14,7 +14,7 @@ import {
   setupWireframe
 } from './viewportPieces'
 import { applyPbrTexturesToPiece } from './viewportPbr'
-import type { InitialPbrTextures, InitialTexturePayload } from './viewportTypes'
+import type { InitialPbrTextures, InitialTexturePayload, LoadOptions } from './viewportTypes'
 import type { ViewportRuntime } from './viewportRuntime'
 
 /**
@@ -176,13 +176,15 @@ export async function loadFromUrl(
   url: string,
   extension: string,
   textureSize?: number,
-  initialTextures?: InitialTexturePayload | null
+  initialTextures?: InitialTexturePayload | null,
+  options: LoadOptions = {}
 ): Promise<void> {
   if (!rt.sceneHandle) {
     return
   }
   const model = await loadModel(url, extension)
-  const sizeByName = await resolveSizeByName(model, initialTextures)
+  // Forced: an empty map means every piece falls back to `textureSize`.
+  const sizeByName = options.forceTextureSize ? {} : await resolveSizeByName(model, initialTextures)
 
   clearCurrentModel(rt)
   rt.currentModel = model

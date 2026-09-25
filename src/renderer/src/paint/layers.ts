@@ -528,6 +528,37 @@ export class LayerStack {
     return layer
   }
 
+  /**
+   * Adds a copy of a layer from ANOTHER piece's stack on top of this one
+   * (issue #21). Pixels are copied in UV space, so this is meaningful when
+   * both pieces share a UV layout — typically mirrored parts — with an
+   * optional flip for islands that are reflected. Different texture sizes are
+   * resampled. Clipping links don't carry over; they point at the other
+   * stack's layers.
+   */
+  importLayer(
+    source: Layer,
+    name: string,
+    transform?: { flipU?: boolean; flipV?: boolean }
+  ): Layer {
+    this.history?.record()
+    const engine = new PaintEngine(this.renderer, this.mesh, null, this.textureSize)
+    source.engine.copyOnto(engine, transform)
+    const layer: Layer = {
+      id: nextLayerId(this.layers),
+      name,
+      visible: true,
+      opacity: source.opacity,
+      engine,
+      isMask: source.isMask,
+      blendMode: source.blendMode
+    }
+    this.layers.push(layer)
+    this.activeId = layer.id
+    this.recomposite()
+    return layer
+  }
+
   /** Bucket-fills only the given triangles on the active layer (spec: fill by face selection, multi-select, texture/color). */
   fillActiveFaces(
     faces: ReadonlySet<number>,

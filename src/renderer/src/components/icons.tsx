@@ -70,7 +70,12 @@ export {
   SwatchBook as MaterialChannelsIcon,
   Library as LibraryIcon,
   Bookmark as BookmarkIcon,
-  Type as TextIcon
+  Type as TextIcon,
+  Scan as UvPanelIcon,
+  Expand as FitIcon,
+  Blend as GradientIcon,
+  ArrowRightLeft as CopyToPieceIcon,
+  AppWindow as AppWindowIcon
 } from 'lucide-solid'
 
 export function AppIcon(props: { size?: number; class?: string }) {

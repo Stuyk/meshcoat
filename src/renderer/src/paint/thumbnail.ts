@@ -78,3 +78,73 @@ export function renderThumbnail(renderer: THREE.WebGLRenderer, texture: THREE.Te
   thumbCtx.putImageData(imageData, 0, 0)
   return thumbCanvas.toDataURL('image/png')
 }
+
+let viewTarget: THREE.WebGLRenderTarget | undefined
+let viewPixels: Uint8Array | undefined
+let viewImage: ImageData | undefined
+
+/**
+ * Larger sibling of renderThumbnail for the 2D paint panel: resamples
+ * `texture` to `size`² and returns straight-alpha ImageData (reused between
+ * calls, so a live-refreshing panel doesn't allocate a frame's worth of
+ * pixels every refresh).
+ */
+export function renderTextureToImageData(
+  renderer: THREE.WebGLRenderer,
+  texture: THREE.Texture,
+  size: number
+): ImageData | null {
+  ensureSetup()
+  if (!thumbScene || !thumbCamera || !thumbMaterial) {
+    return null
+  }
+  if (!viewTarget || viewTarget.width !== size) {
+    viewTarget?.dispose()
+    viewTarget = new THREE.WebGLRenderTarget(size, size, {
+      format: THREE.RGBAFormat,
+      type: THREE.UnsignedByteType,
+      // The composite is sRGB; without this the readback lands linear and
+      // every mid-tone shows darker and more saturated than it paints.
+      colorSpace: THREE.SRGBColorSpace
+    })
+    viewPixels = new Uint8Array(size * size * 4)
+    viewImage = new ImageData(size, size)
+  }
+  const pixels = viewPixels!
+  const image = viewImage!
+
+  thumbMaterial.map = texture
+  const prevTarget = renderer.getRenderTarget()
+  const prevClearColor = new THREE.Color()
+  renderer.getClearColor(prevClearColor)
+  const prevClearAlpha = renderer.getClearAlpha()
+  renderer.setClearColor(0x000000, 0)
+  renderer.setRenderTarget(viewTarget)
+  renderer.clear(true, true, true)
+  renderer.render(thumbScene, thumbCamera)
+  renderer.setRenderTarget(prevTarget)
+  renderer.setClearColor(prevClearColor, prevClearAlpha)
+  renderer.readRenderTargetPixels(viewTarget, 0, 0, size, size, pixels)
+
+  // Flip to top-down rows and un-premultiply (see renderThumbnail).
+  const rowBytes = size * 4
+  const out = image.data
+  for (let y = 0; y < size; y++) {
+    const srcStart = (size - 1 - y) * rowBytes
+    const dstStart = y * rowBytes
+    for (let x = 0; x < rowBytes; x += 4) {
+      const src = srcStart + x
+      const dst = dstStart + x
+      const a = pixels[src + 3]
+      if (a > 0) {
+        out[dst] = Math.min(255, Math.round((pixels[src] * 255) / a))
+        out[dst + 1] = Math.min(255, Math.round((pixels[src + 1] * 255) / a))
+        out[dst + 2] = Math.min(255, Math.round((pixels[src + 2] * 255) / a))
+      } else {
+        out[dst] = out[dst + 1] = out[dst + 2] = 0
+      }
+      out[dst + 3] = a
+    }
+  }
+  return image
+}

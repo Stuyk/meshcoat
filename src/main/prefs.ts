@@ -2,12 +2,19 @@ import { app } from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 
+/** User colors kept app-wide rather than per project or per browser profile. */
+export interface ColorLibrary {
+  savedSwatches?: string[]
+  customPalettes?: { id: string; name: string; colors: string[] }[]
+}
+
 interface Prefs {
   lastImportFolder?: string
   lastExportFolder?: string
   lastTextureFolder?: string
   blenderPath?: string
   blenderPromptDismissed?: boolean
+  colorLibrary?: ColorLibrary
 }
 
 function storePath(): string {
@@ -77,5 +84,15 @@ export function isBlenderPromptDismissed(): boolean {
 export function setBlenderPromptDismissed(dismissed: boolean): void {
   const prefs = load()
   prefs.blenderPromptDismissed = dismissed
+  save(prefs)
+}
+
+export function getColorLibrary(): ColorLibrary | undefined {
+  return load().colorLibrary
+}
+
+export function setColorLibrary(library: ColorLibrary): void {
+  const prefs = load()
+  prefs.colorLibrary = library
   save(prefs)
 }

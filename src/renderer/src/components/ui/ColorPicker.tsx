@@ -1,14 +1,14 @@
-import { createSignal, createEffect, createMemo } from 'solid-js'
+import { createSignal, createEffect, createMemo, For, Show } from 'solid-js'
 import {
   hexToHsv,
   hsvToHex,
   hexToRgb,
   rgbToHex,
-  isValidHex,
   normalizeHex,
+  parseCssColor,
   type HSV
 } from '../../utils/colorUtils'
-import { EyedropperIcon, CopyIcon, CheckIcon } from '../icons'
+import { EyedropperIcon, CopyIcon, CheckIcon, AppWindowIcon, PlusIcon } from '../icons'
 
 export interface ColorPickerProps {
   color: string
@@ -29,6 +29,10 @@ export default function ColorPicker(props: ColorPickerProps) {
   const [isDraggingSV, setIsDraggingSV] = createSignal(false)
   const [isDraggingHue, setIsDraggingHue] = createSignal(false)
   const [copied, setCopied] = createSignal(false)
+  // While the text field has focus its draft is the user's, not ours — a
+  // round-trip through HSV must not rewrite "rgb(10, 20, 30)" mid-typing.
+  const [editingText, setEditingText] = createSignal(false)
+  const [channelMode, setChannelMode] = createSignal<'rgb' | 'hsv'>('rgb')
 
   // Track initial color for comparison
   const [initialColor] = createSignal(props.color)
@@ -40,7 +44,9 @@ export default function ColorPicker(props: ColorPickerProps) {
       const currentHex = hsvToHex(hsv().h, hsv().s, hsv().v)
       if (normalizeHex(ext) !== normalizeHex(currentHex)) {
         setHsv(hexToHsv(ext))
-        setHexInput(ext.toUpperCase())
+        if (!editingText()) {
+          setHexInput(ext.toUpperCase())
+        }
       }
     }
   })
@@ -57,8 +63,9 @@ export default function ColorPicker(props: ColorPickerProps) {
     const x = Math.min(Math.max(0, clientX - rect.left), rect.width)
     const y = Math.min(Math.max(0, clientY - rect.top), rect.height)
 
-    const s = Math.min(1, Math.max(0, x / rect.width))
-    const v = Math.min(1, Math.max(0, 1 - y / rect.height))
+    // Handles are inset by their own radius (see the markup), so map the same way.
+    const s = Math.min(1, Math.max(0, (x - 8) / Math.max(1, rect.width - 16)))
+    const v = Math.min(1, Math.max(0, 1 - (y - 8) / Math.max(1, rect.height - 16)))
 
     const newHsv: HSV = { h: hsv().h, s, v }
     setHsv(newHsv)
@@ -74,7 +81,7 @@ export default function ColorPicker(props: ColorPickerProps) {
     }
     const rect = hueBarRef.getBoundingClientRect()
     const x = Math.min(Math.max(0, clientX - rect.left), rect.width)
-    const ratio = Math.min(1, Math.max(0, x / rect.width))
+    const ratio = Math.min(1, Math.max(0, (x - 8) / Math.max(1, rect.width - 16)))
     const h = Math.round(ratio * 360) % 360
 
     const newHsv: HSV = { h, s: hsv().s, v: hsv().v }
@@ -130,222 +137,275 @@ export default function ColorPicker(props: ColorPickerProps) {
     }
   }
 
-  // Handle Hex text edit
-  const handleHexChange = (val: string) => {
-    let clean = val.trim()
-    if (!clean.startsWith('#')) {
-      clean = `#${clean}`
-    }
-    setHexInput(clean.toUpperCase())
-
-    if (isValidHex(clean)) {
-      const normalized = normalizeHex(clean)
-      setHsv(hexToHsv(normalized))
-      props.onChange(normalized)
+  // Handle text edit: accepts hex (with or without '#'), rgb(), hsl() and named colors
+  const handleHexChange = (val: string): void => {
+    setHexInput(val)
+    const parsed = parseCssColor(val)
+    if (parsed) {
+      setHsv(hexToHsv(parsed))
+      props.onChange(parsed)
     }
   }
 
-  // Handle RGB channel edits
-  const handleRgbChange = (channel: 'r' | 'g' | 'b', val: number) => {
-    const current = rgb()
+  // Leaving the field snaps whatever was typed back to the canonical hex
+  const commitHexInput = (): void => {
+    setEditingText(false)
+    setHexInput(normalizeHex(props.color).toUpperCase())
+  }
+
+  // Numeric channel edits, in whichever model the channel row is showing
+  const handleRgbChange = (channel: 'r' | 'g' | 'b', val: number): void => {
     const updated = {
-      ...current,
+      ...rgb(),
       [channel]: Math.min(255, Math.max(0, isNaN(val) ? 0 : val))
     }
-    const newHex = rgbToHex(updated.r, updated.g, updated.b)
-    setHsv(hexToHsv(newHex))
-    setHexInput(newHex.toUpperCase())
-    props.onChange(newHex)
+    applyHex(rgbToHex(updated.r, updated.g, updated.b))
   }
 
-  // Copy hex to clipboard
-  const copyHex = () => {
+  const handleHsvChange = (channel: 'h' | 's' | 'v', val: number): void => {
+    const n = isNaN(val) ? 0 : val
+    const next: HSV = { ...hsv() }
+    if (channel === 'h') {
+      next.h = ((Math.round(n) % 360) + 360) % 360
+    } else {
+      next[channel] = Math.min(100, Math.max(0, n)) / 100
+    }
+    setHsv(next)
+    const hex = hsvToHex(next.h, next.s, next.v)
+    setHexInput(hex.toUpperCase())
+    props.onChange(hex)
+  }
+
+  const applyHex = (hex: string): void => {
+    const normalized = normalizeHex(hex)
+    setHsv(hexToHsv(normalized))
+    setHexInput(normalized.toUpperCase())
+    props.onChange(normalized)
+  }
+
+  const copyHex = (): void => {
     void navigator.clipboard.writeText(props.color.toUpperCase())
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
 
-  // Eyedropper API support
-  const handleScreenEyedropper = async () => {
-    if ('EyeDropper' in window) {
-      try {
-        // @ts-expect-error EyeDropper is a modern Web API
-        const eyeDropper = new window.EyeDropper()
-        const result = await eyeDropper.open()
-        if (result?.sRGBHex) {
-          const hex = normalizeHex(result.sRGBHex)
-          setHsv(hexToHsv(hex))
-          setHexInput(hex.toUpperCase())
-          props.onChange(hex)
-        }
-      } catch {}
-    } else if (props.onEyeDropperClick) {
-      props.onEyeDropperClick()
-    } else {
-      nativeInputRef?.click()
+  const channelFields = (): {
+    key: string
+    label: string
+    value: number
+    max: number
+    suffix?: string
+    set: (n: number) => void
+  }[] => {
+    if (channelMode() === 'rgb') {
+      const c = rgb()
+      return [
+        { key: 'r', label: 'R', value: c.r, max: 255, set: (n) => handleRgbChange('r', n) },
+        { key: 'g', label: 'G', value: c.g, max: 255, set: (n) => handleRgbChange('g', n) },
+        { key: 'b', label: 'B', value: c.b, max: 255, set: (n) => handleRgbChange('b', n) }
+      ]
     }
+    const c = hsv()
+    return [
+      {
+        key: 'h',
+        label: 'H',
+        value: Math.round(c.h),
+        max: 359,
+        suffix: '°',
+        set: (n) => handleHsvChange('h', n)
+      },
+      {
+        key: 's',
+        label: 'S',
+        value: Math.round(c.s * 100),
+        max: 100,
+        suffix: '%',
+        set: (n) => handleHsvChange('s', n)
+      },
+      {
+        key: 'v',
+        label: 'V',
+        value: Math.round(c.v * 100),
+        max: 100,
+        suffix: '%',
+        set: (n) => handleHsvChange('v', n)
+      }
+    ]
   }
+
+  const toolButton =
+    'flex items-center justify-center gap-1.5 h-8 px-2.5 rounded-md border border-zinc-700/60 bg-zinc-900 text-[11px] font-medium text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-wait'
 
   return (
     <div
-      class={`flex flex-col gap-2.5 p-2.5 bg-zinc-950/80 border border-zinc-800/90 rounded-lg select-none ${props.class ?? ''}`}
+      class={`flex flex-col gap-3 p-3 w-full min-w-0 max-w-full box-border overflow-hidden bg-zinc-950/80 border border-zinc-800/90 rounded-lg select-none ${props.class ?? ''}`}
     >
-      {/* 1. 2D Saturation / Value Gradient Box */}
+      {/* Saturation / value field */}
       <div
         ref={svAreaRef}
-        class="relative w-full h-24 rounded-md cursor-crosshair touch-none overflow-hidden border border-zinc-700/60 shadow-inner"
+        class="relative w-full h-40 rounded-md cursor-crosshair touch-none overflow-hidden border border-zinc-700/60 shadow-inner"
         style={{ 'background-color': `hsl(${hsv().h}, 100%, 50%)` }}
         onPointerDown={handleSvPointerDown}
         onPointerMove={handleSvPointerMove}
         onPointerUp={handleSvPointerUp}
       >
-        {/* White to transparent horizontal gradient */}
         <div class="absolute inset-0 bg-gradient-to-r from-white to-transparent pointer-events-none" />
-        {/* Transparent to black vertical gradient */}
         <div class="absolute inset-0 bg-gradient-to-t from-black to-transparent pointer-events-none" />
-
-        {/* Reticle / Position Handle */}
         <div
-          class="absolute w-3.5 h-3.5 -ml-[7px] -mt-[7px] rounded-full border-2 border-white shadow-[0_0_2px_rgba(0,0,0,0.8)] pointer-events-none transition-transform duration-75"
+          class="absolute w-4 h-4 -ml-2 -mt-2 rounded-full border-2 border-white shadow-[0_0_3px_rgba(0,0,0,0.9)] pointer-events-none"
           style={{
-            left: `${hsv().s * 100}%`,
-            top: `${(1 - hsv().v) * 100}%`,
+            left: `calc(8px + (100% - 16px) * ${hsv().s})`,
+            top: `calc(8px + (100% - 16px) * ${1 - hsv().v})`,
             'background-color': props.color
           }}
         />
       </div>
 
-      {/* 2. 1D Hue Rainbow Slider */}
-      <div class="flex items-center gap-2">
+      {/* Hue */}
+      <div
+        ref={hueBarRef}
+        class="relative w-full h-3.5 rounded-full cursor-pointer touch-none border border-zinc-700/60 shadow-inner"
+        style={{
+          background:
+            'linear-gradient(to right, #ff0000 0%, #ffff00 17%, #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%)'
+        }}
+        onPointerDown={handleHuePointerDown}
+        onPointerMove={handleHuePointerMove}
+        onPointerUp={handleHuePointerUp}
+      >
         <div
-          ref={hueBarRef}
-          class="relative flex-1 h-3.5 rounded-full cursor-pointer touch-none border border-zinc-700/60 shadow-inner overflow-visible"
+          class="absolute top-1/2 -translate-y-1/2 -ml-2 w-4 h-4 rounded-full border-2 border-white shadow-[0_0_3px_rgba(0,0,0,0.9)] pointer-events-none"
           style={{
-            background:
-              'linear-gradient(to right, #ff0000 0%, #ffff00 17%, #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%)'
+            left: `calc(8px + (100% - 16px) * ${hsv().h / 360})`,
+            'background-color': `hsl(${hsv().h}, 100%, 50%)`
           }}
-          onPointerDown={handleHuePointerDown}
-          onPointerMove={handleHuePointerMove}
-          onPointerUp={handleHuePointerUp}
-        >
-          {/* Thumb Handle */}
-          <div
-            class="absolute top-1/2 -translate-y-1/2 -ml-2 w-4 h-4 rounded-full bg-white border-2 border-zinc-900 shadow-md pointer-events-none transition-transform duration-75"
-            style={{
-              left: `${(hsv().h / 360) * 100}%`,
-              'background-color': `hsl(${hsv().h}, 100%, 50%)`
-            }}
-          />
-        </div>
-
-        {/* Quick Eyedropper Button */}
-        <button
-          type="button"
-          onClick={handleScreenEyedropper}
-          title="Sample color from screen"
-          class="p-1.5 rounded-md bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/60 text-zinc-300 hover:text-white transition-colors cursor-pointer shrink-0"
-        >
-          <EyedropperIcon size={14} />
-        </button>
-
-        {/* Native OS Picker Fallback */}
-        <button
-          type="button"
-          onClick={() => nativeInputRef?.click()}
-          title="Open OS system color dialog"
-          class="w-6 h-6 rounded-md border border-zinc-700/60 shadow-xs cursor-pointer shrink-0 overflow-hidden relative group"
-          style={{ 'background-color': props.color }}
-        >
-          <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-[10px] text-white">
-            OS
-          </div>
-          <input
-            ref={nativeInputRef}
-            type="color"
-            class="sr-only"
-            value={props.color}
-            onInput={(e) => {
-              const hex = normalizeHex(e.currentTarget.value)
-              setHsv(hexToHsv(hex))
-              setHexInput(hex.toUpperCase())
-              props.onChange(hex)
-            }}
-          />
-        </button>
+        />
       </div>
 
-      {/* 3. Color Readout & Direct Value Inputs */}
-      <div class="flex items-center gap-2 pt-0.5">
-        {/* Color Swatch Comparison (Previous vs New) */}
-        <div class="flex items-center h-7 rounded-md border border-zinc-700/80 overflow-hidden shadow-xs shrink-0">
-          <div
-            class="w-4 h-full"
+      {/* Before / after, and the pickers — an even grid, so nothing can push past the card */}
+      <div class={`grid gap-2 ${props.onEyeDropperClick ? 'grid-cols-2' : 'grid-cols-1'}`}>
+        <div class="flex h-8 min-w-0 rounded-md border border-zinc-700/80 overflow-hidden">
+          <button
+            type="button"
+            class="flex-1 cursor-pointer"
             style={{ 'background-color': initialColor() }}
-            title={`Initial: ${initialColor().toUpperCase()}`}
+            title={`Revert to ${initialColor().toUpperCase()}`}
+            onClick={() => applyHex(initialColor())}
           />
           <div
-            class="w-6 h-full"
+            class="flex-1"
             style={{ 'background-color': props.color }}
             title={`Current: ${props.color.toUpperCase()}`}
           />
         </div>
-
-        {/* Hex Input */}
-        <div class="flex-1 flex items-center bg-zinc-900 border border-zinc-700/60 rounded-md px-2 py-1 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
-          <span class="text-[11px] font-mono font-medium text-zinc-500 select-none mr-1">#</span>
-          <input
-            type="text"
-            spellcheck={false}
-            value={hexInput().replace(/^#/, '')}
-            onInput={(e) => handleHexChange(e.currentTarget.value)}
-            class="w-full bg-transparent font-mono text-xs font-semibold text-zinc-200 uppercase outline-hidden"
-            maxLength={6}
-          />
+        <Show when={props.onEyeDropperClick}>
           <button
             type="button"
-            onClick={copyHex}
-            title="Copy HEX to clipboard"
-            class="text-zinc-500 hover:text-zinc-200 cursor-pointer ml-1"
+            class={`${toolButton} min-w-0`}
+            onClick={() => props.onEyeDropperClick?.()}
+            title="Sample a color from the model (I)"
           >
-            {copied() ? <CheckIcon size={12} class="text-emerald-400" /> : <CopyIcon size={12} />}
+            <EyedropperIcon size={13} class="shrink-0" />
+            <span class="truncate">Model</span>
           </button>
-        </div>
+        </Show>
+      </div>
 
-        {/* RGB Channels */}
-        <div class="flex items-center gap-1 shrink-0 font-mono text-[10px]">
-          <div class="flex flex-col items-center">
-            <span class="text-[9px] text-zinc-500">R</span>
-            <input
-              type="number"
-              min="0"
-              max="255"
-              value={rgb().r}
-              onInput={(e) => handleRgbChange('r', parseInt(e.currentTarget.value, 10))}
-              class="w-9 text-center bg-zinc-900 border border-zinc-800 rounded px-1 py-0.5 text-zinc-200 outline-hidden focus:border-blue-500"
-            />
-          </div>
-          <div class="flex flex-col items-center">
-            <span class="text-[9px] text-zinc-500">G</span>
-            <input
-              type="number"
-              min="0"
-              max="255"
-              value={rgb().g}
-              onInput={(e) => handleRgbChange('g', parseInt(e.currentTarget.value, 10))}
-              class="w-9 text-center bg-zinc-900 border border-zinc-800 rounded px-1 py-0.5 text-zinc-200 outline-hidden focus:border-blue-500"
-            />
-          </div>
-          <div class="flex flex-col items-center">
-            <span class="text-[9px] text-zinc-500">B</span>
-            <input
-              type="number"
-              min="0"
-              max="255"
-              value={rgb().b}
-              onInput={(e) => handleRgbChange('b', parseInt(e.currentTarget.value, 10))}
-              class="w-9 text-center bg-zinc-900 border border-zinc-800 rounded px-1 py-0.5 text-zinc-200 outline-hidden focus:border-blue-500"
-            />
-          </div>
+      {/* Hex / any CSS color */}
+      <div class="flex items-center h-8 bg-zinc-900 border border-zinc-700/60 rounded-md px-2.5 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
+        <span class="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 mr-2">
+          Hex
+        </span>
+        <input
+          type="text"
+          spellcheck={false}
+          value={hexInput()}
+          onFocus={() => setEditingText(true)}
+          onInput={(e) => handleHexChange(e.currentTarget.value)}
+          onBlur={commitHexInput}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.currentTarget.blur()
+            }
+          }}
+          placeholder="#RRGGBB, rgb(), hsl(), name"
+          class="flex-1 min-w-0 bg-transparent font-mono text-xs font-semibold text-zinc-100 outline-hidden"
+        />
+        <button
+          type="button"
+          onClick={() => nativeInputRef?.click()}
+          title="Open the system color dialog"
+          class="relative text-zinc-500 hover:text-zinc-200 cursor-pointer ml-2"
+        >
+          <AppWindowIcon size={13} />
+          <input
+            ref={nativeInputRef}
+            type="color"
+            tabIndex={-1}
+            class="absolute inset-0 w-0 h-0 opacity-0 pointer-events-none"
+            value={props.color}
+            onInput={(e) => applyHex(e.currentTarget.value)}
+          />
+        </button>
+        <button
+          type="button"
+          onClick={copyHex}
+          title="Copy hex to clipboard"
+          class="text-zinc-500 hover:text-zinc-200 cursor-pointer ml-2"
+        >
+          {copied() ? <CheckIcon size={13} class="text-emerald-400" /> : <CopyIcon size={13} />}
+        </button>
+        <Show when={props.onSaveColor}>
+          <button
+            type="button"
+            onClick={() => props.onSaveColor?.(props.color)}
+            title="Save active color to Swatches (+)"
+            class="text-zinc-500 hover:text-emerald-400 cursor-pointer ml-1.5 transition-colors"
+          >
+            <PlusIcon size={13} />
+          </button>
+        </Show>
+      </div>
+
+      {/* Channel values */}
+      <div class="flex flex-col gap-1.5">
+        <div class="flex items-center gap-1 self-start rounded-md bg-zinc-900 border border-zinc-800 p-0.5">
+          <For each={['rgb', 'hsv'] as const}>
+            {(mode) => (
+              <button
+                type="button"
+                onClick={() => setChannelMode(mode)}
+                class={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase cursor-pointer transition-colors ${
+                  channelMode() === mode
+                    ? 'bg-zinc-700 text-white'
+                    : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                {mode}
+              </button>
+            )}
+          </For>
+        </div>
+        <div class="grid grid-cols-3 gap-1.5">
+          <For each={channelFields()}>
+            {(field) => (
+              <label class="flex items-center h-8 bg-zinc-900 border border-zinc-800 rounded-md px-2 gap-1.5 focus-within:border-blue-500">
+                <span class="text-[10px] font-semibold text-zinc-500">{field.label}</span>
+                <input
+                  type="number"
+                  min="0"
+                  max={field.max}
+                  value={field.value}
+                  onChange={(e) => field.set(parseFloat(e.currentTarget.value))}
+                  class="flex-1 min-w-0 bg-transparent text-right font-mono text-xs text-zinc-100 outline-hidden [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                />
+                <Show when={field.suffix}>
+                  <span class="text-[10px] text-zinc-500">{field.suffix}</span>
+                </Show>
+              </label>
+            )}
+          </For>
         </div>
       </div>
     </div>

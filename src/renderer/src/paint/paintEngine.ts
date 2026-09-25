@@ -1,3 +1,4 @@
+import { applyUvDab, type UvDab } from './brushMask'
 import * as THREE from 'three'
 import { buildUvMesh } from './uvMesh'
 import { createPaintMaterial } from './paintShader'
@@ -121,6 +122,8 @@ export interface StrokeParams {
   restrictFaces?: ReadonlySet<number> | null
   /** Rotation angle in radians applied to the brush tip / stamp. */
   angle?: number
+  /** Place the dab directly on the texture instead of projecting it (2D panel). */
+  uvDab?: UvDab | null
   /** Camera-space occlusion test (see occlusionDepth.ts) — rejects paint on faces not actually visible from the paint camera, null/undefined = unrestricted. */
   occlusion?: OcclusionParams | null
   /** Screen-space stencil to paint through (see stencil.ts); null = unrestricted. */
@@ -154,6 +157,12 @@ export interface StencilParams {
   rect: THREE.Vector4
   rotationRad: number
   invert: boolean
+  /**
+   * The image carries real transparency. Its alpha is then the shape, not its
+   * brightness — a brush PNG is typically black RGB with the shape in alpha,
+   * which a luminance mask would read as "nothing here".
+   */
+  hasAlpha: boolean
   canvasWidth: number
   canvasHeight: number
   /** Camera view-projection, so the shader can place each texel on screen. */
@@ -816,6 +825,7 @@ export class PaintEngine {
       u.uStencilRect.value.copy(params.stencil.rect)
       u.uStencilRotation.value = params.stencil.rotationRad
       u.uStencilInvert.value = params.stencil.invert ? 1 : 0
+      u.uStencilHasAlpha.value = params.stencil.hasAlpha ? 1 : 0
       u.uCanvasSize.value.set(params.stencil.canvasWidth, params.stencil.canvasHeight)
       // The stencil needs the same projection the occlusion test uses, but it
       // must be set even when occlusion is off — otherwise the stencil would
@@ -856,6 +866,7 @@ export class PaintEngine {
     }
     u.uBrushTangent.value.copy(tangent)
     u.uBrushBitangent.value.copy(bitangent)
+    applyUvDab(u, params.uvDab, params.angle ?? 0)
 
     // One pass per enabled channel. They share every dab parameter set above —
     // the same footprint, the same tip alpha, the same stencil and occlusion
@@ -874,6 +885,9 @@ export class PaintEngine {
     }
     u.uChannelMode.value = 0
     u.uUseChannelMap.value = 0
+    // The material is shared with fill and the stencil stamp; a texture-space
+    // dab must not leak into them.
+    u.uUvDab.value = 0
     this._contentVersion++
   }
 
@@ -915,6 +929,7 @@ export class PaintEngine {
     u.uBrushBitangent.value.copy(bitangent)
     u.uBrushTipTexture.value = params.brushTipTexture ?? null
     u.uUseTipTexture.value = params.brushTipTexture ? 1 : 0
+    applyUvDab(u, params.uvDab, params.angle ?? 0)
 
     const restrict = params.restrictFaces != null
     u.uRestrictFace.value = restrict ? 1 : 0
@@ -1018,6 +1033,7 @@ export class PaintEngine {
     u.uStencilRect.value.copy(params.stencil.rect)
     u.uStencilRotation.value = params.stencil.rotationRad
     u.uStencilInvert.value = params.stencil.invert ? 1 : 0
+    u.uStencilHasAlpha.value = params.stencil.hasAlpha ? 1 : 0
     u.uCanvasSize.value.set(params.stencil.canvasWidth, params.stencil.canvasHeight)
 
     u.uUseOcclusion.value = 1
@@ -1366,7 +1382,13 @@ export class PaintEngine {
   }
 
   /** Copies this layer's content onto another PaintEngine buffer (for duplication). */
-  copyOnto(other: PaintEngine): void {
+  /**
+   * `transform` mirrors the copy in UV space — for putting a layer painted on
+   * one half of a symmetric model onto the other half, whose UV island is the
+   * same shape but reflected. The target may be a different texture size; the
+   * blit resamples.
+   */
+  copyOnto(other: PaintEngine, transform?: { flipU?: boolean; flipV?: boolean }): void {
     const prevAutoClear = this.renderer.autoClear
     const prevTarget = this.renderer.getRenderTarget()
     // The destination must be cleared to TRANSPARENT, explicitly. clear() uses
@@ -1384,6 +1406,11 @@ export class PaintEngine {
       const mat = new THREE.MeshBasicMaterial({ map: this.buf(channel).read.texture })
       configurePremultipliedSourceMaterial(mat, 1)
       const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat)
+      if (transform?.flipU || transform?.flipV) {
+        // A negative scale reverses the winding, so the quad must draw both sides.
+        mat.side = THREE.DoubleSide
+        quad.scale.set(transform.flipU ? -1 : 1, transform.flipV ? -1 : 1, 1)
+      }
       const scene = new THREE.Scene()
       scene.add(quad)
       this.renderer.setRenderTarget(other.buf(channel).write)
@@ -1762,4 +1789,6 @@ export interface EffectParams {
   occlusion?: OcclusionParams | null
   brushTipTexture?: THREE.Texture | null
   angle?: number
+  /** Place the dab directly on the texture instead of projecting it (2D panel). */
+  uvDab?: UvDab | null
 }

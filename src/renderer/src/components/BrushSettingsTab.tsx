@@ -1,4 +1,4 @@
-import { Show, createSignal, createMemo, For } from 'solid-js'
+import { Show, createSignal, createMemo, For, onMount } from 'solid-js'
 import {
   brush,
   setRadius,
@@ -19,7 +19,6 @@ import {
   SpacingIcon,
   FeatherIcon,
   EyeIcon,
-  EyedropperIcon,
   RotateIcon,
   PlusIcon,
   DownloadIcon,
@@ -27,7 +26,8 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
   RefreshCwIcon,
-  DropletsIcon
+  DropletsIcon,
+  TrashIcon
 } from './icons'
 import {
   PanelSection,
@@ -40,19 +40,22 @@ import {
   Select,
   ToggleSwitch,
   ColorSwatch,
-  Kbd
+  Kbd,
+  TextInput,
+  SegmentedControl
 } from './ui'
 import { toAssetUrl } from '../utils/assetUrl'
 import {
   PALETTE_PRESETS,
   loadSavedSwatches,
-  saveSavedSwatches,
   parsePaletteText,
   exportPaletteAsHex,
   exportPaletteAsJson
 } from '../paint/palettePresets'
 import { normalizeHex } from '../utils/colorUtils'
+import { colorLibrary } from '../paint/colorLibrary'
 import MaterialChannelsPanel from './MaterialChannelsPanel'
+import { loadLayoutProfile, saveLayoutProfile } from '../utils/layoutProfile'
 
 const RADIUS_PRESET_FRACTIONS = [
   { label: 'Fine', fraction: 0.025 },
@@ -100,32 +103,75 @@ export interface BrushSettingsTabProps {
 export default function BrushSettingsTab(props: BrushSettingsTabProps) {
   let fileInputRef: HTMLInputElement | undefined
 
-  const [showColorPicker, setShowColorPicker] = createSignal(true)
-  const [savedSwatches, setSavedSwatches] = createSignal<string[]>(loadSavedSwatches())
-  const [activePresetId, setActivePresetId] = createSignal<string>('essentials')
+  const profile = loadLayoutProfile()
+  const [showStylus, setShowStylus] = createSignal(false)
+  const [paletteMode, setPaletteModeRaw] = createSignal<'swatches' | 'presets'>(profile.paletteMode)
+  function setPaletteMode(mode: 'swatches' | 'presets'): void {
+    setPaletteModeRaw(mode)
+    saveLayoutProfile({ paletteMode: mode })
+  }
+
+  const { savedSwatches, setSavedSwatches, customPalettes } = colorLibrary
+  const [activePresetId, setActivePresetIdRaw] = createSignal<string>(profile.activePresetId)
+  function setActivePresetId(id: string): void {
+    setActivePresetIdRaw(id)
+    saveLayoutProfile({ activePresetId: id })
+  }
+
+  onMount(() => void colorLibrary.hydrateColorLibrary())
 
   const selectedPreset = createMemo(() => {
-    return PALETTE_PRESETS.find((p) => p.id === activePresetId()) ?? PALETTE_PRESETS[0]
+    return (
+      customPalettes().find((p) => p.id === activePresetId()) ??
+      PALETTE_PRESETS.find((p) => p.id === activePresetId()) ??
+      PALETTE_PRESETS[0]
+    )
   })
+  const selectedIsCustom = (): boolean => customPalettes().some((p) => p.id === activePresetId())
 
   const handleSaveActiveColor = (hexToAdd?: string) => {
     const col = normalizeHex(hexToAdd ?? brush.color())
     setSavedSwatches((prev) => {
       const filtered = prev.filter((c) => c.toLowerCase() !== col.toLowerCase())
-      const next = [col, ...filtered].slice(0, 36)
-      saveSavedSwatches(next)
-      return next
+      return [col, ...filtered].slice(0, 48)
     })
     props.onToast?.(`Saved ${col.toUpperCase()} to swatches`, 'success')
   }
 
   const handleRemoveSavedColor = (index: number, e?: MouseEvent) => {
     e?.stopPropagation()
-    setSavedSwatches((prev) => {
-      const next = prev.filter((_, i) => i !== index)
-      saveSavedSwatches(next)
-      return next
-    })
+    setSavedSwatches((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const handleClearSavedSwatches = () => {
+    setSavedSwatches([])
+    props.onToast?.('Cleared all saved swatches', 'info')
+  }
+
+  const handleCopyPresetToSwatches = () => {
+    const preset = selectedPreset()
+    if (!preset || preset.colors.length === 0) {
+      return
+    }
+    setSavedSwatches((prev) => Array.from(new Set([...preset.colors, ...prev])).slice(0, 48))
+    props.onToast?.(`Added ${preset.colors.length} colors to Saved Swatches`, 'success')
+  }
+
+  const handleSaveAsPalette = (): void => {
+    const palette = colorLibrary.saveSwatchesAsPalette()
+    if (!palette) {
+      props.onToast?.('No saved colors to turn into a palette', 'warning')
+      return
+    }
+    setActivePresetId(palette.id)
+    setPaletteMode('presets')
+    props.onToast?.(`Saved ${palette.colors.length} colors as "${palette.name}"`, 'success')
+  }
+
+  const handleDeletePalette = (): void => {
+    const id = activePresetId()
+    colorLibrary.deleteCustomPalette(id)
+    setActivePresetId('essentials')
   }
 
   const handleImportFile = (e: Event) => {
@@ -139,12 +185,15 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
       const text = reader.result as string
       const parsed = parsePaletteText(text)
       if (parsed.length > 0) {
-        setSavedSwatches((prev) => {
-          const combined = Array.from(new Set([...parsed, ...prev])).slice(0, 48)
-          saveSavedSwatches(combined)
-          return combined
-        })
-        props.onToast?.(`Imported ${parsed.length} colors into Saved Swatches`, 'success')
+        if (paletteMode() === 'presets') {
+          const fileName = file.name.replace(/\.[^/.]+$/, '') || 'Imported Palette'
+          const created = colorLibrary.addCustomPalette(fileName, parsed)
+          setActivePresetId(created.id)
+          props.onToast?.(`Imported "${created.name}" (${created.colors.length} colors)`, 'success')
+        } else {
+          setSavedSwatches((prev) => Array.from(new Set([...parsed, ...prev])).slice(0, 48))
+          props.onToast?.(`Imported ${parsed.length} colors into Saved Swatches`, 'success')
+        }
       } else {
         props.onToast?.('No valid colors found in file', 'warning')
       }
@@ -155,8 +204,7 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
 
   const handleResetSavedSwatches = () => {
     localStorage.removeItem('meshcoat:saved_swatches')
-    const defaults = loadSavedSwatches()
-    setSavedSwatches(defaults)
+    setSavedSwatches(loadSavedSwatches())
     props.onToast?.('Reset Saved Swatches to default set', 'info')
   }
 
@@ -271,6 +319,16 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
         </div>
       </div>
 
+      <Show
+        when={
+          props.activeTool !== 'eyedropper' &&
+          props.activeTool !== 'faceSelect' &&
+          props.activeTool !== 'effect'
+        }
+      >
+        <MaterialChannelsPanel isMaskTarget={props.isMaskTarget} onToast={props.onToast} />
+      </Show>
+
       <PanelSection
         title={props.isMaskTarget?.() ? 'Mask Grayscale' : 'Paint Color'}
         icon={(p) => <PaletteIcon size={p.size} class="text-emerald-400" />}
@@ -315,146 +373,234 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
         </Show>
 
         <Show when={!props.isMaskTarget?.()}>
-          <div class="flex items-center justify-between gap-2 p-1.5 rounded-[var(--ui-radius)] bg-[var(--bg-input)] border border-[var(--border-color)]">
-            <button
-              type="button"
-              class="flex items-center gap-2.5 flex-1 min-w-0 cursor-pointer group text-left px-1.5 py-0.5"
-              onClick={() => setShowColorPicker((v) => !v)}
-              title={showColorPicker() ? 'Collapse Color Picker' : 'Expand Color Picker'}
-            >
-              <span
-                class="w-6 h-6 rounded-[var(--ui-radius)] border border-white/25 shadow-inner shrink-0 group-hover:scale-105 transition-transform"
-                style={{ 'background-color': brush.color() }}
-              />
-              <span class="font-mono text-xs font-semibold text-[var(--text-main)] truncate">
-                {brush.color().toUpperCase()}
-              </span>
-              <span class="text-[var(--text-muted)] group-hover:text-[var(--text-main)] ml-auto mr-1">
-                {showColorPicker() ? <ChevronUpIcon size={14} /> : <ChevronDownIcon size={14} />}
-              </span>
-            </button>
+          <ColorPicker
+            color={brush.color()}
+            onChange={(hex) => brush.setColor(hex)}
+            onSaveColor={handleSaveActiveColor}
+            onEyeDropperClick={() => props.onSelectEyedropper?.()}
+          />
 
-            <div class="flex items-center gap-1.5 shrink-0">
-              <IconButton
-                size="xs"
-                onClick={() => props.onSelectEyedropper?.()}
-                tooltip="Eyedropper Tool (I)"
-              >
-                <EyedropperIcon size={14} />
-              </IconButton>
+          {/* Swatches & Preset Palettes Sub-section */}
+          <div class="flex flex-col gap-2.5 pt-2.5 border-t border-[var(--border-color)]">
+            {/* View Switcher */}
+            <SegmentedControl
+              size="xs"
+              options={[
+                { value: 'swatches', label: `Saved (${savedSwatches().length})` },
+                { value: 'presets', label: 'Preset Palettes' }
+              ]}
+              value={paletteMode()}
+              onChange={(val) => setPaletteMode(val as 'swatches' | 'presets')}
+            />
 
-              <Button
-                variant="outline"
-                size="xs"
-                onClick={() => handleSaveActiveColor()}
-                title="Save current color to My Swatches"
-                class="h-7 px-2 text-xs"
-              >
-                <PlusIcon size={12} class="text-emerald-400" />
-                <span>Save</span>
-              </Button>
-            </div>
-          </div>
-
-          <Show when={showColorPicker()}>
-            <div class="pt-1.5">
-              <ColorPicker
-                color={brush.color()}
-                onChange={(hex) => brush.setColor(hex)}
-                onSaveColor={handleSaveActiveColor}
-                onEyeDropperClick={() => props.onSelectEyedropper?.()}
-              />
-            </div>
-          </Show>
-
-          <div class="flex flex-col gap-2 pt-2 border-t border-[var(--border-color)]">
-            <div class="flex items-center justify-between">
-              <Label uppercase badge={savedSwatches().length}>
-                Saved Colors
-              </Label>
-              <div class="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => handleSaveActiveColor()}
-                  title="Add current color to saved swatches"
-                  class="flex items-center gap-1 px-2 py-0.5 rounded-[var(--ui-radius)] text-[11px] text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/30 transition-colors cursor-pointer"
-                >
-                  <PlusIcon size={12} />
-                  <span>Add</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleResetSavedSwatches}
-                  title="Reset saved colors to default"
-                  class="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-panel-header)] transition-colors cursor-pointer"
-                >
-                  <RefreshCwIcon size={12} />
-                </button>
-              </div>
-            </div>
-
-            <div class="grid grid-cols-10 gap-1.5 min-h-7">
-              <Show
-                when={savedSwatches().length > 0}
-                fallback={
-                  <div class="col-span-10 py-1.5 text-center text-xs text-[var(--text-muted)] italic">
-                    Click + to save current color
+            {/* TAB 1: Saved Swatches */}
+            <Show when={paletteMode() === 'swatches'}>
+              <div class="flex flex-col gap-2">
+                <div class="flex items-center justify-between">
+                  <span class="text-[11px] font-medium text-[var(--text-muted)]">
+                    Quick Swatches
+                  </span>
+                  <div class="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleSaveActiveColor()}
+                      title="Add active brush color to saved swatches"
+                      class="flex items-center gap-1 px-2 py-0.5 rounded-[var(--ui-radius)] text-[11px] font-medium text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/40 border border-emerald-900/50 transition-colors cursor-pointer"
+                    >
+                      <PlusIcon size={11} />
+                      <span>Add</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveAsPalette}
+                      title="Save current swatches as a new preset palette"
+                      class="p-1 rounded-[var(--ui-radius)] text-[var(--text-muted)] hover:text-blue-400 hover:bg-blue-950/30 transition-colors cursor-pointer"
+                    >
+                      <PaletteIcon size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef?.click()}
+                      title="Import palette (.hex, .gpl, .json)"
+                      class="p-1 rounded-[var(--ui-radius)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-panel-header)] transition-colors cursor-pointer"
+                    >
+                      <UploadIcon size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        if (e.shiftKey) {
+                          exportPaletteAsJson(savedSwatches(), 'Saved Swatches', 'saved-swatches.json')
+                        } else {
+                          exportPaletteAsHex(savedSwatches(), 'saved-swatches.hex')
+                        }
+                      }}
+                      title="Export swatches as .hex (Shift+Click for .json)"
+                      class="p-1 rounded-[var(--ui-radius)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-panel-header)] transition-colors cursor-pointer"
+                    >
+                      <DownloadIcon size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleResetSavedSwatches}
+                      title="Reset swatches to default colors"
+                      class="p-1 rounded-[var(--ui-radius)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-panel-header)] transition-colors cursor-pointer"
+                    >
+                      <RefreshCwIcon size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearSavedSwatches}
+                      title="Clear all saved swatches"
+                      class="p-1 rounded-[var(--ui-radius)] text-[var(--text-muted)] hover:text-red-400 hover:bg-red-950/30 transition-colors cursor-pointer"
+                    >
+                      <TrashIcon size={12} />
+                    </button>
                   </div>
-                }
-              >
-                <For each={savedSwatches()}>
-                  {(hex, idx) => {
-                    const isActive = () => brush.color().toLowerCase() === hex.toLowerCase()
-                    return (
-                      <ColorSwatch
-                        color={hex}
-                        active={isActive()}
-                        onClick={() => brush.setColor(hex)}
-                        onContextMenu={(e) => {
-                          e.preventDefault()
-                          handleRemoveSavedColor(idx(), e)
-                        }}
-                        onRemove={(e) => handleRemoveSavedColor(idx(), e)}
-                        title={`${hex.toUpperCase()} (Right-click to remove)`}
-                      />
-                    )
-                  }}
-                </For>
-              </Show>
-            </div>
-          </div>
+                </div>
 
-          <div class="flex flex-col gap-2 pt-2 border-t border-[var(--border-color)]">
-            <div class="flex items-center justify-between gap-2">
-              <Label uppercase>Preset Palette</Label>
-              <Select size="xs" value={activePresetId()} onChange={(val) => setActivePresetId(val)}>
-                <For each={PALETTE_PRESETS}>
-                  {(preset) => <option value={preset.id}>{preset.name}</option>}
-                </For>
-              </Select>
-            </div>
-
-            <Show when={selectedPreset().description}>
-              <p class="text-[11px] text-[var(--text-muted)] -mt-0.5">{selectedPreset().description}</p>
+                <div class="grid grid-cols-8 gap-1.5 min-h-[56px] p-2 rounded-[var(--ui-radius)] bg-[var(--bg-input)] border border-[var(--border-color)]">
+                  <Show
+                    when={savedSwatches().length > 0}
+                    fallback={
+                      <div class="col-span-8 py-3 flex flex-col items-center justify-center gap-1 text-center text-xs text-[var(--text-muted)] italic">
+                        <span>No saved colors yet</span>
+                        <span class="text-[10px] text-zinc-500">Click Add or the + in the color bar</span>
+                      </div>
+                    }
+                  >
+                    <For each={savedSwatches()}>
+                      {(hex, idx) => {
+                        const isActive = () => brush.color().toLowerCase() === hex.toLowerCase()
+                        return (
+                          <ColorSwatch
+                            color={hex}
+                            active={isActive()}
+                            onClick={() => brush.setColor(hex)}
+                            onContextMenu={(e) => {
+                              e.preventDefault()
+                              handleRemoveSavedColor(idx(), e)
+                            }}
+                            onRemove={(e) => handleRemoveSavedColor(idx(), e)}
+                            title={`${hex.toUpperCase()} (Click to select, right-click to delete)`}
+                          />
+                        )
+                      }}
+                    </For>
+                  </Show>
+                </div>
+              </div>
             </Show>
 
-            <div class="grid grid-cols-10 gap-1.5">
-              <For each={selectedPreset().colors}>
-                {(hex) => {
-                  const isActive = () => brush.color().toLowerCase() === hex.toLowerCase()
-                  return (
-                    <ColorSwatch
-                      color={hex}
-                      active={isActive()}
-                      onClick={() => brush.setColor(hex)}
-                    />
-                  )
-                }}
-              </For>
-            </div>
-          </div>
+            {/* TAB 2: Preset Palettes */}
+            <Show when={paletteMode() === 'presets'}>
+              <div class="flex flex-col gap-2">
+                <div class="flex items-center justify-between gap-1.5">
+                  <Select
+                    size="xs"
+                    value={activePresetId()}
+                    onChange={(val) => setActivePresetId(val)}
+                    class="flex-1 min-w-0"
+                  >
+                    <optgroup label="Curated Palettes">
+                      <For each={PALETTE_PRESETS}>
+                        {(preset) => (
+                          <option value={preset.id}>
+                            {preset.name} ({preset.colors.length})
+                          </option>
+                        )}
+                      </For>
+                    </optgroup>
+                    <Show when={customPalettes().length > 0}>
+                      <optgroup label="My Custom Palettes">
+                        <For each={customPalettes()}>
+                          {(preset) => (
+                            <option value={preset.id}>
+                              {preset.name} ({preset.colors.length})
+                            </option>
+                          )}
+                        </For>
+                      </optgroup>
+                    </Show>
+                  </Select>
 
-          <div class="flex items-center justify-between gap-1.5 pt-2 border-t border-[var(--border-color)]">
+                  <div class="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleCopyPresetToSwatches}
+                      title="Load all colors from this palette into your Saved Swatches"
+                      class="flex items-center gap-1 px-2 py-0.5 rounded-[var(--ui-radius)] text-[11px] font-medium text-blue-400 hover:text-blue-300 hover:bg-blue-950/40 border border-blue-900/50 transition-colors cursor-pointer"
+                    >
+                      <PlusIcon size={11} />
+                      <span>To Swatches</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef?.click()}
+                      title="Import palette file as new custom palette"
+                      class="p-1 rounded-[var(--ui-radius)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-panel-header)] transition-colors cursor-pointer"
+                    >
+                      <UploadIcon size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        const p = selectedPreset()
+                        const filename = p.name.toLowerCase().replace(/\s+/g, '-')
+                        if (e.shiftKey) {
+                          exportPaletteAsJson(p.colors, p.name, `${filename}.json`)
+                        } else {
+                          exportPaletteAsHex(p.colors, `${filename}.hex`)
+                        }
+                      }}
+                      title="Export palette as .hex (Shift+Click for .json)"
+                      class="p-1 rounded-[var(--ui-radius)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-panel-header)] transition-colors cursor-pointer"
+                    >
+                      <DownloadIcon size={12} />
+                    </button>
+                  </div>
+                </div>
+
+                <Show when={selectedIsCustom()}>
+                  <div class="flex items-center gap-1.5">
+                    <TextInput
+                      size="xs"
+                      class="flex-1"
+                      value={selectedPreset().name}
+                      onChange={(name) => colorLibrary.renameCustomPalette(activePresetId(), name)}
+                      placeholder="Palette name"
+                    />
+                    <IconButton size="xs" onClick={handleDeletePalette} tooltip="Delete this custom palette">
+                      <TrashIcon size={13} />
+                    </IconButton>
+                  </div>
+                </Show>
+
+                <Show when={selectedPreset().description}>
+                  <p class="text-[11px] text-[var(--text-muted)] leading-tight">
+                    {selectedPreset().description}
+                  </p>
+                </Show>
+
+                <div class="grid grid-cols-8 gap-1.5 min-h-[56px] p-2 rounded-[var(--ui-radius)] bg-[var(--bg-input)] border border-[var(--border-color)]">
+                  <For each={selectedPreset().colors}>
+                    {(hex) => {
+                      const isActive = () => brush.color().toLowerCase() === hex.toLowerCase()
+                      return (
+                        <ColorSwatch
+                          color={hex}
+                          active={isActive()}
+                          onClick={() => brush.setColor(hex)}
+                          title={`${hex.toUpperCase()} (Click to select)`}
+                        />
+                      )
+                    }}
+                  </For>
+                </div>
+              </div>
+            </Show>
+
+            {/* Hidden file input */}
             <input
               ref={fileInputRef}
               type="file"
@@ -462,52 +608,9 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
               class="sr-only"
               onChange={handleImportFile}
             />
-
-            <Button
-              variant="outline"
-              size="xs"
-              onClick={() => fileInputRef?.click()}
-              title="Import palette (.hex, .gpl, .json)"
-              class="flex-1 text-xs justify-center"
-            >
-              <UploadIcon size={13} class="text-blue-400" />
-              <span>Import</span>
-            </Button>
-
-            <Button
-              variant="outline"
-              size="xs"
-              onClick={() => exportPaletteAsHex(savedSwatches())}
-              title="Export saved colors as .hex file"
-              class="flex-1 text-xs justify-center"
-            >
-              <DownloadIcon size={13} class="text-zinc-400" />
-              <span>Export</span>
-            </Button>
-
-            <Button
-              variant="outline"
-              size="xs"
-              onClick={() => exportPaletteAsJson(savedSwatches())}
-              title="Export saved colors as .json file"
-              class="flex-1 text-xs justify-center"
-            >
-              <DownloadIcon size={13} class="text-zinc-400" />
-              <span>JSON</span>
-            </Button>
           </div>
         </Show>
       </PanelSection>
-
-      <Show
-        when={
-          props.activeTool !== 'eyedropper' &&
-          props.activeTool !== 'faceSelect' &&
-          props.activeTool !== 'effect'
-        }
-      >
-        <MaterialChannelsPanel isMaskTarget={props.isMaskTarget} onToast={props.onToast} />
-      </Show>
 
       <Show when={props.activeTool === 'effect'}>
         <PanelSection
@@ -660,79 +763,90 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
               icon={(p) => <FeatherIcon size={p.size} />}
             />
 
-            <div class="flex flex-col gap-2 pt-2 border-t border-[var(--border-color)]/60">
-              <Label uppercase>Stylus Pressure</Label>
-              <div class="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => brush.setPressureRadius(!brush.pressureRadius())}
-                  title="Stylus pressure controls brush radius (tapered strokes)"
-                  class={`flex-1 h-7 rounded-[var(--ui-radius)] border text-xs font-medium transition-colors cursor-pointer ${
-                    brush.pressureRadius()
-                      ? 'bg-[var(--accent-color)] border-[var(--accent-color)] text-[var(--accent-text)]'
-                      : 'bg-[var(--bg-input)] border-[var(--border-color)] text-[var(--text-muted)] hover:border-white/20'
-                  }`}
-                >
-                  → Size
-                </button>
-                <button
-                  type="button"
-                  onClick={() => brush.setPressureOpacity(!brush.pressureOpacity())}
-                  title="Stylus pressure controls brush opacity (feathering and blending)"
-                  class={`flex-1 h-7 rounded-[var(--ui-radius)] border text-xs font-medium transition-colors cursor-pointer ${
-                    brush.pressureOpacity()
-                      ? 'bg-[var(--accent-color)] border-[var(--accent-color)] text-[var(--accent-text)]'
-                      : 'bg-[var(--bg-input)] border-[var(--border-color)] text-[var(--text-muted)] hover:border-white/20'
-                  }`}
-                >
-                  → Opacity
-                </button>
+            <button
+              type="button"
+              onClick={() => setShowStylus((v) => !v)}
+              class="flex items-center justify-between w-full pt-2 border-t border-[var(--border-color)]/60 text-[var(--text-muted)] hover:text-[var(--text-main)] cursor-pointer"
+              title="Stylus pressure, projector depth and max angle"
+            >
+              <Label uppercase>Stylus &amp; Projection</Label>
+              {showStylus() ? <ChevronUpIcon size={14} /> : <ChevronDownIcon size={14} />}
+            </button>
+            <Show when={showStylus()}>
+              <div class="flex flex-col gap-2">
+                <Label uppercase>Stylus Pressure</Label>
+                <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => brush.setPressureRadius(!brush.pressureRadius())}
+                    title="Stylus pressure controls brush radius (tapered strokes)"
+                    class={`flex-1 h-7 rounded-[var(--ui-radius)] border text-xs font-medium transition-colors cursor-pointer ${
+                      brush.pressureRadius()
+                        ? 'bg-[var(--accent-color)] border-[var(--accent-color)] text-[var(--accent-text)]'
+                        : 'bg-[var(--bg-input)] border-[var(--border-color)] text-[var(--text-muted)] hover:border-white/20'
+                    }`}
+                  >
+                    → Size
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => brush.setPressureOpacity(!brush.pressureOpacity())}
+                    title="Stylus pressure controls brush opacity (feathering and blending)"
+                    class={`flex-1 h-7 rounded-[var(--ui-radius)] border text-xs font-medium transition-colors cursor-pointer ${
+                      brush.pressureOpacity()
+                        ? 'bg-[var(--accent-color)] border-[var(--accent-color)] text-[var(--accent-text)]'
+                        : 'bg-[var(--bg-input)] border-[var(--border-color)] text-[var(--text-muted)] hover:border-white/20'
+                    }`}
+                  >
+                    → Opacity
+                  </button>
+                </div>
+                <Slider
+                  label="Min Pressure Floor"
+                  value={brush.pressureMin()}
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  onChange={(v) => brush.setPressureMin(v)}
+                  displayValue={(v) => `${Math.round(v * 100)}%`}
+                  icon={(p) => <FeatherIcon size={p.size} />}
+                />
               </div>
-              <Slider
-                label="Min Pressure Floor"
-                value={brush.pressureMin()}
-                min={0}
-                max={1}
-                step={0.01}
-                onChange={(v) => brush.setPressureMin(v)}
-                displayValue={(v) => `${Math.round(v * 100)}%`}
-                icon={(p) => <FeatherIcon size={p.size} />}
-              />
-            </div>
 
-            <div class="flex flex-col gap-3.5 pt-2 border-t border-[var(--border-color)]/60">
-              <Slider
-                label="Depth (Bleed Through)"
-                value={brush.projectorDepth()}
-                min={0.02}
-                max={2}
-                step={0.01}
-                onChange={(v) => brush.setProjectorDepth(v)}
-                displayValue={(v) => `${Math.round(v * 100)}%`}
-                presets={[
-                  { label: 'Thin', value: 0.15 },
-                  { label: 'Default', value: 0.35 },
-                  { label: 'Wrap', value: 1 }
-                ]}
-                icon={(p) => <FeatherIcon size={p.size} />}
-              />
+              <div class="flex flex-col gap-3.5 pt-2 border-t border-[var(--border-color)]/60">
+                <Slider
+                  label="Depth (Bleed Through)"
+                  value={brush.projectorDepth()}
+                  min={0.02}
+                  max={2}
+                  step={0.01}
+                  onChange={(v) => brush.setProjectorDepth(v)}
+                  displayValue={(v) => `${Math.round(v * 100)}%`}
+                  presets={[
+                    { label: 'Thin', value: 0.15 },
+                    { label: 'Default', value: 0.35 },
+                    { label: 'Wrap', value: 1 }
+                  ]}
+                  icon={(p) => <FeatherIcon size={p.size} />}
+                />
 
-              <Slider
-                label="Max Angle"
-                value={brush.maxAngle()}
-                min={5}
-                max={180}
-                step={1}
-                unit="°"
-                onChange={(v) => brush.setMaxAngle(v)}
-                presets={[
-                  { label: '60°', value: 60 },
-                  { label: '85°', value: 85 },
-                  { label: '120°', value: 120 }
-                ]}
-                icon={(p) => <RotateIcon size={p.size} />}
-              />
-            </div>
+                <Slider
+                  label="Max Angle"
+                  value={brush.maxAngle()}
+                  min={5}
+                  max={180}
+                  step={1}
+                  unit="°"
+                  onChange={(v) => brush.setMaxAngle(v)}
+                  presets={[
+                    { label: '60°', value: 60 },
+                    { label: '85°', value: 85 },
+                    { label: '120°', value: 120 }
+                  ]}
+                  icon={(p) => <RotateIcon size={p.size} />}
+                />
+              </div>
+            </Show>
 
             <div class="flex flex-col gap-2 pt-2 border-t border-[var(--border-color)]/60">
               <div class="flex items-center justify-between">
@@ -788,9 +902,45 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
             </div>
 
             <div class="flex flex-col gap-3 pt-2 border-t border-[var(--border-color)]/60">
+              <div class="flex items-center justify-between">
+                <Label uppercase>Randomness</Label>
+                <button
+                  type="button"
+                  onClick={() => brush.setChaos(!brush.chaosActive())}
+                  title={
+                    brush.chaosActive()
+                      ? 'Turn every jitter off'
+                      : 'Chaos: new rotation, size and slight color drift on every stroke'
+                  }
+                  class={`flex items-center gap-1 px-2 py-0.5 rounded-[var(--ui-radius)] border text-[11px] font-medium cursor-pointer transition-colors ${
+                    brush.chaosActive()
+                      ? 'bg-[var(--accent-color)] border-[var(--accent-color)] text-[var(--accent-text)]'
+                      : 'bg-[var(--bg-input)] border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)]'
+                  }`}
+                >
+                  <SparklesIcon size={12} />
+                  <span>{brush.chaosActive() ? 'Reset' : 'Chaos'}</span>
+                </button>
+              </div>
+
+              <SegmentedControl
+                size="xs"
+                options={[
+                  { value: 'dab', label: 'Every dab', title: 'Re-roll the variation on every dab' },
+                  {
+                    value: 'stroke',
+                    label: 'Every stroke',
+                    title: 'Re-roll once per stroke — each click gets its own variation'
+                  }
+                ]}
+                value={brush.jitterScope()}
+                onChange={(v) => brush.setJitterScope(v)}
+                class="w-full justify-between"
+              />
+
               <Slider
                 label="Angle Jitter"
-                title="Randomly varies the brush tip rotation angle per stamp dab"
+                title="Randomly varies the brush tip rotation"
                 value={brush.angleJitter()}
                 min={0}
                 max={1}
@@ -801,13 +951,46 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
 
               <Slider
                 label="Size Jitter"
-                title="Randomly varies the brush radius per stamp dab"
+                title="Randomly varies the brush radius"
                 value={brush.sizeJitter()}
                 min={0}
                 max={1}
                 step={0.05}
                 onChange={(v) => brush.setSizeJitter(v)}
                 displayValue={(v) => `${Math.round(v * 100)}%`}
+              />
+
+              <Slider
+                label="Hue Jitter"
+                title="Randomly shifts the paint hue, up to ±60°"
+                value={brush.hueJitter()}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(v) => brush.setHueJitter(v)}
+                displayValue={(v) => `±${Math.round(v * 60)}°`}
+              />
+
+              <Slider
+                label="Saturation Jitter"
+                title="Randomly raises or lowers saturation"
+                value={brush.saturationJitter()}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(v) => brush.setSaturationJitter(v)}
+                displayValue={(v) => `±${Math.round(v * 50)}%`}
+              />
+
+              <Slider
+                label="Lightness Jitter"
+                title="Randomly lightens or darkens the paint"
+                value={brush.valueJitter()}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(v) => brush.setValueJitter(v)}
+                displayValue={(v) => `±${Math.round(v * 35)}%`}
               />
             </div>
           </Show>

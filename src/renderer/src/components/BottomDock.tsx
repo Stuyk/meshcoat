@@ -1,6 +1,5 @@
 import { Show, type JSX } from 'solid-js'
 import { brush, setTextureMapping } from '../paint/brush'
-import { CHANNEL_SPECS, PAINT_CHANNELS } from '../paint/channels'
 import type { ToolMode } from '../paint/brush'
 import { stencil } from '../paint/stencil'
 import { EFFECT_MODE_LABELS } from '../paint/effectShader'
@@ -14,10 +13,10 @@ import {
   DropletsIcon,
   LineIcon,
   HelpCircleIcon,
-  FocusIcon,
   CompassIcon,
   TextIcon,
-  XIcon
+  XIcon, EyeIcon, EyeOffIcon,
+  GradientIcon
 } from './icons'
 import { Kbd } from './ui'
 
@@ -28,7 +27,6 @@ export interface StatusBarProps {
   selectedFaceCount: number
   onOpenHelp: () => void
   onClearFaceSelection: () => void
-  onFrameCamera: () => void
 }
 
 type ToolIcon = (props: { size?: number; class?: string }) => JSX.Element
@@ -43,7 +41,8 @@ const TOOL_CONFIG: Record<ToolMode, { label: string; key: string; num: string; I
   faceSelect: { label: 'Face Select', key: 'V', num: '6', Icon: MousePointerIcon },
   effect: { label: 'Effects', key: 'U', num: '7', Icon: DropletsIcon },
   faceProjector: { label: 'Face UV Projector', key: 'P', num: '8', Icon: CompassIcon },
-  text: { label: 'Text', key: 'Y', num: '9', Icon: TextIcon }
+  text: { label: 'Text', key: 'Y', num: '9', Icon: TextIcon },
+  gradient: { label: 'Gradient', key: 'D', num: 'D', Icon: GradientIcon }
 }
 
 export default function StatusBar(props: StatusBarProps): JSX.Element {
@@ -90,6 +89,25 @@ export default function StatusBar(props: StatusBarProps): JSX.Element {
             <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
             <span class="font-medium">{props.selectedFaceCount} masked</span>
             <XIcon size={12} class="text-amber-400" />
+          </button>
+          <button
+            type="button"
+            class={`flex items-center gap-1 px-1.5 py-0.5 rounded-[var(--ui-radius)] border transition-colors cursor-pointer text-[11px] ${
+              brush.selectionHighlightHidden()
+                ? 'bg-amber-500 text-black border-amber-400 font-semibold'
+                : 'bg-[var(--bg-input)] border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)]'
+            }`}
+            onClick={() => brush.setSelectionHighlightHidden(!brush.selectionHighlightHidden())}
+            title={
+              brush.selectionHighlightHidden()
+                ? 'Selection highlight is hidden — painting is still confined to the selection. Click to show.'
+                : 'Hide the selection highlight (painting stays confined to the selection)'
+            }
+          >
+            {brush.selectionHighlightHidden() ? <EyeOffIcon size={12} /> : <EyeIcon size={12} />}
+            <Show when={brush.selectionHighlightHidden()}>
+              <span>Highlight hidden</span>
+            </Show>
           </button>
         </Show>
 
@@ -217,47 +235,11 @@ export default function StatusBar(props: StatusBarProps): JSX.Element {
           </div>
         </Show>
 
-        <Show when={props.tool === 'brush'}>
-          <div
-            class="hidden 2xl:flex items-center gap-1 text-[11px] text-[var(--text-muted)]"
-            title="Active PBR paint channels written per stroke"
-          >
-            <span class="font-medium">Channels:</span>
-            <div class="flex items-center gap-0.5">
-              {PAINT_CHANNELS.map((ch) => {
-                const on = () => brush.channelEnabled()[ch]
-                return (
-                  <span
-                    class={`px-1 rounded-[2px] font-mono text-[9px] font-bold ${
-                      on()
-                        ? 'text-[var(--accent-color)] bg-[var(--accent-color)]/10'
-                        : 'text-zinc-600 line-through'
-                    }`}
-                  >
-                    {CHANNEL_SPECS[ch].short}
-                  </span>
-                )
-              })}
-            </div>
-          </div>
-        </Show>
-
         <div class="hidden md:flex items-center gap-1 font-mono text-[11px] text-[var(--text-muted)] px-1.5">
           <span>
             {props.textureSize}×{props.textureSize}
           </span>
         </div>
-
-        <button
-          type="button"
-          class="flex items-center gap-1 text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors cursor-pointer px-1 py-0.5 rounded-[var(--ui-radius)] hover:bg-white/5 text-[11px]"
-          onClick={props.onFrameCamera}
-          title="Frame model (F)"
-        >
-          <FocusIcon size={12} />
-          <span class="hidden sm:inline">Frame</span>
-          <Kbd size="xs">F</Kbd>
-        </button>
 
         <button
           type="button"

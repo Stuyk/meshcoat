@@ -1,3 +1,4 @@
+import { gradient } from '../paint/gradient'
 import { onMount, onCleanup, createEffect, untrack, Show, type JSX } from 'solid-js'
 import * as THREE from 'three'
 import { createScene } from './scene'
@@ -34,6 +35,15 @@ import {
   updateProjectorPreviewUniforms
 } from './viewportHighlight'
 import { frameSelectionOrModel, loadDefaultModel, loadFromUrl, loadProject } from './viewportLoad'
+import {
+  uvHitAt,
+  uvPointerDown,
+  uvPointerMove,
+  uvPointerUp,
+  uvHover,
+  renderUvTexture,
+  uvEdges
+} from './uvPaint'
 import { raycastMeshes, screenToNdc } from './raycast'
 import {
   fillActive,
@@ -583,8 +593,8 @@ export default function Viewport(props: ViewportProps): JSX.Element {
     rt.canvasRef.addEventListener('pointerleave', onPointerLeave)
 
     const handle: ViewportHandle = {
-      loadFromUrl: (url, extension, textureSize, initialTextures) =>
-        loadFromUrl(rt, url, extension, textureSize, initialTextures),
+      loadFromUrl: (url, extension, textureSize, initialTextures, options) =>
+        loadFromUrl(rt, url, extension, textureSize, initialTextures, options),
       loadDefaultModel: (textureSize, primitive) => loadDefaultModel(rt, textureSize, primitive),
       loadProject: (project, snapshots, options) => loadProject(rt, project, snapshots, options),
       focusModel: () => frameSelectionOrModel(rt),
@@ -596,6 +606,15 @@ export default function Viewport(props: ViewportProps): JSX.Element {
           faceCount: piece.facePositions.length / 9
         })),
       activePieceIndex: () => rt.activePieceIndex,
+      uvPanel: {
+        pointerDown: (u, v, e, radiusPx) => uvPointerDown(rt, u, v, e, radiusPx),
+        pointerMove: (u, v, e, radiusPx) => uvPointerMove(rt, u, v, e, radiusPx),
+        pointerUp: () => uvPointerUp(rt),
+        hover: (uv) => uvHover(rt, uv),
+        covers: (u, v) => uvHitAt(rt, u, v) !== null,
+        renderInto: (ctx, size) => renderUvTexture(rt, ctx, size),
+        edges: () => uvEdges(rt)
+      },
       setActivePiece: (index) => setActivePiece(rt, index),
       focusPiece: (index?: number) => {
         const mesh = rt.pieces[index ?? rt.activePieceIndex]?.mesh
@@ -813,8 +832,16 @@ export default function Viewport(props: ViewportProps): JSX.Element {
 
   createEffect(() => {
     brush.selectedFaces()
+    const hidden = brush.selectionHighlightHidden()
     updateHighlight(rt)
     updateProjectorPreview(rt)
+    // Hiding only affects what's drawn; painting stays confined to the selection.
+    if (rt.highlightMesh) {
+      rt.highlightMesh.visible = !hidden
+    }
+    if (hidden && rt.selectionFillMesh) {
+      rt.selectionFillMesh.visible = false
+    }
   })
 
   createEffect(() => {
@@ -926,6 +953,46 @@ export default function Viewport(props: ViewportProps): JSX.Element {
     }
   })
 
+  /**
+   * Measures a stencil image on a small canvas: whether any pixel is actually
+   * transparent, and whether every visible pixel is gray (a brush-style
+   * shape rather than a color decal).
+   */
+  function analyzeStencilImage(image: CanvasImageSource): {
+    hasAlpha: boolean
+    grayscale: boolean
+  } {
+    try {
+      const size = 128
+      const canvas = document.createElement('canvas')
+      canvas.width = size
+      canvas.height = size
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })
+      if (!ctx) {
+        return { hasAlpha: false, grayscale: false }
+      }
+      ctx.drawImage(image, 0, 0, size, size)
+      const data = ctx.getImageData(0, 0, size, size).data
+      let hasAlpha = false
+      let grayscale = true
+      for (let i = 0; i < data.length; i += 4) {
+        const a = data[i + 3]
+        if (a < 250) {
+          hasAlpha = true
+        }
+        if (
+          a > 8 &&
+          (Math.abs(data[i] - data[i + 1]) > 12 || Math.abs(data[i + 1] - data[i + 2]) > 12)
+        ) {
+          grayscale = false
+        }
+      }
+      return { hasAlpha, grayscale }
+    } catch {
+      return { hasAlpha: false, grayscale: false }
+    }
+  }
+
   createEffect(() => {
     const path = stencil.texturePath()
     if (!path) {
@@ -943,6 +1010,13 @@ export default function Viewport(props: ViewportProps): JSX.Element {
       const img = texture.image as { width?: number; height?: number } | undefined
       if (img?.width && img?.height) {
         stencil.setStencilImageAspect(img.width / img.height)
+      }
+      const traits = analyzeStencilImage(texture.image as CanvasImageSource)
+      stencil.setStencilImageHasAlpha(traits.hasAlpha)
+      // A grayscale cut-out is a brush shape, not a picture: stamping its own
+      // (usually black) pixels is never what's wanted, so paint the brush color.
+      if (traits.hasAlpha && traits.grayscale) {
+        stencil.setStencilStampUseLuminance(true)
       }
     })
   })
@@ -1037,6 +1111,36 @@ export default function Viewport(props: ViewportProps): JSX.Element {
             : `tool-${props.tool()}`
         }`}
       />
+      {/* Gradient tool guide: the line being dragged, start and end handles. */}
+      <Show when={gradient.drag()}>
+        {(d) => (
+          <svg class="absolute inset-0 w-full h-full pointer-events-none z-10">
+            <line
+              x1={d().x0}
+              y1={d().y0}
+              x2={d().x1}
+              y2={d().y1}
+              stroke="black"
+              stroke-width="4"
+              stroke-opacity="0.6"
+            />
+            <line x1={d().x0} y1={d().y0} x2={d().x1} y2={d().y1} stroke="white" stroke-width="2" />
+            <Show when={gradient.shape() === 'radial'}>
+              <circle
+                cx={d().x0}
+                cy={d().y0}
+                r={Math.hypot(d().x1 - d().x0, d().y1 - d().y0)}
+                fill="none"
+                stroke="white"
+                stroke-dasharray="6 4"
+                stroke-opacity="0.8"
+              />
+            </Show>
+            <circle cx={d().x0} cy={d().y0} r="6" fill="white" stroke="black" stroke-width="2" />
+            <circle cx={d().x1} cy={d().y1} r="6" fill="black" stroke="white" stroke-width="2" />
+          </svg>
+        )}
+      </Show>
       {/* Orbit nav cube: drag to spin the camera around the current pivot
           (selection center, or the whole model when nothing's selected). */}
       <canvas

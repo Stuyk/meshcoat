@@ -50,6 +50,8 @@ const [transforming, setTransformingRaw] = createSignal(false)
  * which is opaque everywhere and so would otherwise stamp as a solid rectangle).
  */
 const [stampUseLuminance, setStampUseLuminanceRaw] = createSignal(false)
+/** Whether the loaded image has real transparency (measured on load). */
+const [imageHasAlpha, setImageHasAlphaRaw] = createSignal(false)
 /** Natural pixel dimensions of the loaded image, for aspect ratio. */
 const [imageAspect, setImageAspectRaw] = createSignal(1)
 
@@ -97,6 +99,10 @@ export function setStencilVisible(v: boolean): void {
   if (!v) {
     setTransformingRaw(false)
   }
+}
+
+export function setStencilImageHasAlpha(v: boolean): void {
+  setImageHasAlphaRaw(v)
 }
 
 export function setStencilStampUseLuminance(v: boolean): void {
@@ -161,6 +167,8 @@ export const stencil = {
   setStencilInvert,
   stampUseLuminance,
   setStencilStampUseLuminance,
+  imageHasAlpha,
+  setStencilImageHasAlpha,
   transforming,
   setStencilTransforming,
   imageAspect,
