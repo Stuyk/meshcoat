@@ -175,65 +175,118 @@ export function buildUvMesh(mesh: THREE.Mesh): THREE.Mesh {
   return flatMesh
 }
 
+/** Per-geometry island id for every triangle, built on first pick. */
+const islandCache = new WeakMap<THREE.BufferGeometry, Int32Array>()
+
+function findRoot(parent: Int32Array, x: number): number {
+  while (parent[x] !== x) {
+    parent[x] = parent[parent[x]]
+    x = parent[x]
+  }
+  return x
+}
+
+/**
+ * Labels every triangle with a UV island id. Two triangles belong to the same
+ * island when they share an EDGE whose endpoints match in both position and
+ * UV — a seam (same position, different UV) splits islands, and so does two
+ * islands merely touching at a corner or overlapping in UV space (mirrored
+ * halves), which a shared-UV-coordinate test would wrongly weld together.
+ *
+ * Triangle numbering follows SurfaceHit.faceIndex: the index buffer's order
+ * for indexed geometry (what the display mesh usually is), vertex order
+ * otherwise.
+ */
+function buildIslandIds(geometry: THREE.BufferGeometry): Int32Array | null {
+  const uvAttr = geometry.getAttribute('uv') as THREE.BufferAttribute | undefined
+  const posAttr = geometry.getAttribute('position') as THREE.BufferAttribute | undefined
+  if (!uvAttr || !posAttr) {
+    return null
+  }
+  const index = geometry.index
+  const faceCount = Math.floor((index ? index.count : posAttr.count) / 3)
+  const vertexOf = (corner: number): number => (index ? index.getX(corner) : corner)
+
+  if (!geometry.boundingBox) {
+    geometry.computeBoundingBox()
+  }
+  const size = geometry.boundingBox!.getSize(new THREE.Vector3())
+  const posScale = 1e5 / Math.max(size.x, size.y, size.z, 1e-6)
+  const uvScale = 1e5
+
+  // One key per distinct (position, uv) corner, so welded and unwelded
+  // meshes behave the same.
+  const vertexKey = new Map<string, number>()
+  const cornerId = (v: number): number => {
+    const key =
+      `${Math.round(posAttr.getX(v) * posScale)},${Math.round(posAttr.getY(v) * posScale)},` +
+      `${Math.round(posAttr.getZ(v) * posScale)}|` +
+      `${Math.round(uvAttr.getX(v) * uvScale)},${Math.round(uvAttr.getY(v) * uvScale)}`
+    let id = vertexKey.get(key)
+    if (id === undefined) {
+      id = vertexKey.size
+      vertexKey.set(key, id)
+    }
+    return id
+  }
+
+  const parent = new Int32Array(faceCount)
+  for (let f = 0; f < faceCount; f++) {
+    parent[f] = f
+  }
+  const edgeOwner = new Map<string, number>()
+  for (let f = 0; f < faceCount; f++) {
+    const ids = [cornerId(vertexOf(f * 3)), cornerId(vertexOf(f * 3 + 1)), cornerId(vertexOf(f * 3 + 2))]
+    for (let k = 0; k < 3; k++) {
+      const a = ids[k]
+      const b = ids[(k + 1) % 3]
+      if (a === b) {
+        continue
+      }
+      const edge = a < b ? `${a}_${b}` : `${b}_${a}`
+      const other = edgeOwner.get(edge)
+      if (other === undefined) {
+        edgeOwner.set(edge, f)
+        continue
+      }
+      const ra = findRoot(parent, f)
+      const rb = findRoot(parent, other)
+      if (ra !== rb) {
+        parent[ra] = rb
+      }
+    }
+  }
+  for (let f = 0; f < faceCount; f++) {
+    parent[f] = findRoot(parent, f)
+  }
+  return parent
+}
+
 /**
  * Computes all face indices belonging to the same contiguous UV island as startFaceIndex.
- * Connects triangles that share vertex UV coordinates within a precision tolerance.
  */
 export function findUvIslandFaces(
   geometry: THREE.BufferGeometry,
   startFaceIndex: number
 ): number[] {
-  const uvAttr = geometry.getAttribute('uv') as THREE.BufferAttribute | undefined
-  if (!uvAttr) {
+  let ids = islandCache.get(geometry)
+  if (!ids) {
+    const built = buildIslandIds(geometry)
+    if (!built) {
+      return [startFaceIndex]
+    }
+    ids = built
+    islandCache.set(geometry, ids)
+  }
+  if (startFaceIndex < 0 || startFaceIndex >= ids.length) {
     return [startFaceIndex]
   }
-
-  const totalFaces = Math.floor(uvAttr.count / 3)
-  if (startFaceIndex < 0 || startFaceIndex >= totalFaces) {
-    return [startFaceIndex]
-  }
-
-  // Map each quantized UV coordinate to face indices containing it
-  const uvToFaces = new Map<string, number[]>()
-  const uvKey = (u: number, v: number) => `${Math.round(u * 8000)}_${Math.round(v * 8000)}`
-
-  for (let f = 0; f < totalFaces; f++) {
-    const base = f * 3
-    for (let k = 0; k < 3; k++) {
-      const key = uvKey(uvAttr.getX(base + k), uvAttr.getY(base + k))
-      let list = uvToFaces.get(key)
-      if (!list) {
-        list = []
-        uvToFaces.set(key, list)
-      }
-      list.push(f)
+  const target = ids[startFaceIndex]
+  const island: number[] = []
+  for (let f = 0; f < ids.length; f++) {
+    if (ids[f] === target) {
+      island.push(f)
     }
   }
-
-  // Flood fill / BFS from startFaceIndex
-  const island = new Set<number>([startFaceIndex])
-  const queue: number[] = [startFaceIndex]
-
-  const visitNeighbor = (n: number): void => {
-    if (island.has(n)) {
-      return
-    }
-    island.add(n)
-    queue.push(n)
-  }
-
-  while (queue.length > 0) {
-    const curr = queue.pop()!
-    const base = curr * 3
-    for (let k = 0; k < 3; k++) {
-      const key = uvKey(uvAttr.getX(base + k), uvAttr.getY(base + k))
-      const neighbors = uvToFaces.get(key)
-      if (!neighbors) {
-        continue
-      }
-      neighbors.forEach(visitNeighbor)
-    }
-  }
-
-  return Array.from(island)
+  return island
 }
