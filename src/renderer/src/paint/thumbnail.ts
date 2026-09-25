@@ -102,7 +102,10 @@ export function renderTextureToImageData(
     viewTarget?.dispose()
     viewTarget = new THREE.WebGLRenderTarget(size, size, {
       format: THREE.RGBAFormat,
-      type: THREE.UnsignedByteType
+      type: THREE.UnsignedByteType,
+      // The composite is sRGB; without this the readback lands linear and
+      // every mid-tone shows darker and more saturated than it paints.
+      colorSpace: THREE.SRGBColorSpace
     })
     viewPixels = new Uint8Array(size * size * 4)
     viewImage = new ImageData(size, size)
