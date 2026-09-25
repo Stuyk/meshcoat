@@ -92,6 +92,8 @@ ${BRUSH_MASK_UNIFORMS_GLSL}
   uniform vec4 uStencilRect;
   uniform float uStencilRotation;
   uniform float uStencilInvert;
+  // 1 = the stencil image has real transparency, so alpha (not luminance) is its shape.
+  uniform float uStencilHasAlpha;
   // 1 = project the stencil image's colors as a decal; see the stamp block below.
   uniform float uStencilStamp;
   // 1 = drive the stamp's shape from brightness and paint uBrushColor, for
@@ -192,10 +194,15 @@ ${BRUSH_MASK_GLSL}
           // bottom while the CSS rect's v = 0 is its top.
           vec4 stencilSample = texture2D(uStencilTex, vec2(stencilUv.x, 1.0 - stencilUv.y));
           stencilColor = stencilSample;
-          // Luminance drives the mask so plain black-and-white artwork works
-          // without an alpha channel; a cut-out PNG's alpha multiplies in too.
+          // A cut-out image's alpha is its shape; plain black-and-white
+          // artwork with no alpha channel falls back to luminance. Multiplying
+          // the two made a black-with-alpha brush PNG mask out entirely.
           float lum = dot(stencilSample.rgb, vec3(0.299, 0.587, 0.114));
-          stencilMask = mix(lum, 1.0 - lum, uStencilInvert) * stencilSample.a;
+          float shapeSrc = mix(lum, stencilSample.a, uStencilHasAlpha);
+          stencilMask = mix(shapeSrc, 1.0 - shapeSrc, uStencilInvert);
+          if (uStencilHasAlpha < 0.5) {
+            stencilMask *= stencilSample.a;
+          }
         }
       }
     }
@@ -395,9 +402,14 @@ ${BRUSH_MASK_GLSL}
       // The image's own alpha carries the decal shape. uStencilUseLuma turns a
       // plain black-and-white stencil (opaque everywhere, shape encoded in
       // brightness) into a mask that paints uBrushColor instead.
+      // With real transparency, brush-color mode takes the shape from alpha
+      // (so a black brush PNG paints the brush color, not black and not
+      // nothing); without it, from luminance.
       float lum = dot(stencilColor.rgb, vec3(0.299, 0.587, 0.114));
       float lumMask = mix(lum, 1.0 - lum, uStencilInvert);
-      float shape = stencilColor.a * mix(1.0, lumMask, uStencilUseLuma);
+      float alphaMask = mix(stencilColor.a, 1.0 - stencilColor.a, uStencilInvert);
+      float maskShape = mix(stencilColor.a * lumMask, alphaMask, uStencilHasAlpha);
+      float shape = mix(stencilColor.a, maskShape, uStencilUseLuma);
       // The stencil image's own colors are the payload for base color only. A
       // data channel takes the value already computed above and uses the
       // stencil purely as the decal's shape — projecting a photo's RGB into a
@@ -442,6 +454,7 @@ export interface PaintUniforms extends BrushMaskUniforms {
   uStencilRect: THREE.IUniform<THREE.Vector4>
   uStencilRotation: THREE.IUniform<number>
   uStencilInvert: THREE.IUniform<number>
+  uStencilHasAlpha: THREE.IUniform<number>
   uStencilStamp: THREE.IUniform<number>
   uStencilUseLuma: THREE.IUniform<number>
   uCanvasSize: THREE.IUniform<THREE.Vector2>
@@ -480,6 +493,7 @@ export function createPaintMaterial(): THREE.ShaderMaterial & { uniforms: PaintU
     uStencilRect: { value: new THREE.Vector4(0, 0, 1, 1) },
     uStencilRotation: { value: 0 },
     uStencilInvert: { value: 0 },
+    uStencilHasAlpha: { value: 0 },
     uStencilStamp: { value: 0 },
     uStencilUseLuma: { value: 0 },
     uCanvasSize: { value: new THREE.Vector2(1, 1) },

@@ -427,7 +427,8 @@ export default function StencilHUD(props: StencilHUDProps) {
                 {
                   value: 'mask',
                   label: 'Color Mask',
-                  title: 'Stamp decal using stencil brightness with the active paint color'
+                  title:
+                    'Stamp the stencil shape (its transparency, or brightness if it has none) in the active paint color'
                 }
               ]}
               value={stencil.stampUseLuminance() ? 'mask' : 'color'}

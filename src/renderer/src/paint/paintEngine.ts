@@ -154,6 +154,12 @@ export interface StencilParams {
   rect: THREE.Vector4
   rotationRad: number
   invert: boolean
+  /**
+   * The image carries real transparency. Its alpha is then the shape, not its
+   * brightness — a brush PNG is typically black RGB with the shape in alpha,
+   * which a luminance mask would read as "nothing here".
+   */
+  hasAlpha: boolean
   canvasWidth: number
   canvasHeight: number
   /** Camera view-projection, so the shader can place each texel on screen. */
@@ -816,6 +822,7 @@ export class PaintEngine {
       u.uStencilRect.value.copy(params.stencil.rect)
       u.uStencilRotation.value = params.stencil.rotationRad
       u.uStencilInvert.value = params.stencil.invert ? 1 : 0
+      u.uStencilHasAlpha.value = params.stencil.hasAlpha ? 1 : 0
       u.uCanvasSize.value.set(params.stencil.canvasWidth, params.stencil.canvasHeight)
       // The stencil needs the same projection the occlusion test uses, but it
       // must be set even when occlusion is off — otherwise the stencil would
@@ -1018,6 +1025,7 @@ export class PaintEngine {
     u.uStencilRect.value.copy(params.stencil.rect)
     u.uStencilRotation.value = params.stencil.rotationRad
     u.uStencilInvert.value = params.stencil.invert ? 1 : 0
+    u.uStencilHasAlpha.value = params.stencil.hasAlpha ? 1 : 0
     u.uCanvasSize.value.set(params.stencil.canvasWidth, params.stencil.canvasHeight)
 
     u.uUseOcclusion.value = 1

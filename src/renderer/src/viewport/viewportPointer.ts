@@ -366,6 +366,7 @@ export function stampStencilNow(rt: ViewportRuntime, diag?: StampDiagnostics): b
       rect: new THREE.Vector4(r.centerX, r.centerY, r.width, r.height),
       rotationRad: r.rotationRad,
       invert: stencil.invert(),
+      hasAlpha: stencil.imageHasAlpha(),
       canvasWidth: rect.width,
       canvasHeight: rect.height,
       viewProjMatrix
@@ -491,6 +492,7 @@ export function applyToolAt(
         rect: new THREE.Vector4(r.centerX, r.centerY, r.width, r.height),
         rotationRad: r.rotationRad,
         invert: stencil.invert(),
+        hasAlpha: stencil.imageHasAlpha(),
         canvasWidth: rect.width,
         canvasHeight: rect.height,
         viewProjMatrix: new THREE.Matrix4().multiplyMatrices(

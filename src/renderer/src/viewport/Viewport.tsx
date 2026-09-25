@@ -926,6 +926,46 @@ export default function Viewport(props: ViewportProps): JSX.Element {
     }
   })
 
+  /**
+   * Measures a stencil image on a small canvas: whether any pixel is actually
+   * transparent, and whether every visible pixel is gray (a brush-style
+   * shape rather than a color decal).
+   */
+  function analyzeStencilImage(image: CanvasImageSource): {
+    hasAlpha: boolean
+    grayscale: boolean
+  } {
+    try {
+      const size = 128
+      const canvas = document.createElement('canvas')
+      canvas.width = size
+      canvas.height = size
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })
+      if (!ctx) {
+        return { hasAlpha: false, grayscale: false }
+      }
+      ctx.drawImage(image, 0, 0, size, size)
+      const data = ctx.getImageData(0, 0, size, size).data
+      let hasAlpha = false
+      let grayscale = true
+      for (let i = 0; i < data.length; i += 4) {
+        const a = data[i + 3]
+        if (a < 250) {
+          hasAlpha = true
+        }
+        if (
+          a > 8 &&
+          (Math.abs(data[i] - data[i + 1]) > 12 || Math.abs(data[i + 1] - data[i + 2]) > 12)
+        ) {
+          grayscale = false
+        }
+      }
+      return { hasAlpha, grayscale }
+    } catch {
+      return { hasAlpha: false, grayscale: false }
+    }
+  }
+
   createEffect(() => {
     const path = stencil.texturePath()
     if (!path) {
@@ -943,6 +983,13 @@ export default function Viewport(props: ViewportProps): JSX.Element {
       const img = texture.image as { width?: number; height?: number } | undefined
       if (img?.width && img?.height) {
         stencil.setStencilImageAspect(img.width / img.height)
+      }
+      const traits = analyzeStencilImage(texture.image as CanvasImageSource)
+      stencil.setStencilImageHasAlpha(traits.hasAlpha)
+      // A grayscale cut-out is a brush shape, not a picture: stamping its own
+      // (usually black) pixels is never what's wanted, so paint the brush color.
+      if (traits.hasAlpha && traits.grayscale) {
+        stencil.setStencilStampUseLuminance(true)
       }
     })
   })
