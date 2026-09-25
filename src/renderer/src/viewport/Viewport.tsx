@@ -583,8 +583,8 @@ export default function Viewport(props: ViewportProps): JSX.Element {
     rt.canvasRef.addEventListener('pointerleave', onPointerLeave)
 
     const handle: ViewportHandle = {
-      loadFromUrl: (url, extension, textureSize, initialTextures) =>
-        loadFromUrl(rt, url, extension, textureSize, initialTextures),
+      loadFromUrl: (url, extension, textureSize, initialTextures, options) =>
+        loadFromUrl(rt, url, extension, textureSize, initialTextures, options),
       loadDefaultModel: (textureSize, primitive) => loadDefaultModel(rt, textureSize, primitive),
       loadProject: (project, snapshots, options) => loadProject(rt, project, snapshots, options),
       focusModel: () => frameSelectionOrModel(rt),

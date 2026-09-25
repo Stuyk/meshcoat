@@ -505,7 +505,8 @@ export default function App(): JSX.Element {
     path: string,
     size: TextureSize,
     initialTextures?: InitialTexturePayload | null,
-    textureFolderPath?: string | null
+    textureFolderPath?: string | null,
+    forceTextureSize = false
   ): Promise<void> {
     const handle = await getReadyViewport()
     let extension = path.split('.').pop() ?? ''
@@ -524,7 +525,7 @@ export default function App(): JSX.Element {
 
     const url = window.api.assetUrl(actualPath)
     closeAllUvInspectors()
-    await handle.loadFromUrl(url, extension, size, initialTextures)
+    await handle.loadFromUrl(url, extension, size, initialTextures, { forceTextureSize })
     // The viewport may have overridden the requested size: imported maps are
     // painted at their own resolution, and a many-piece model is scaled down to
     // fit the GPU. Report what was actually allocated.

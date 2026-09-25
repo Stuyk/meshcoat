@@ -1,6 +1,6 @@
 import { createSignal, createEffect, Show, For } from 'solid-js'
 import * as THREE from 'three'
-import { Modal, Button, Badge } from './ui'
+import { Modal, Button, Badge, Checkbox } from './ui'
 import {
   CubeIcon,
   FolderOpenIcon,
@@ -142,7 +142,8 @@ export interface StartWizardModalProps {
     modelPath: string,
     textureSize: TextureSize,
     initialTextures?: InitialTexturePayload | null,
-    textureFolderPath?: string | null
+    textureFolderPath?: string | null,
+    forceTextureSize?: boolean
   ) => Promise<void>
   onOpenProjectFile: (filePath: string) => Promise<void>
   onRestoreRecovery: (recoveryData: string) => Promise<void>
@@ -170,6 +171,10 @@ export default function StartWizardModal(props: StartWizardModalProps) {
   const [textureFolderPath, setTextureFolderPath] = createSignal<string | null>(null)
 
   const [textureSize, setTextureSize] = createSignal<TextureSize>(DEFAULT_TEXTURE_SIZE)
+  // Off by default: painting at the imported maps' own resolution keeps them
+  // pixel-exact. On, the chosen size wins even when the model carries small
+  // placeholder materials (a .blend's viewport textures, usually).
+  const [forceTextureSize, setForceTextureSize] = createSignal(false)
   const [primitiveSize, setPrimitiveSize] = createSignal<TextureSize>(DEFAULT_TEXTURE_SIZE)
 
   const [autoDetectedCount, setAutoDetectedCount] = createSignal<number>(0)
@@ -568,7 +573,13 @@ export default function StartWizardModal(props: StartWizardModalProps) {
         }
       }
 
-      await props.onOpenModel(path, textureSize(), initialPayload, textureFolderPath())
+      await props.onOpenModel(
+        path,
+        textureSize(),
+        initialPayload,
+        textureFolderPath(),
+        forceTextureSize()
+      )
       finishAndClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -924,6 +935,16 @@ export default function StartWizardModal(props: StartWizardModalProps) {
                   )
                 })}
               </div>
+              <Checkbox
+                class="mt-1"
+                checked={forceTextureSize()}
+                onChange={setForceTextureSize}
+                label={
+                  <span class="text-[11px] text-zinc-300">
+                    Always use this resolution (ignore existing material sizes)
+                  </span>
+                }
+              />
             </div>
 
             {/* Advanced import options.

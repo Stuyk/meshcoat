@@ -26,12 +26,18 @@ export type InitialTexturePayload =
       pieces: Record<string, InitialPbrTextures>
     }
 
+export interface LoadOptions {
+  /** Paint at the requested size even when the model's own maps are a different size. */
+  forceTextureSize?: boolean
+}
+
 export interface ViewportHandle {
   loadFromUrl: (
     url: string,
     extension: string,
     textureSize?: number,
-    initialTextures?: InitialTexturePayload | null
+    initialTextures?: InitialTexturePayload | null,
+    options?: LoadOptions
   ) => Promise<void>
   loadDefaultModel: (textureSize?: number, primitive?: 'sphere' | 'cube') => Promise<void>
   /** `snapshots` is one entry per saved piece, in the project's piece order. */
