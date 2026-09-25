@@ -45,6 +45,19 @@ const depthFragmentShader = /* glsl */ `
   }
 `
 
+/** The face culling the viewport draws `obj` with; DoubleSide if any of its material slots is. */
+function sideOf(obj: THREE.Object3D): THREE.Side {
+  const material = (obj as THREE.Mesh).material
+  if (!material) {
+    return THREE.DoubleSide
+  }
+  const slots = Array.isArray(material) ? material : [material]
+  if (slots.length === 0 || slots.some((m) => m.side === THREE.DoubleSide)) {
+    return THREE.DoubleSide
+  }
+  return slots.every((m) => m.side === THREE.BackSide) ? THREE.BackSide : THREE.FrontSide
+}
+
 export class OcclusionDepthPass {
   private target: THREE.WebGLRenderTarget
   private overrideMaterial: THREE.ShaderMaterial
@@ -68,8 +81,11 @@ export class OcclusionDepthPass {
       vertexShader: depthVertexShader,
       fragmentShader: depthFragmentShader,
       uniforms: { uFar: { value: 1000 } },
-      // Open/single-sided meshes still have to occlude from either winding, and a
-      // flipped-normal import must not punch a hole in the map.
+      // Set per capture from each mesh's own material (see sideOf): the map
+      // has to hold what is actually on screen. Forcing DoubleSide here made
+      // back faces the viewport culls — the far side of a single-sided shell
+      // the artist is looking straight through — occlude the surface behind
+      // them, so a stamp aimed at it landed nowhere.
       side: THREE.DoubleSide
     })
   }
@@ -102,7 +118,7 @@ export class OcclusionDepthPass {
     let meshKey = ''
     for (const m of meshes) {
       m.updateWorldMatrix(true, false)
-      meshKey += m.id + ':' + m.matrixWorld.elements.join(',') + ';'
+      meshKey += m.id + ':' + m.matrixWorld.elements.join(',') + ':' + sideOf(m) + ';'
     }
     const key = `${camera.matrixWorld.elements.join(',')}|${camera.projectionMatrix.elements.join(
       ','
@@ -142,7 +158,28 @@ export class OcclusionDepthPass {
     // "nothing in front of you", never as "occluded at z = 0".
     renderer.setClearColor(0xffffff, 1)
     renderer.clear(true, true, false)
-    renderer.render(scene, camera)
+
+    // One render per face-culling mode, since the override material carries a
+    // single `side` for everything it draws.
+    const prevAutoClear = renderer.autoClear
+    renderer.autoClear = false
+    const bySide = new Map<THREE.Side, THREE.Object3D[]>()
+    for (const m of meshes) {
+      const side = sideOf(m)
+      bySide.set(side, [...(bySide.get(side) ?? []), m])
+    }
+    for (const [side, group] of bySide) {
+      const off = meshes.filter((m) => !group.includes(m) && m.visible)
+      for (const m of off) {
+        m.visible = false
+      }
+      this.overrideMaterial.side = side
+      renderer.render(scene, camera)
+      for (const m of off) {
+        m.visible = true
+      }
+    }
+    renderer.autoClear = prevAutoClear
 
     renderer.setClearColor(this.prevClearColor, prevAlpha)
     renderer.setRenderTarget(prevTarget)

@@ -35,6 +35,7 @@ import { findUvIslandFaces } from '../paint/uvMesh'
 import {
   activeMesh,
   occluderMeshes,
+  stampOccluderMeshes,
   pieceIndexForMesh,
   setActivePiece,
   setWireframeVisible,
@@ -320,7 +321,7 @@ export function stampStencilNow(rt: ViewportRuntime, diag?: StampDiagnostics): b
     rt.sceneHandle.renderer,
     rt.sceneHandle.scene,
     camera,
-    occluderMeshes(rt)
+    stampOccluderMeshes(rt)
   )
 
   // Derive the normal sign from whatever the stencil's own center is pointing
@@ -339,7 +340,7 @@ export function stampStencilNow(rt: ViewportRuntime, diag?: StampDiagnostics): b
   )
 
   if (diag) {
-    const occluders = occluderMeshes(rt)
+    const occluders = stampOccluderMeshes(rt)
     diag.piece = { index: rt.activePieceIndex, name: rt.pieces[rt.activePieceIndex]?.name }
     diag.isolated = rt.isolateActivePiece
     diag.stampMeshVisible = stampMesh?.visible

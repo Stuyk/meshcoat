@@ -379,6 +379,19 @@ export function occluderMeshes(rt: ViewportRuntime): THREE.Mesh[] {
   return mesh ? [mesh] : []
 }
 
+/**
+ * Occluders for the stencil STAMP: the active piece plus every other piece
+ * currently on screen. Unlike a brush dab, the stamp is a projection of the
+ * whole screen rect, so a region covered by another visible piece is exactly
+ * what the artist cannot see — stamping through it prints the decal where
+ * nobody aimed it. Hidden (isolated-away) pieces stay out.
+ */
+export function stampOccluderMeshes(rt: ViewportRuntime): THREE.Mesh[] {
+  const active = activeMesh(rt)
+  const others = rt.pieces.map((p) => p.mesh).filter((m) => m !== active && m.visible)
+  return active ? [active, ...others] : others
+}
+
 /** The named piece's stack, or the active one when no index is given. */
 export function stackFor(rt: ViewportRuntime, pieceIndex?: number): LayerStack | undefined {
   return pieceIndex == null ? rt.layerStack : rt.pieces[pieceIndex]?.stack
