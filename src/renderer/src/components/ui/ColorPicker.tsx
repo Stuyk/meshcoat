@@ -64,8 +64,9 @@ export default function ColorPicker(props: ColorPickerProps) {
     const x = Math.min(Math.max(0, clientX - rect.left), rect.width)
     const y = Math.min(Math.max(0, clientY - rect.top), rect.height)
 
-    const s = Math.min(1, Math.max(0, x / rect.width))
-    const v = Math.min(1, Math.max(0, 1 - y / rect.height))
+    // Handles are inset by their own radius (see the markup), so map the same way.
+    const s = Math.min(1, Math.max(0, (x - 8) / Math.max(1, rect.width - 16)))
+    const v = Math.min(1, Math.max(0, 1 - (y - 8) / Math.max(1, rect.height - 16)))
 
     const newHsv: HSV = { h: hsv().h, s, v }
     setHsv(newHsv)
@@ -81,7 +82,7 @@ export default function ColorPicker(props: ColorPickerProps) {
     }
     const rect = hueBarRef.getBoundingClientRect()
     const x = Math.min(Math.max(0, clientX - rect.left), rect.width)
-    const ratio = Math.min(1, Math.max(0, x / rect.width))
+    const ratio = Math.min(1, Math.max(0, (x - 8) / Math.max(1, rect.width - 16)))
     const h = Math.round(ratio * 360) % 360
 
     const newHsv: HSV = { h, s: hsv().s, v: hsv().v }
@@ -274,7 +275,7 @@ export default function ColorPicker(props: ColorPickerProps) {
 
   return (
     <div
-      class={`flex flex-col gap-3 p-3 bg-zinc-950/80 border border-zinc-800/90 rounded-lg select-none ${props.class ?? ''}`}
+      class={`flex flex-col gap-3 p-3 w-full min-w-0 max-w-full box-border overflow-hidden bg-zinc-950/80 border border-zinc-800/90 rounded-lg select-none ${props.class ?? ''}`}
     >
       {/* Saturation / value field */}
       <div
@@ -290,8 +291,8 @@ export default function ColorPicker(props: ColorPickerProps) {
         <div
           class="absolute w-4 h-4 -ml-2 -mt-2 rounded-full border-2 border-white shadow-[0_0_3px_rgba(0,0,0,0.9)] pointer-events-none"
           style={{
-            left: `${hsv().s * 100}%`,
-            top: `${(1 - hsv().v) * 100}%`,
+            left: `calc(8px + (100% - 16px) * ${hsv().s})`,
+            top: `calc(8px + (100% - 16px) * ${1 - hsv().v})`,
             'background-color': props.color
           }}
         />
@@ -312,15 +313,15 @@ export default function ColorPicker(props: ColorPickerProps) {
         <div
           class="absolute top-1/2 -translate-y-1/2 -ml-2 w-4 h-4 rounded-full border-2 border-white shadow-[0_0_3px_rgba(0,0,0,0.9)] pointer-events-none"
           style={{
-            left: `${(hsv().h / 360) * 100}%`,
+            left: `calc(8px + (100% - 16px) * ${hsv().h / 360})`,
             'background-color': `hsl(${hsv().h}, 100%, 50%)`
           }}
         />
       </div>
 
-      {/* Before / after, and the pickers */}
-      <div class="flex items-stretch gap-2">
-        <div class="flex h-8 w-16 shrink-0 rounded-md border border-zinc-700/80 overflow-hidden">
+      {/* Before / after, and the pickers — an even grid, so nothing can push past the card */}
+      <div class={`grid gap-2 ${props.onEyeDropperClick ? 'grid-cols-3' : 'grid-cols-2'}`}>
+        <div class="flex h-8 min-w-0 rounded-md border border-zinc-700/80 overflow-hidden">
           <button
             type="button"
             class="flex-1 cursor-pointer"
@@ -336,40 +337,25 @@ export default function ColorPicker(props: ColorPickerProps) {
         </div>
         <button
           type="button"
-          class={`${toolButton} flex-1`}
+          class={`${toolButton} min-w-0`}
           onClick={() => void pickFromScreen()}
           disabled={picking()}
           title="Pick a color from anywhere on screen, including other apps (Esc cancels)"
         >
-          <MonitorIcon size={13} />
-          <span>{picking() ? 'Picking…' : 'Screen'}</span>
+          <MonitorIcon size={13} class="shrink-0" />
+          <span class="truncate">{picking() ? 'Picking…' : 'Screen'}</span>
         </button>
         <Show when={props.onEyeDropperClick}>
           <button
             type="button"
-            class={`${toolButton} flex-1`}
+            class={`${toolButton} min-w-0`}
             onClick={() => props.onEyeDropperClick?.()}
             title="Sample a color from the model (I)"
           >
-            <EyedropperIcon size={13} />
-            <span>Model</span>
+            <EyedropperIcon size={13} class="shrink-0" />
+            <span class="truncate">Model</span>
           </button>
         </Show>
-        <button
-          type="button"
-          class={`${toolButton} relative w-8 px-0`}
-          onClick={() => nativeInputRef?.click()}
-          title="Open the system color dialog"
-        >
-          <AppWindowIcon size={13} />
-          <input
-            ref={nativeInputRef}
-            type="color"
-            class="sr-only"
-            value={props.color}
-            onInput={(e) => applyHex(e.currentTarget.value)}
-          />
-        </button>
       </div>
 
       {/* Hex / any CSS color */}
@@ -392,6 +378,22 @@ export default function ColorPicker(props: ColorPickerProps) {
           placeholder="#RRGGBB, rgb(), hsl(), name"
           class="flex-1 min-w-0 bg-transparent font-mono text-xs font-semibold text-zinc-100 outline-hidden"
         />
+        <button
+          type="button"
+          onClick={() => nativeInputRef?.click()}
+          title="Open the system color dialog"
+          class="relative text-zinc-500 hover:text-zinc-200 cursor-pointer ml-2"
+        >
+          <AppWindowIcon size={13} />
+          <input
+            ref={nativeInputRef}
+            type="color"
+            tabIndex={-1}
+            class="absolute inset-0 w-0 h-0 opacity-0 pointer-events-none"
+            value={props.color}
+            onInput={(e) => applyHex(e.currentTarget.value)}
+          />
+        </button>
         <button
           type="button"
           onClick={copyHex}
