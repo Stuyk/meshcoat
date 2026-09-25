@@ -1,4 +1,5 @@
-import { Show, For, createSignal } from 'solid-js'
+import { Show, For, createSignal, createMemo, type JSX } from 'solid-js'
+import { brush } from '../paint/brush'
 import {
   stencil,
   setStencilTexturePath,
@@ -25,9 +26,11 @@ import {
   EyeIcon,
   EyeOffIcon
 } from './icons'
-import { Button, IconButton, Slider, SegmentedControl, Label } from './ui'
+import { Button, IconButton, Slider, SegmentedControl, Label, SearchInput } from './ui'
 import { toAssetUrl } from '../utils/assetUrl'
 import { fileName } from '../utils/paths'
+
+const PICKER_LIMIT = 60
 
 export interface StencilHUDProps {
   /** Rendered inside the tool panel dock rather than floating over the viewport. */
@@ -48,6 +51,91 @@ export default function StencilHUD(props: StencilHUDProps) {
   const [showTexturePicker, setShowTexturePicker] = createSignal(false)
 
   const filename = () => stencil.textureLabel() ?? 'Stencil'
+
+  const [query, setQuery] = createSignal('')
+
+  /** Case-insensitive match on every whitespace-separated term, against the file name. */
+  const matches = createMemo(() => {
+    const all = props.textures ?? []
+    const terms = query().toLowerCase().split(/\s+/).filter(Boolean)
+    if (terms.length === 0) {
+      return all
+    }
+    return all.filter((p) => {
+      const name = fileName(p, '').toLowerCase()
+      return terms.every((t) => name.includes(t))
+    })
+  })
+
+  /**
+   * Project textures as a searchable grid. Libraries run to thousands of
+   * images, so only the first PICKER_LIMIT matches are rendered (lazily) —
+   * searching narrows it down rather than scrolling a wall of thumbnails.
+   */
+  function TexturePicker(p: { title?: string }): JSX.Element {
+    return (
+      <div class="space-y-1.5 pt-1">
+        <Show when={p.title}>
+          <Label uppercase badge={props.textures?.length ?? 0}>
+            {p.title}
+          </Label>
+        </Show>
+        <Show when={brush.texturePath()}>
+          <Button
+            variant="secondary"
+            size="xs"
+            class="w-full justify-center h-7"
+            onClick={() => loadStencil(brush.texturePath()!)}
+            title="Use the texture currently selected for the brush"
+          >
+            <BrushIcon size={12} />
+            <span class="truncate">
+              Use Brush Texture ({fileName(brush.texturePath()!, 'texture')})
+            </span>
+          </Button>
+        </Show>
+        <Show when={(props.textures?.length ?? 0) > 0}>
+          <SearchInput value={query()} onInput={setQuery} placeholder="Search textures…" />
+          <div class="grid grid-cols-4 gap-1.5 max-h-40 overflow-y-auto p-1 bg-zinc-950/60 rounded border border-zinc-800/80">
+            <For each={matches().slice(0, PICKER_LIMIT)}>
+              {(texPath) => {
+                const isCurrent = (): boolean => stencil.texturePath() === texPath
+                return (
+                  <button
+                    type="button"
+                    onClick={() => loadStencil(texPath)}
+                    title={fileName(texPath, 'texture')}
+                    class={`aspect-square rounded overflow-hidden checkerboard-bg border transition-all cursor-pointer relative group ${
+                      isCurrent()
+                        ? 'border-teal-400 ring-1 ring-teal-400/50'
+                        : 'border-zinc-750 hover:border-teal-500'
+                    }`}
+                  >
+                    <img
+                      src={toAssetUrl(texPath)}
+                      alt={fileName(texPath, 'texture')}
+                      loading="lazy"
+                      decoding="async"
+                      class="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                    />
+                  </button>
+                )
+              }}
+            </For>
+          </div>
+          <div class="text-[10px] text-zinc-500">
+            <Show when={matches().length > 0} fallback={<span>No textures match "{query()}"</span>}>
+              <span>
+                {matches().length > PICKER_LIMIT
+                  ? `Showing ${PICKER_LIMIT} of ${matches().length} — refine the search`
+                  : `${matches().length} texture${matches().length === 1 ? '' : 's'}`}
+              </span>
+            </Show>
+          </div>
+        </Show>
+      </div>
+    )
+  }
 
   async function browse(): Promise<void> {
     const paths = await window.api.openFileDialog({
@@ -191,37 +279,7 @@ export default function StencilHUD(props: StencilHUDProps) {
               <span>Paste From Clipboard</span>
             </Button>
 
-            {/* Quick-Pick from Project Textures if available */}
-            <Show when={props.textures && props.textures.length > 0}>
-              <div class="space-y-1.5 pt-1 border-t border-zinc-800/80">
-                <div class="flex items-center justify-between">
-                  <Label uppercase badge={props.textures!.length}>
-                    Or Use Project Texture
-                  </Label>
-                </div>
-                <div class="grid grid-cols-4 gap-1.5 max-h-28 overflow-y-auto p-1 bg-zinc-950/60 rounded border border-zinc-800/80">
-                  <For each={props.textures}>
-                    {(texPath) => {
-                      const name = () => fileName(texPath, 'texture')
-                      return (
-                        <button
-                          type="button"
-                          onClick={() => loadStencil(texPath)}
-                          title={name()}
-                          class="aspect-square rounded overflow-hidden checkerboard-bg border border-zinc-750 hover:border-teal-500 transition-all cursor-pointer relative group"
-                        >
-                          <img
-                            src={toAssetUrl(texPath)}
-                            alt={name()}
-                            class="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                          />
-                        </button>
-                      )
-                    }}
-                  </For>
-                </div>
-              </div>
-            </Show>
+            <TexturePicker title="Or Use Project Texture" />
 
             <p class="text-[10px] text-zinc-500 leading-normal">
               A stencil floats as a screen-space sheet over the 3D viewport. Orbit the mesh
@@ -370,7 +428,7 @@ export default function StencilHUD(props: StencilHUDProps) {
         </div>
 
         {/* Alternate project texture picker drawer if project textures exist */}
-        <Show when={props.textures && props.textures.length > 0}>
+        <Show when={(props.textures?.length ?? 0) > 0 || brush.texturePath()}>
           <div class="space-y-1">
             <button
               type="button"
@@ -380,34 +438,10 @@ export default function StencilHUD(props: StencilHUDProps) {
               <span class="font-semibold uppercase tracking-wider">
                 {showTexturePicker() ? 'Hide Project Textures' : 'Choose From Project Textures…'}
               </span>
-              <span class="font-mono text-zinc-500">{props.textures!.length}</span>
+              <span class="font-mono text-zinc-500">{props.textures?.length ?? 0}</span>
             </button>
             <Show when={showTexturePicker()}>
-              <div class="grid grid-cols-4 gap-1.5 max-h-24 overflow-y-auto p-1 bg-zinc-950/60 rounded border border-zinc-800/80 animate-in fade-in duration-100">
-                <For each={props.textures}>
-                  {(texPath) => {
-                    const isCurrent = () => stencil.texturePath() === texPath
-                    return (
-                      <button
-                        type="button"
-                        onClick={() => loadStencil(texPath)}
-                        title={fileName(texPath, 'texture')}
-                        class={`aspect-square rounded overflow-hidden checkerboard-bg border transition-all cursor-pointer relative group ${
-                          isCurrent()
-                            ? 'border-teal-400 ring-1 ring-teal-400/50'
-                            : 'border-zinc-750 hover:border-zinc-600'
-                        }`}
-                      >
-                        <img
-                          src={toAssetUrl(texPath)}
-                          alt="Texture"
-                          class="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                        />
-                      </button>
-                    )
-                  }}
-                </For>
-              </div>
+              <TexturePicker />
             </Show>
           </div>
         </Show>
