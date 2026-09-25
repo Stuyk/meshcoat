@@ -184,9 +184,7 @@ export async function loadFromUrl(
   }
   const model = await loadModel(url, extension)
   // Forced: an empty map means every piece falls back to `textureSize`.
-  const sizeByName = options.forceTextureSize
-    ? {}
-    : await resolveSizeByName(model, initialTextures)
+  const sizeByName = options.forceTextureSize ? {} : await resolveSizeByName(model, initialTextures)
 
   clearCurrentModel(rt)
   rt.currentModel = model

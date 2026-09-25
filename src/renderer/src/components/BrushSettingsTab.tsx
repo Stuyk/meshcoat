@@ -1,4 +1,4 @@
-import { Show, createSignal, createMemo, For } from 'solid-js'
+import { Show, createSignal, createMemo, For, onMount } from 'solid-js'
 import {
   brush,
   setRadius,
@@ -27,7 +27,8 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
   RefreshCwIcon,
-  DropletsIcon
+  DropletsIcon,
+  TrashIcon
 } from './icons'
 import {
   PanelSection,
@@ -40,18 +41,19 @@ import {
   Select,
   ToggleSwitch,
   ColorSwatch,
-  Kbd
+  Kbd,
+  TextInput
 } from './ui'
 import { toAssetUrl } from '../utils/assetUrl'
 import {
   PALETTE_PRESETS,
   loadSavedSwatches,
-  saveSavedSwatches,
   parsePaletteText,
   exportPaletteAsHex,
   exportPaletteAsJson
 } from '../paint/palettePresets'
 import { normalizeHex } from '../utils/colorUtils'
+import { colorLibrary } from '../paint/colorLibrary'
 import MaterialChannelsPanel from './MaterialChannelsPanel'
 
 const RADIUS_PRESET_FRACTIONS = [
@@ -101,31 +103,48 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
   let fileInputRef: HTMLInputElement | undefined
 
   const [showColorPicker, setShowColorPicker] = createSignal(true)
-  const [savedSwatches, setSavedSwatches] = createSignal<string[]>(loadSavedSwatches())
+  const { savedSwatches, setSavedSwatches, customPalettes } = colorLibrary
   const [activePresetId, setActivePresetId] = createSignal<string>('essentials')
 
+  onMount(() => void colorLibrary.hydrateColorLibrary())
+
   const selectedPreset = createMemo(() => {
-    return PALETTE_PRESETS.find((p) => p.id === activePresetId()) ?? PALETTE_PRESETS[0]
+    return (
+      customPalettes().find((p) => p.id === activePresetId()) ??
+      PALETTE_PRESETS.find((p) => p.id === activePresetId()) ??
+      PALETTE_PRESETS[0]
+    )
   })
+  const selectedIsCustom = (): boolean => customPalettes().some((p) => p.id === activePresetId())
 
   const handleSaveActiveColor = (hexToAdd?: string) => {
     const col = normalizeHex(hexToAdd ?? brush.color())
     setSavedSwatches((prev) => {
       const filtered = prev.filter((c) => c.toLowerCase() !== col.toLowerCase())
-      const next = [col, ...filtered].slice(0, 36)
-      saveSavedSwatches(next)
-      return next
+      return [col, ...filtered].slice(0, 36)
     })
     props.onToast?.(`Saved ${col.toUpperCase()} to swatches`, 'success')
   }
 
   const handleRemoveSavedColor = (index: number, e?: MouseEvent) => {
     e?.stopPropagation()
-    setSavedSwatches((prev) => {
-      const next = prev.filter((_, i) => i !== index)
-      saveSavedSwatches(next)
-      return next
-    })
+    setSavedSwatches((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const handleSaveAsPalette = (): void => {
+    const palette = colorLibrary.saveSwatchesAsPalette()
+    if (!palette) {
+      props.onToast?.('No saved colors to turn into a palette', 'warning')
+      return
+    }
+    setActivePresetId(palette.id)
+    props.onToast?.(`Saved ${palette.colors.length} colors as "${palette.name}"`, 'success')
+  }
+
+  const handleDeletePalette = (): void => {
+    const id = activePresetId()
+    colorLibrary.deleteCustomPalette(id)
+    setActivePresetId('essentials')
   }
 
   const handleImportFile = (e: Event) => {
@@ -139,11 +158,7 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
       const text = reader.result as string
       const parsed = parsePaletteText(text)
       if (parsed.length > 0) {
-        setSavedSwatches((prev) => {
-          const combined = Array.from(new Set([...parsed, ...prev])).slice(0, 48)
-          saveSavedSwatches(combined)
-          return combined
-        })
+        setSavedSwatches((prev) => Array.from(new Set([...parsed, ...prev])).slice(0, 48))
         props.onToast?.(`Imported ${parsed.length} colors into Saved Swatches`, 'success')
       } else {
         props.onToast?.('No valid colors found in file', 'warning')
@@ -155,8 +170,7 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
 
   const handleResetSavedSwatches = () => {
     localStorage.removeItem('meshcoat:saved_swatches')
-    const defaults = loadSavedSwatches()
-    setSavedSwatches(defaults)
+    setSavedSwatches(loadSavedSwatches())
     props.onToast?.('Reset Saved Swatches to default set', 'info')
   }
 
@@ -384,6 +398,15 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
                 </button>
                 <button
                   type="button"
+                  onClick={handleSaveAsPalette}
+                  title="Save these colors as a new preset palette"
+                  class="flex items-center gap-1 px-2 py-0.5 rounded-[var(--ui-radius)] text-[11px] text-blue-400 hover:text-blue-300 hover:bg-blue-950/30 transition-colors cursor-pointer"
+                >
+                  <PaletteIcon size={12} />
+                  <span>To Palette</span>
+                </button>
+                <button
+                  type="button"
                   onClick={handleResetSavedSwatches}
                   title="Reset saved colors to default"
                   class="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-panel-header)] transition-colors cursor-pointer"
@@ -428,14 +451,40 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
             <div class="flex items-center justify-between gap-2">
               <Label uppercase>Preset Palette</Label>
               <Select size="xs" value={activePresetId()} onChange={(val) => setActivePresetId(val)}>
-                <For each={PALETTE_PRESETS}>
-                  {(preset) => <option value={preset.id}>{preset.name}</option>}
-                </For>
+                <Show when={customPalettes().length > 0}>
+                  <optgroup label="My Palettes">
+                    <For each={customPalettes()}>
+                      {(preset) => <option value={preset.id}>{preset.name}</option>}
+                    </For>
+                  </optgroup>
+                </Show>
+                <optgroup label="Built-in">
+                  <For each={PALETTE_PRESETS}>
+                    {(preset) => <option value={preset.id}>{preset.name}</option>}
+                  </For>
+                </optgroup>
               </Select>
             </div>
 
+            <Show when={selectedIsCustom()}>
+              <div class="flex items-center gap-1.5">
+                <TextInput
+                  size="xs"
+                  class="flex-1"
+                  value={selectedPreset().name}
+                  onChange={(name) => colorLibrary.renameCustomPalette(activePresetId(), name)}
+                  placeholder="Palette name"
+                />
+                <IconButton size="xs" onClick={handleDeletePalette} tooltip="Delete this palette">
+                  <TrashIcon size={13} />
+                </IconButton>
+              </div>
+            </Show>
+
             <Show when={selectedPreset().description}>
-              <p class="text-[11px] text-[var(--text-muted)] -mt-0.5">{selectedPreset().description}</p>
+              <p class="text-[11px] text-[var(--text-muted)] -mt-0.5">
+                {selectedPreset().description}
+              </p>
             </Show>
 
             <div class="grid grid-cols-10 gap-1.5">

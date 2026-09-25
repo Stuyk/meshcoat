@@ -8,6 +8,12 @@ export interface RecentEntry {
   type?: 'project' | 'model'
 }
 
+/** Mirrors main/prefs.ts ColorLibrary. */
+export interface ColorLibrary {
+  savedSwatches?: string[]
+  customPalettes?: { id: string; name: string; colors: string[] }[]
+}
+
 export interface FileFilter {
   name: string
   extensions: string[]
@@ -63,7 +69,8 @@ const api = {
     ipcRenderer.invoke('folder:load-last-textures'),
   listTexturesInFolder: (dir: string, recursive?: boolean): Promise<string[] | null> =>
     ipcRenderer.invoke('folder:list-textures-in', dir, recursive),
-  getTextureFolderRoot: (): Promise<string | null> => ipcRenderer.invoke('folder:last-texture-root'),
+  getTextureFolderRoot: (): Promise<string | null> =>
+    ipcRenderer.invoke('folder:last-texture-root'),
   savePng: (filePath: string, dataUrl: string): Promise<boolean> =>
     ipcRenderer.invoke('file:save-png', filePath, dataUrl),
   readClipboardImage: (): Promise<{ dataUrl: string; width: number; height: number } | null> =>
@@ -97,7 +104,11 @@ const api = {
   isBlenderPromptDismissed: (): Promise<boolean> =>
     ipcRenderer.invoke('blender:is-prompt-dismissed'),
   setBlenderPromptDismissed: (dismissed: boolean): Promise<boolean> =>
-    ipcRenderer.invoke('blender:set-prompt-dismissed', dismissed)
+    ipcRenderer.invoke('blender:set-prompt-dismissed', dismissed),
+  getColorLibrary: (): Promise<ColorLibrary | null> =>
+    ipcRenderer.invoke('prefs:get-color-library'),
+  setColorLibrary: (library: ColorLibrary): Promise<boolean> =>
+    ipcRenderer.invoke('prefs:set-color-library', library)
 }
 
 contextBridge.exposeInMainWorld('electron', electronAPI)

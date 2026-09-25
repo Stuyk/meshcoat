@@ -236,7 +236,11 @@ function buildIslandIds(geometry: THREE.BufferGeometry): Int32Array | null {
   }
   const edgeOwner = new Map<string, number>()
   for (let f = 0; f < faceCount; f++) {
-    const ids = [cornerId(vertexOf(f * 3)), cornerId(vertexOf(f * 3 + 1)), cornerId(vertexOf(f * 3 + 2))]
+    const ids = [
+      cornerId(vertexOf(f * 3)),
+      cornerId(vertexOf(f * 3 + 1)),
+      cornerId(vertexOf(f * 3 + 2))
+    ]
     for (let k = 0; k < 3; k++) {
       const a = ids[k]
       const b = ids[(k + 1) % 3]

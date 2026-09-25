@@ -136,7 +136,7 @@ export default function ColorPicker(props: ColorPickerProps) {
   }
 
   // Handle text edit: accepts hex (with or without '#'), rgb(), hsl() and named colors
-  const handleHexChange = (val: string) => {
+  const handleHexChange = (val: string): void => {
     setHexInput(val)
     const parsed = parseCssColor(val)
     if (parsed) {
@@ -146,7 +146,7 @@ export default function ColorPicker(props: ColorPickerProps) {
   }
 
   // Leaving the field snaps whatever was typed back to the canonical hex
-  const commitHexInput = () => {
+  const commitHexInput = (): void => {
     setEditingText(false)
     setHexInput(normalizeHex(props.color).toUpperCase())
   }
