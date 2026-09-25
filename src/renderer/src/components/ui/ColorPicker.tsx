@@ -8,7 +8,7 @@ import {
   parseCssColor,
   type HSV
 } from '../../utils/colorUtils'
-import { EyedropperIcon, CopyIcon, CheckIcon, MonitorIcon, AppWindowIcon } from '../icons'
+import { EyedropperIcon, CopyIcon, CheckIcon, AppWindowIcon } from '../icons'
 
 export interface ColorPickerProps {
   color: string
@@ -33,7 +33,6 @@ export default function ColorPicker(props: ColorPickerProps) {
   // round-trip through HSV must not rewrite "rgb(10, 20, 30)" mid-typing.
   const [editingText, setEditingText] = createSignal(false)
   const [channelMode, setChannelMode] = createSignal<'rgb' | 'hsv'>('rgb')
-  const [picking, setPicking] = createSignal(false)
 
   // Track initial color for comparison
   const [initialColor] = createSignal(props.color)
@@ -190,41 +189,6 @@ export default function ColorPicker(props: ColorPickerProps) {
     setTimeout(() => setCopied(false), 1500)
   }
 
-  /**
-   * Samples any pixel on screen, other applications included. The main
-   * process does the capture (see main/screenPicker.ts) because Electron
-   * doesn't implement the web EyeDropper; that API is only a fallback for
-   * running outside Electron.
-   */
-  const pickFromScreen = async (): Promise<void> => {
-    if (picking()) {
-      return
-    }
-    setPicking(true)
-    try {
-      if (window.api?.pickScreenColor) {
-        const hex = await window.api.pickScreenColor()
-        if (hex) {
-          applyHex(hex)
-        }
-        return
-      }
-      if ('EyeDropper' in window) {
-        // @ts-expect-error EyeDropper is a modern Web API
-        const result = await new window.EyeDropper().open()
-        if (result?.sRGBHex) {
-          applyHex(result.sRGBHex)
-        }
-        return
-      }
-      nativeInputRef?.click()
-    } catch {
-      // Cancelled or capture refused (e.g. denied screen-share portal): no change.
-    } finally {
-      setPicking(false)
-    }
-  }
-
   const channelFields = (): {
     key: string
     label: string
@@ -320,7 +284,7 @@ export default function ColorPicker(props: ColorPickerProps) {
       </div>
 
       {/* Before / after, and the pickers — an even grid, so nothing can push past the card */}
-      <div class={`grid gap-2 ${props.onEyeDropperClick ? 'grid-cols-3' : 'grid-cols-2'}`}>
+      <div class={`grid gap-2 ${props.onEyeDropperClick ? 'grid-cols-2' : 'grid-cols-1'}`}>
         <div class="flex h-8 min-w-0 rounded-md border border-zinc-700/80 overflow-hidden">
           <button
             type="button"
@@ -335,16 +299,6 @@ export default function ColorPicker(props: ColorPickerProps) {
             title={`Current: ${props.color.toUpperCase()}`}
           />
         </div>
-        <button
-          type="button"
-          class={`${toolButton} min-w-0`}
-          onClick={() => void pickFromScreen()}
-          disabled={picking()}
-          title="Pick a color from anywhere on screen, including other apps (Esc cancels)"
-        >
-          <MonitorIcon size={13} class="shrink-0" />
-          <span class="truncate">{picking() ? 'Picking…' : 'Screen'}</span>
-        </button>
         <Show when={props.onEyeDropperClick}>
           <button
             type="button"
