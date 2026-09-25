@@ -3,665 +3,2063 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>MeshCoat: 3D texture painting, fast and local</title>
-  <meta name="description" content="Fast, focused 3D model texture painter for game developers and 3D artists. Full PBR material painting, multi-piece texture sets, local, free, no accounts." />
-  <meta property="og:title" content="MeshCoat" />
-  <meta property="og:description" content="Fast, focused 3D model texture painter for game developers and 3D artists. PBR material painting, multi-piece texture sets, one-click export." />
+  <title>MeshCoat — Fast, Local 3D Texture Painter</title>
+  <meta name="description" content="Focused 3D model texture painter for game developers and 3D artists. 4-channel simultaneous PBR painting, hardware UV projection, multi-piece texture sets, 100% offline, local, GPL-3.0." />
+  <meta property="og:title" content="MeshCoat — Professional 3D Texture Painter" />
+  <meta property="og:description" content="Simultaneous PBR material painting, hardware UV projection, multi-piece texture sets, packed ORM exports. 100% local, fast, free, no accounts." />
   <meta property="og:image" content="social-preview.png" />
+  <meta property="og:type" content="website" />
   <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="MeshCoat — 3D Texture Painting Environment" />
+  <meta name="twitter:description" content="Fast, local 3D texture painter for game developers. Direct 3D surface painting, 4-channel PBR, packed ORM, multi-piece sets, GPL-3.0." />
+  <meta name="twitter:image" content="social-preview.png" />
   <link rel="icon" href="icon.png" />
   <style>
+    /* ==========================================================================
+       MeshCoat DCC Workstation Design Tokens (Matches src/renderer/src/index.css)
+       ========================================================================== */
     :root {
-      --bg: #08080b;
-      --panel: #121217;
-      --panel-2: #17171d;
-      --text: #f4f4f6;
-      --dim: #9a9ba4;
-      --faint: #6d6e77;
-      --accent: #7c9eff;
-      --accent-2: #6fd6a8;
-      --accent-3: #c08bff;
-      --line: #22222a;
-      --line-soft: #1a1a20;
-      --radius: 14px;
-      --shell: min(1140px, 100% - 40px);
+      --bg-main: #242426;
+      --bg-panel: #2e2e32;
+      --bg-panel-header: #28282b;
+      --bg-input: #1e1e20;
+      --bg-canvas: #18181a;
+      --bg-recessed: #141416;
+
+      --border-color: #1c1c1e;
+      --border-default: #28282c;
+      --border-subtle: #38383e;
+      --border-focus: #0084ff;
+
+      --accent-color: #0084ff;
+      --accent-hover: #0073e6;
+      --accent-subtle: rgba(0, 132, 255, 0.14);
+      --accent-text: #ffffff;
+
+      --pbr-color: #10b981;
+      --pbr-color-bg: rgba(16, 185, 129, 0.12);
+      --pbr-rough: #0284c7;
+      --pbr-rough-bg: rgba(2, 132, 199, 0.12);
+      --pbr-metal: #d97706;
+      --pbr-metal-bg: rgba(217, 119, 6, 0.12);
+      --pbr-normal: #8b5cf6;
+      --pbr-normal-bg: rgba(139, 92, 246, 0.12);
+
+      --text-main: #e8e8ea;
+      --text-muted: #9c9ca4;
+      --text-faint: #6e6e76;
+      --text-bright: #ffffff;
+
+      --ui-radius: 4px;
+      --ui-radius-sm: 2px;
+      --ui-radius-lg: 6px;
+
+      --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+
+      --shell-width: 1240px;
     }
 
-    * { box-sizing: border-box; }
-    html { scroll-behavior: smooth; }
-    body {
+    * {
+      box-sizing: border-box;
       margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      line-height: 1.55;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      background-color: var(--bg-main);
+      color: var(--text-main);
+      font-family: var(--font-main);
+      font-size: 14px;
+      line-height: 1.5;
       -webkit-font-smoothing: antialiased;
-    }
-    img { max-width: 100%; display: block; }
-    a { color: inherit; }
-
-    /* Ambient backdrop: soft colour wash over a faint technical grid. */
-    .backdrop {
-      position: fixed;
-      inset: 0;
-      z-index: -1;
-      background:
-        radial-gradient(ellipse 900px 520px at 50% -8%, rgba(124,158,255,0.18), transparent 62%),
-        radial-gradient(ellipse 760px 520px at 92% 12%, rgba(192,139,255,0.10), transparent 62%),
-        radial-gradient(ellipse 700px 480px at 4% 38%, rgba(111,214,168,0.07), transparent 62%);
-    }
-    .backdrop::after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      background-image:
-        linear-gradient(rgba(255,255,255,0.028) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,0.028) 1px, transparent 1px);
-      background-size: 64px 64px;
-      mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, #000 30%, transparent 78%);
-      -webkit-mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, #000 30%, transparent 78%);
+      -moz-osx-font-smoothing: grayscale;
     }
 
-    .shell { width: var(--shell); margin: 0 auto; }
+    body {
+      background-color: var(--bg-main);
+      color: var(--text-main);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
 
-    /* ---------- Nav ---------- */
-    nav {
-      position: sticky;
-      top: 0;
-      z-index: 20;
-      backdrop-filter: blur(12px);
-      background: rgba(8,8,11,0.72);
-      border-bottom: 1px solid var(--line-soft);
-    }
-    nav .shell {
-      display: flex;
-      align-items: center;
-      gap: 18px;
-      height: 60px;
-    }
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-weight: 700;
-      letter-spacing: -0.3px;
+    a {
+      color: inherit;
       text-decoration: none;
     }
-    .brand img { width: 26px; height: 26px; border-radius: 7px; }
-    .nav-links {
-      margin-left: auto;
+
+    img {
+      max-width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    /* DCC Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: var(--bg-main);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #38383e;
+      border-radius: var(--ui-radius-sm);
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--accent-color);
+    }
+
+    /* Technical Texture Checkerboard Backdrop */
+    .checkerboard-bg {
+      background-color: #1e1e20;
+      background-image:
+        linear-gradient(45deg, #28282b 25%, transparent 25%),
+        linear-gradient(-45deg, #28282b 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #28282b 75%),
+        linear-gradient(-45deg, transparent 75%, #28282b 75%);
+      background-size: 14px 14px;
+      background-position: 0 0, 0 7px, 7px -7px, -7px 0px;
+    }
+
+    /* Shell container */
+    .shell {
+      max-width: var(--shell-width);
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* ==========================================================================
+       Workstation Header (Persistent DCC Top Bar)
+       ========================================================================== */
+    .workstation-header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--bg-panel-header);
+      border-bottom: 1px solid var(--border-color);
+      height: 48px;
+    }
+
+    .header-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 100%;
+    }
+
+    .brand-cluster {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-logo-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: -0.2px;
+      color: var(--text-bright);
+    }
+
+    .brand-logo-wrap img {
+      width: 26px;
+      height: 26px;
+      border-radius: var(--ui-radius-sm);
+    }
+
+    .version-tag {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 2px 7px;
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: var(--ui-radius-sm);
+      color: var(--text-muted);
       display: flex;
       align-items: center;
       gap: 6px;
     }
-    .nav-links a {
-      color: var(--dim);
-      text-decoration: none;
-      font-size: 0.9rem;
-      padding: 7px 12px;
-      border-radius: 8px;
-    }
-    .nav-links a:hover { color: var(--text); background: var(--panel); }
-    .nav-links a.nav-cta {
-      color: #0a0c12;
-      background: var(--accent);
-      font-weight: 650;
-    }
-    .nav-links a.nav-cta:hover { filter: brightness(1.07); background: var(--accent); }
-    @media (max-width: 640px) { .nav-links a.hide-sm { display: none; } }
 
-    /* ---------- Hero ---------- */
-    header.hero {
-      text-align: center;
-      padding: 78px 0 0;
+    .version-tag .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #10b981;
     }
-    .eyebrow {
+
+    .header-nav {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+    }
+
+    .header-nav a:hover {
+      color: var(--text-bright);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .btn-dcc {
       display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-family: inherit;
+      font-size: 12.5px;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: var(--ui-radius);
+      border: 1px solid var(--border-default);
+      background: var(--bg-panel);
+      color: var(--text-main);
+      cursor: pointer;
+      transition: all 0.12s ease;
+      white-space: nowrap;
+    }
+
+    .btn-dcc:hover {
+      background: #38383e;
+      color: var(--text-bright);
+      border-color: var(--border-subtle);
+    }
+
+    .btn-dcc-primary {
+      background: var(--accent-color);
+      border-color: #0073e6;
+      color: var(--accent-text);
+    }
+
+    .btn-dcc-primary:hover {
+      background: var(--accent-hover);
+      border-color: #0066cc;
+      color: #ffffff;
+    }
+
+    /* ==========================================================================
+       Hero Section (Focused Title, Value, & Fast Downloads)
+       ========================================================================== */
+    .hero-section,
+    .features-section,
+    .tools-section,
+    .screenshots-section,
+    .export-section,
+    .hotkeys-section,
+    .quickstart-section {
+      scroll-margin-top: 56px;
+    }
+
+    .hero-section {
+      padding: 56px 0 36px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .hero-content {
+      max-width: 860px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .dcc-subsystem-label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--accent-color);
+      display: flex;
       align-items: center;
       gap: 8px;
-      font-size: 0.78rem;
-      font-weight: 650;
-      letter-spacing: 0.4px;
-      color: var(--dim);
-      background: var(--panel);
-      border: 1px solid var(--line);
-      padding: 5px 13px 5px 8px;
-      border-radius: 999px;
-      margin-bottom: 24px;
     }
-    .eyebrow .dot {
-      width: 16px; height: 16px;
-      border-radius: 999px;
-      background: linear-gradient(135deg, var(--accent), var(--accent-3));
+
+    .dcc-subsystem-label::before {
+      content: "";
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      background: var(--accent-color);
+      border-radius: 1px;
     }
-    header.hero h1 {
-      font-size: clamp(2.3rem, 6vw, 3.7rem);
+
+    .hero-title {
+      font-size: 34px;
       font-weight: 800;
-      letter-spacing: -1.8px;
-      line-height: 1.05;
-      margin: 0 0 18px;
+      line-height: 1.15;
+      letter-spacing: -0.6px;
+      color: var(--text-bright);
     }
-    header.hero h1 .grad {
-      background: linear-gradient(100deg, var(--accent), var(--accent-3) 55%, var(--accent-2));
-      -webkit-background-clip: text;
-      background-clip: text;
-      color: transparent;
-    }
-    .tagline {
-      color: var(--dim);
-      font-size: clamp(1rem, 2vw, 1.16rem);
-      max-width: 620px;
-      margin: 0 auto 34px;
-    }
-    .tagline strong { color: var(--text); font-weight: 600; }
 
-    .cta-row {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      gap: 12px;
-      flex-wrap: wrap;
+    .hero-summary {
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--text-muted);
     }
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 9px;
-      text-decoration: none;
-      font-size: 0.98rem;
-      font-weight: 650;
-      padding: 13px 26px;
-      border-radius: 11px;
-      border: 1px solid transparent;
-      transition: transform 0.15s ease, filter 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-    }
-    .btn-primary {
-      background: var(--accent);
-      color: #0a0c12;
-      box-shadow: 0 10px 30px rgba(124,158,255,0.26);
-    }
-    .btn-primary:hover { filter: brightness(1.07); transform: translateY(-1px); }
-    .btn-ghost {
-      color: var(--dim);
-      border-color: var(--line);
-      background: rgba(255,255,255,0.015);
-    }
-    .btn-ghost:hover { color: var(--text); border-color: #34343e; transform: translateY(-1px); }
 
-    .platform-row {
-      margin-top: 22px;
-      display: flex;
-      justify-content: center;
-      gap: 7px;
-      flex-wrap: wrap;
+    .hero-summary strong {
+      color: var(--text-main);
+      font-weight: 600;
     }
-    .pill {
-      font-size: 0.72rem;
+
+    /* Fast Download Block */
+    .hero-download-block {
+      margin-top: 8px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-default);
+      border-radius: var(--ui-radius);
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .download-block-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 10px;
+    }
+
+    .download-block-header h3 {
+      font-size: 12.5px;
       font-weight: 700;
-      color: var(--faint);
-      background: var(--panel);
-      border: 1px solid var(--line);
-      padding: 4px 11px;
-      border-radius: 999px;
+      color: var(--text-bright);
+      text-transform: uppercase;
       letter-spacing: 0.5px;
     }
 
-    /* Hero shot, framed like an app window and bleeding into the page. */
-    .hero-shot {
-      margin: 56px auto 0;
-      max-width: 1000px;
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      background: var(--panel);
-      padding: 8px;
-      box-shadow: 0 40px 90px -30px rgba(0,0,0,0.9), 0 0 0 1px rgba(255,255,255,0.03) inset;
-      position: relative;
-    }
-    .hero-shot img { border-radius: 12px; }
-    .hero-shot::after {
-      content: "";
-      position: absolute;
-      left: 0; right: 0; bottom: -1px;
-      height: 34%;
-      border-radius: 0 0 18px 18px;
-      background: linear-gradient(to bottom, transparent, var(--bg));
-      pointer-events: none;
+    .download-block-header span {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: #10b981;
     }
 
-    /* ---------- Sections ---------- */
-    section { padding: 84px 0; }
-    .section-head { max-width: 620px; margin: 0 0 40px; }
-    .section-head.center { margin-left: auto; margin-right: auto; text-align: center; }
-    .kicker {
-      font-size: 0.76rem;
-      font-weight: 750;
-      letter-spacing: 1.4px;
-      text-transform: uppercase;
-      color: var(--accent);
-      margin: 0 0 10px;
-    }
-    .section-head h2 {
-      font-size: clamp(1.55rem, 3.4vw, 2.1rem);
-      letter-spacing: -0.9px;
-      margin: 0 0 12px;
-      line-height: 1.15;
-    }
-    .section-head p { color: var(--dim); margin: 0; }
-
-    /* ---------- Gallery ---------- */
-    .gallery {
-      display: grid;
-      grid-template-columns: repeat(6, 1fr);
-      gap: 14px;
-    }
-    .shot {
-      grid-column: span 3;
-      margin: 0;
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      overflow: hidden;
-      background: var(--panel);
-      transition: transform 0.2s ease, border-color 0.2s ease;
-    }
-    .shot:hover { transform: translateY(-2px); border-color: #34343e; }
-    .shot.wide { grid-column: span 6; }
-    .shot.third { grid-column: span 2; }
-
-    /* ---------- Features ---------- */
-    .features {
-      list-style: none;
-      padding: 0;
-      margin: 0;
+    .download-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 14px;
-    }
-    .features li {
-      background: linear-gradient(180deg, var(--panel-2), var(--panel));
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      padding: 20px;
-      transition: transform 0.18s ease, border-color 0.18s ease;
-    }
-    .features li:hover { transform: translateY(-2px); border-color: #34343e; }
-    .features .ico {
-      width: 34px;
-      height: 34px;
-      border-radius: 10px;
-      display: grid;
-      place-items: center;
-      background: rgba(124,158,255,0.12);
-      border: 1px solid rgba(124,158,255,0.22);
-      color: var(--accent);
-      margin-bottom: 13px;
-    }
-    .features li:nth-child(3n+2) .ico {
-      background: rgba(111,214,168,0.12);
-      border-color: rgba(111,214,168,0.22);
-      color: var(--accent-2);
-    }
-    .features li:nth-child(3n) .ico {
-      background: rgba(192,139,255,0.12);
-      border-color: rgba(192,139,255,0.22);
-      color: var(--accent-3);
-    }
-    .features strong { display: block; margin-bottom: 6px; font-size: 0.99rem; letter-spacing: -0.2px; }
-    .features span { color: var(--dim); font-size: 0.88rem; }
-
-    /* ---------- Workflow ---------- */
-    .steps {
-      list-style: none;
-      counter-reset: step;
-      padding: 0;
-      margin: 0;
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 14px;
-    }
-    .steps li {
-      counter-increment: step;
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      padding: 22px;
-    }
-    .steps li::before {
-      content: counter(step);
-      display: grid;
-      place-items: center;
-      width: 30px; height: 30px;
-      border-radius: 9px;
-      font-weight: 800;
-      font-size: 0.9rem;
-      color: #0a0c12;
-      background: linear-gradient(135deg, var(--accent), var(--accent-3));
-      margin-bottom: 14px;
-    }
-    .steps h3 { margin: 0 0 7px; font-size: 1.02rem; letter-spacing: -0.2px; }
-    .steps p { margin: 0; color: var(--dim); font-size: 0.89rem; }
-    .steps kbd {
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 0.78rem;
-      background: var(--bg);
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 1px 6px;
-      color: var(--text);
+      gap: 12px;
     }
 
-    /* ---------- Stats ---------- */
-    .stats {
-      display: grid;
-      grid-template-columns: repeat(5, 1fr);
-      gap: 1px;
-      background: var(--line);
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      overflow: hidden;
-    }
-    .stats div {
-      background: var(--panel-2);
-      padding: 24px 14px;
-      text-align: center;
-    }
-    .stats .num {
-      display: block;
-      font-size: 1.45rem;
-      font-weight: 800;
-      letter-spacing: -0.6px;
-      background: linear-gradient(120deg, var(--accent), var(--accent-2));
-      -webkit-background-clip: text;
-      background-clip: text;
-      color: transparent;
-    }
-    .stats .label {
-      display: block;
-      margin-top: 5px;
-      color: var(--faint);
-      font-size: 0.78rem;
-      letter-spacing: 0.2px;
-    }
-
-    /* ---------- Download ---------- */
-    .download {
-      text-align: center;
-      border: 1px solid var(--line);
-      border-radius: 20px;
-      padding: 56px 28px;
-      background:
-        radial-gradient(ellipse 620px 260px at 50% 0%, rgba(124,158,255,0.14), transparent 70%),
-        var(--panel);
-    }
-    .download h2 {
-      font-size: clamp(1.5rem, 3.4vw, 2rem);
-      letter-spacing: -0.9px;
-      margin: 0 0 10px;
-    }
-    .download p { color: var(--dim); margin: 0 auto 28px; max-width: 520px; }
-    .build-row {
-      margin-top: 26px;
+    .download-card {
       display: flex;
-      justify-content: center;
-      gap: 8px;
-      flex-wrap: wrap;
-      color: var(--faint);
-      font-size: 0.82rem;
-    }
-    .build-row span {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 5px 12px;
-      background: rgba(255,255,255,0.015);
+      flex-direction: column;
+      gap: 4px;
+      padding: 12px 14px;
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: var(--ui-radius);
+      transition: all 0.12s ease;
     }
 
-    /* ---------- Footer ---------- */
-    footer {
-      border-top: 1px solid var(--line-soft);
-      padding: 30px 0 60px;
-      color: var(--faint);
-      font-size: 0.85rem;
+    .download-card:hover {
+      border-color: var(--accent-color);
+      background: #242428;
+      transform: translateY(-1px);
     }
-    footer .shell {
+
+    .download-card .os-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .download-card .os-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-bright);
+    }
+
+    .download-card .os-formats {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: var(--text-muted);
+    }
+
+    .download-card .dl-cta {
+      margin-top: 6px;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--accent-color);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .hero-quick-meta {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 14px;
       flex-wrap: wrap;
+      gap: 12px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-faint);
+      padding-top: 2px;
     }
-    footer a { color: var(--dim); text-decoration: none; }
-    footer a:hover { color: var(--text); }
 
-    @media (max-width: 880px) {
-      .features, .steps { grid-template-columns: repeat(2, 1fr); }
-      .stats { grid-template-columns: repeat(3, 1fr); }
-      .shot, .shot.third { grid-column: span 3; }
+    .hero-links-cluster {
+      display: flex;
+      align-items: center;
+      gap: 10px;
     }
-    @media (max-width: 620px) {
-      section { padding: 60px 0; }
-      .features, .steps { grid-template-columns: 1fr; }
-      .stats { grid-template-columns: repeat(2, 1fr); }
-      .shot, .shot.third, .shot.wide { grid-column: span 6; }
+
+    .hero-links-cluster a {
+      color: var(--text-muted);
+      text-decoration: underline;
+      text-underline-offset: 2px;
     }
-    @media (prefers-reduced-motion: reduce) {
-      html { scroll-behavior: auto; }
-      * { transition: none !important; }
+
+    .hero-links-cluster a:hover {
+      color: var(--accent-color);
+    }
+
+    /* Workstation Capability Strip */
+    .telemetry-strip {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 1px;
+      background: var(--border-color);
+      border: 1px solid var(--border-default);
+      border-radius: var(--ui-radius);
+      margin-top: 24px;
+      overflow: hidden;
+    }
+
+    .telemetry-cell {
+      background: var(--bg-panel);
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .telemetry-cell .cell-title {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--text-faint);
+    }
+
+    .telemetry-cell .cell-value {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-bright);
+      font-family: var(--font-mono);
+    }
+
+    .telemetry-cell .cell-desc {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* ==========================================================================
+       Comprehensive Feature Matrix (Flat & Concise)
+       ========================================================================== */
+    .features-section {
+      padding: 64px 0;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .section-headline {
+      margin-bottom: 32px;
+    }
+
+    .headline-sub {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--accent-color);
+      margin-bottom: 6px;
+    }
+
+    .section-headline h2 {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.4px;
+      color: var(--text-bright);
+      line-height: 1.2;
+    }
+
+    .section-headline p {
+      font-size: 14px;
+      color: var(--text-muted);
+      max-width: 680px;
+      margin-top: 8px;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+
+    .feature-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-default);
+      border-radius: var(--ui-radius);
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: border-color 0.15s ease;
+    }
+
+    .feature-card:hover {
+      border-color: var(--border-subtle);
+    }
+
+    .feature-card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .feature-icon-wrap {
+      width: 28px;
+      height: 28px;
+      border-radius: var(--ui-radius-sm);
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent-color);
+      flex-shrink: 0;
+    }
+
+    .feature-card h3 {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--text-bright);
+      line-height: 1.3;
+    }
+
+    .feature-card p {
+      font-size: 12px;
+      line-height: 1.55;
+      color: var(--text-muted);
+    }
+
+    .feature-card .feature-tag {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-faint);
+      margin-top: auto;
+      padding-top: 6px;
+    }
+
+    /* ==========================================================================
+       Flat Workstation Tool Reference
+       ========================================================================== */
+    .tools-section {
+      padding: 64px 0;
+      border-bottom: 1px solid var(--border-color);
+      background: var(--bg-recessed);
+    }
+
+    .tools-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+
+    .tool-flat-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-default);
+      border-radius: var(--ui-radius);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .tool-flat-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 8px;
+    }
+
+    .tool-title-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .tool-flat-icon {
+      color: var(--accent-color);
+      display: flex;
+      align-items: center;
+    }
+
+    .tool-flat-card h3 {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-bright);
+    }
+
+    .tool-flat-card .tool-badge-key {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: var(--ui-radius-sm);
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      color: var(--accent-color);
+    }
+
+    .tool-flat-card p {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .tool-param-bullets {
+      font-size: 11px;
+      color: var(--text-faint);
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      margin-top: 4px;
+    }
+
+    .tool-param-bullets li {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+
+    .tool-param-bullets li::before {
+      content: "•";
+      color: var(--accent-color);
+      font-size: 12px;
+    }
+
+    /* ==========================================================================
+       In-App Production Screenshots Showcase
+       ========================================================================== */
+    .screenshots-section {
+      padding: 64px 0;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .gallery-grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 16px;
+    }
+
+    .gallery-item {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-default);
+      border-radius: var(--ui-radius);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .gallery-item.col-span-7 { grid-column: span 7; }
+    .gallery-item.col-span-5 { grid-column: span 5; }
+    .gallery-item.col-span-4 { grid-column: span 4; }
+
+    .gallery-thumb-wrap {
+      position: relative;
+      background: var(--bg-canvas);
+      aspect-ratio: 16 / 10;
+      overflow: hidden;
+    }
+
+    .gallery-thumb-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .gallery-caption {
+      padding: 12px 14px;
+      background: var(--bg-panel-header);
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .gallery-caption strong {
+      font-size: 12.5px;
+      color: var(--text-bright);
+    }
+
+    .gallery-caption span {
+      font-size: 11.5px;
+      color: var(--text-muted);
+    }
+
+    /* ==========================================================================
+       Production Engine Pipeline & Export Matrix
+       ========================================================================== */
+    .export-section {
+      padding: 64px 0;
+      border-bottom: 1px solid var(--border-color);
+      background: var(--bg-recessed);
+    }
+
+    .engine-matrix-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-top: 24px;
+    }
+
+    .engine-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-default);
+      border-radius: var(--ui-radius);
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .engine-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 10px;
+    }
+
+    .engine-card-header h3 {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-bright);
+    }
+
+    .engine-tag {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: var(--ui-radius-sm);
+      background: var(--bg-input);
+      color: var(--text-muted);
+    }
+
+    .engine-card-body {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .engine-card-body strong {
+      color: var(--text-main);
+    }
+
+    .engine-channel-mapping {
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: var(--ui-radius-sm);
+      padding: 8px 10px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      margin-top: auto;
+    }
+
+    .engine-channel-mapping span {
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .engine-channel-mapping span em {
+      color: var(--accent-color);
+      font-style: normal;
+    }
+
+    /* Packed ORM Explainer Box */
+    .orm-explainer {
+      margin-top: 24px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-default);
+      border-radius: var(--ui-radius);
+      padding: 20px 24px;
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: 24px;
+      align-items: center;
+    }
+
+    .orm-badge-large {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: var(--ui-radius);
+      padding: 16px;
+      text-align: center;
+    }
+
+    .orm-badge-large .orm-title {
+      font-family: var(--font-mono);
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      color: var(--text-bright);
+    }
+
+    .orm-badge-large .orm-subtitle {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-faint);
+      margin-top: 4px;
+    }
+
+    .orm-channel-breakdown {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .orm-channel-col {
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: var(--ui-radius-sm);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .orm-channel-col strong {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .orm-channel-col.col-r strong { color: #f87171; }
+    .orm-channel-col.col-g strong { color: #38bdf8; }
+    .orm-channel-col.col-b strong { color: #fbbf24; }
+
+    .orm-channel-col span {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* ==========================================================================
+       Flat Categorized Hotkey Index
+       ========================================================================== */
+    .hotkeys-section {
+      padding: 64px 0;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .hotkey-categories-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 20px;
+    }
+
+    .hotkey-category-box {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-default);
+      border-radius: var(--ui-radius);
+      overflow: hidden;
+    }
+
+    .hotkey-category-header {
+      background: var(--bg-panel-header);
+      border-bottom: 1px solid var(--border-color);
+      padding: 10px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-bright);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .hotkey-category-header span {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: var(--accent-color);
+    }
+
+    .hotkeys-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 12px;
+    }
+
+    .hotkeys-table td {
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--border-color);
+      color: var(--text-muted);
+    }
+
+    .hotkeys-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .hotkeys-table kbd {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 6px;
+      background: var(--bg-input);
+      border: 1px solid var(--border-default);
+      border-radius: var(--ui-radius-sm);
+      color: var(--text-bright);
+      display: inline-block;
+      white-space: nowrap;
+    }
+
+    /* ==========================================================================
+       Terminal Build Quickstart
+       ========================================================================== */
+    .quickstart-section {
+      padding: 64px 0;
+      border-bottom: 1px solid var(--border-color);
+      background: var(--bg-recessed);
+    }
+
+    .terminal-box {
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-default);
+      border-radius: var(--ui-radius);
+      overflow: hidden;
+      margin-top: 24px;
+    }
+
+    .terminal-bar {
+      background: var(--bg-panel-header);
+      border-bottom: 1px solid var(--border-color);
+      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .term-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+    .term-dot-red { background: #ef4444; }
+    .term-dot-yellow { background: #f59e0b; }
+    .term-dot-green { background: #10b981; }
+
+    .terminal-bar span {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-faint);
+      margin-left: 6px;
+    }
+
+    .terminal-body {
+      padding: 16px 20px;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      color: #e8e8ea;
+      line-height: 1.7;
+    }
+
+    .terminal-body .cmd-comment {
+      color: var(--text-faint);
+    }
+
+    .terminal-body .cmd-prompt {
+      color: var(--accent-color);
+      user-select: none;
+    }
+
+    /* ==========================================================================
+       DCC Workstation Footer
+       ========================================================================== */
+    footer.workstation-footer {
+      background: var(--bg-panel-header);
+      border-top: 1px solid var(--border-color);
+      padding: 32px 0 48px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .footer-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .footer-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .footer-brand img {
+      width: 22px;
+      height: 22px;
+      border-radius: var(--ui-radius-sm);
+    }
+
+    .footer-brand strong {
+      color: var(--text-bright);
+    }
+
+    .footer-links {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .footer-links a:hover {
+      color: var(--accent-color);
+    }
+
+    /* ==========================================================================
+       Responsive Media Queries
+       ========================================================================== */
+    @media (max-width: 1024px) {
+      .hero-layout {
+        grid-template-columns: 1fr;
+      }
+      .features-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .tools-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .engine-matrix-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .hotkey-categories-grid {
+        grid-template-columns: 1fr;
+      }
+      .telemetry-strip {
+        grid-template-columns: repeat(3, 1fr);
+      }
+      .orm-explainer {
+        grid-template-columns: 1fr;
+      }
+      .gallery-item.col-span-7,
+      .gallery-item.col-span-5,
+      .gallery-item.col-span-4 {
+        grid-column: span 6;
+      }
+    }
+
+    @media (max-width: 680px) {
+      .header-nav {
+        display: none;
+      }
+      .binary-grid {
+        grid-template-columns: 1fr;
+      }
+      .features-grid {
+        grid-template-columns: 1fr;
+      }
+      .tools-grid {
+        grid-template-columns: 1fr;
+      }
+      .telemetry-strip {
+        grid-template-columns: 1fr 1fr;
+      }
+      .engine-matrix-grid {
+        grid-template-columns: 1fr;
+      }
+      .orm-channel-breakdown {
+        grid-template-columns: 1fr;
+      }
+      .gallery-item.col-span-7,
+      .gallery-item.col-span-5,
+      .gallery-item.col-span-4 {
+        grid-column: span 12;
+      }
     }
   </style>
 </head>
 <body>
-  <div class="backdrop"></div>
 
-  <nav>
-    <div class="shell">
-      <a class="brand" href="#top">
-        <img src="icon.png" alt="" />
-        <span>MeshCoat</span>
-      </a>
-      <div class="nav-links">
-        <a class="hide-sm" href="#features">Features</a>
-        <a class="hide-sm" href="#workflow">Workflow</a>
-        <a class="hide-sm" href="https://github.com/stuyk/meshcoat">GitHub</a>
-        <a class="nav-cta" href="https://github.com/stuyk/meshcoat/releases">Download</a>
-      </div>
-    </div>
-  </nav>
-
-  <header class="hero" id="top">
-    <div class="shell">
-      <span class="eyebrow"><span class="dot"></span>Free &amp; open source &middot; GPL-3.0</span>
-      <h1>Texture your models.<br /><span class="grad">Not your patience.</span></h1>
-      <p class="tagline">
-        <strong>MeshCoat is a fast, local 3D texture painter.</strong> Paint full PBR materials
-        (base color, roughness, metalness and normal) in a single stroke. No accounts, no
-        subscriptions, no telemetry.
-      </p>
-      <div class="cta-row">
-        <a class="btn btn-primary" href="https://github.com/stuyk/meshcoat/releases">Download for free</a>
-        <a class="btn btn-ghost" href="https://github.com/stuyk/meshcoat">View source</a>
-      </div>
-      <div class="platform-row">
-        <span class="pill">WINDOWS</span>
-        <span class="pill">LINUX</span>
-        <span class="pill">MACOS</span>
-        <span class="pill">PBR MATERIALS</span>
-        <span class="pill">LOCAL-FIRST</span>
+  <!-- ==========================================================================
+       Workstation Header (Persistent DCC Top Bar)
+       ========================================================================== -->
+  <header class="workstation-header">
+    <div class="shell header-inner">
+      <div class="brand-cluster">
+        <a href="#top" class="brand-logo-wrap" title="MeshCoat Workstation">
+          <img src="icon.png" alt="MeshCoat" />
+          <span>MeshCoat</span>
+        </a>
       </div>
 
-      <div class="hero-shot">
-        <img src="screenshots/image2.png" alt="Painting a stroke on a metal sphere in MeshCoat" />
+      <nav class="header-nav">
+        <a href="#features">Features</a>
+        <a href="#tools">Tools</a>
+        <a href="#screenshots">Screenshots</a>
+        <a href="#pipeline">Engine Export</a>
+        <a href="#hotkeys">Hotkeys</a>
+      </nav>
+
+      <div class="header-actions">
+        <a href="https://github.com/stuyk/meshcoat" target="_blank" rel="noopener noreferrer" class="btn-dcc" title="GitHub Repository">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          <span>GitHub</span>
+        </a>
+        <a href="https://github.com/stuyk/meshcoat/releases" target="_blank" rel="noopener noreferrer" class="btn-dcc btn-dcc-primary" title="Download Release Binaries">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Download</span>
+        </a>
       </div>
     </div>
   </header>
 
-  <main>
-    <section id="features">
-      <div class="shell">
-        <div class="section-head center">
-          <p class="kicker">Features</p>
-          <h2>Everything you need, nothing you don't</h2>
-          <p>A complete texture painting toolset without the bloat of a full DCC suite.</p>
-        </div>
-
-        <ul class="features">
-          <li>
-            <div class="ico" aria-hidden="true">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="19" cy="13" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="10" cy="20" r="2.5"/><path d="M12 2a10 10 0 1 0 0 20"/></svg>
-            </div>
-            <strong>PBR Material Painting</strong>
-            <span>One stroke writes base color, roughness, metalness and a tangent-space normal map at once and in register. Eight material presets included.</span>
-          </li>
-          <li>
-            <div class="ico" aria-hidden="true">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9.06 11.9 8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg>
-            </div>
-            <strong>Direct 3D Surface Painting</strong>
-            <span>The brush is a 3D projector, not a sphere, so it never bleeds through thin walls or paints geometry hidden behind what you're aiming at.</span>
-          </li>
-          <li>
-            <div class="ico" aria-hidden="true">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
-            </div>
-            <strong>Multi-Piece Texture Sets</strong>
-            <span>Every object in the model gets its own layer stack, resolution, undo history and exported maps. Tab between pieces, or isolate one to reach inside it.</span>
-          </li>
-          <li>
-            <div class="ico" aria-hidden="true">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18"/></svg>
-            </div>
-            <strong>Material Sets From Disk</strong>
-            <span>A folder of loose maps is grouped back into the material it came from. Substance, Quixel, Poliigon, ambientCG and Blender suffixes all recognised.</span>
-          </li>
-          <li>
-            <div class="ico" aria-hidden="true">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m6.08 9.5-3.5 1.6a1 1 0 0 0 0 1.81l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9a1 1 0 0 0 0-1.83l-3.5-1.59"/><path d="m6.08 14.5-3.5 1.6a1 1 0 0 0 0 1.81l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9a1 1 0 0 0 0-1.83l-3.5-1.59"/></svg>
-            </div>
-            <strong>Non-Destructive Layers</strong>
-            <span>Hide, reorder, adjust opacity, duplicate and merge, with live composite blending and layer masks that only multiply where you stack them.</span>
-          </li>
-          <li>
-            <div class="ico" aria-hidden="true">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 4.2 8.5 8.5 4.2 9.9l4.3 1.4 1.4 4.3 1.4-4.3 4.3-1.4-4.3-1.4z"/><path d="M18 14v6M15 17h6"/></svg>
-            </div>
-            <strong>Effects Brush</strong>
-            <span>Blur, sharpen, smudge and pixelate paint that's already down. It filters every channel a layer carries, so a soft stroke isn't razor-sharp underneath.</span>
-          </li>
-          <li>
-            <div class="ico" aria-hidden="true">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m3 15 5-5 4 4 3-3 6 6"/><circle cx="9" cy="8" r="1.4"/></svg>
-            </div>
-            <strong>Screen-Space Stencil</strong>
-            <span>Load a PNG that floats on the viewport, the Mari/Mudbox workflow. Paint through it, or stamp the whole image on as a decal in one pass.</span>
-          </li>
-          <li>
-            <div class="ico" aria-hidden="true">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 3.5 20 8 8.5 19.5l-5 1.5 1.5-5z"/><path d="M13.5 5.5 18 10"/></svg>
-            </div>
-            <strong>Pen Pressure &amp; Line Snapping</strong>
-            <span>Stylus pressure drives size and opacity independently. Shift+click connects the last dab with a line that follows the surface instead of tunnelling through it.</span>
-          </li>
-          <li>
-            <div class="ico" aria-hidden="true">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20"/><path d="M17 6.5 12 2 7 6.5"/><path d="M7 17.5 12 22l5-4.5"/><path d="M4 12h16"/></svg>
-            </div>
-            <strong>Symmetry Mirror Painting</strong>
-            <span>Mirror every stroke, stamp and fill across the model's X, Y or Z axis in real time, with a guide plane showing exactly where it lands.</span>
-          </li>
-          <li>
-            <div class="ico" aria-hidden="true">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 9 9"/><path d="M3 12a9 9 0 0 0 9 9 9 9 0 0 0 9-9"/><path d="M12 3c2.5 2.4 3.8 5.4 3.8 9s-1.3 6.6-3.8 9c-2.5-2.4-3.8-5.4-3.8-9S9.5 5.4 12 3z"/></svg>
-            </div>
-            <strong>Edge Wear &amp; Crevice Dirt</strong>
-            <span>Two procedural generators with live 3D preview. Wear chips exposed ridges; Crevice settles grime into interior folds. A Smoothness dial trades noise for clean AO.</span>
-          </li>
-          <li>
-            <div class="ico" aria-hidden="true">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
-            </div>
-            <strong>Import Your Existing Maps</strong>
-            <span>Bring a model in with its base color, roughness, metalness, normal or packed ORM. Sibling files are detected automatically and ORM is unpacked on load.</span>
-          </li>
-          <li>
-            <div class="ico" aria-hidden="true">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 9v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9"/><path d="M7 8l5-5 5 5"/><path d="M12 3v12"/></svg>
-            </div>
-            <strong>Export Wizard</strong>
-            <span>Per-piece files or one shared-UV atlas, channel toggles and presets, packed ORM, and a 1K/2K/4K override. Drop straight into Godot, Unity, Unreal or Blender.</span>
-          </li>
-        </ul>
-      </div>
-    </section>
-
-    <section>
-      <div class="shell">
-        <div class="gallery">
-          <figure class="shot"><img src="screenshots/image1.png" alt="Texture shelf of PBR material sets filling a model" loading="lazy" /></figure>
-          <figure class="shot"><img src="screenshots/image3.png" alt="Screen-space stencil positioned over the model" loading="lazy" /></figure>
-          <figure class="shot"><img src="screenshots/image4.png" alt="Brush preset manager with imported ABR brushes" loading="lazy" /></figure>
-          <figure class="shot"><img src="screenshots/image5.png" alt="Export wizard listing the texture files to be written" loading="lazy" /></figure>
-        </div>
-      </div>
-    </section>
-
-    <section id="workflow">
-      <div class="shell">
-        <div class="section-head center">
-          <p class="kicker">Workflow</p>
-          <h2>Model in, textures out</h2>
-          <p>Three steps, no project setup ritual, no asset database to feed.</p>
-        </div>
-
-        <ol class="steps">
-          <li>
-            <h3>Import</h3>
-            <p>Drop in a <kbd>.glb</kbd>, <kbd>.gltf</kbd> or <kbd>.obj</kbd> and pick a resolution from 512 to 8192. Existing maps come along: sibling textures are found for you, and packed ORM is unpacked on load. Or start on a UV sphere or unwrapped cube.</p>
-          </li>
-          <li>
-            <h3>Paint</h3>
-            <p>Brush, stamp, fill, line, effects and stencils, all channel-aware. Every separate object is its own texture set with its own layers and undo, so nothing bleeds between parts.</p>
-          </li>
-          <li>
-            <h3>Export</h3>
-            <p><kbd>Ctrl</kbd>+<kbd>E</kbd> writes per-piece maps or a single shared-UV atlas: base color, roughness, metalness, normal and packed ORM, at native resolution or rescaled.</p>
-          </li>
-        </ol>
-      </div>
-    </section>
-
-    <section>
-      <div class="shell">
-        <div class="stats">
-          <div><span class="num">&lt;1s</span><span class="label">Launch Time</span></div>
-          <div><span class="num">60 FPS</span><span class="label">Live Viewport</span></div>
-          <div><span class="num">512&ndash;8192</span><span class="label">Canvas Resolutions</span></div>
-          <div><span class="num">4</span><span class="label">PBR Channels Per Stroke</span></div>
-          <div><span class="num">0</span><span class="label">Telemetry / Accounts</span></div>
-        </div>
-      </div>
-    </section>
-
-    <section>
-      <div class="shell">
-        <div class="download">
-          <h2>Get MeshCoat</h2>
-          <p>Free, open source, and yours to keep. Builds for every desktop platform, published straight from CI.</p>
-          <div class="cta-row">
-            <a class="btn btn-primary" href="https://github.com/stuyk/meshcoat/releases">Download latest release</a>
-            <a class="btn btn-ghost" href="https://github.com/stuyk/meshcoat">Build from source</a>
-          </div>
-          <div class="build-row">
-            <span>Windows &middot; installer, portable</span>
-            <span>Linux &middot; AppImage, deb, tar.gz</span>
-            <span>macOS &middot; DMG, zip</span>
-          </div>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <footer>
+  <!-- ==========================================================================
+       Workstation Hero Showcase
+       ========================================================================== -->
+  <section class="hero-section" id="top">
     <div class="shell">
-      <div><a href="https://github.com/stuyk/meshcoat">github.com/stuyk/meshcoat</a></div>
-      <div>GPL-3.0-or-later</div>
+      <div class="hero-content">
+        <h1 class="hero-title">
+          MeshCoat: Dedicated 3D PBR Texture Painting
+        </h1>
+
+        <p class="hero-summary">
+          Fast, local-first 3D texturing for game developers and 3D artists. Author <strong>Base Color, Roughness, Metalness, and Normal maps simultaneously</strong> directly on your mesh. Free, open-source, and runs 100% offline with zero telemetry.
+        </p>
+
+        <!-- Immediate Fast Download Matrix -->
+        <div class="hero-download-block">
+          <div class="download-block-header">
+            <h3>Download Native Binaries</h3>
+            <span>Automated GitHub Builds</span>
+          </div>
+
+          <div class="download-grid">
+            <a href="https://github.com/stuyk/meshcoat/releases" class="download-card">
+              <div class="os-row">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>
+                <span class="os-name">Windows</span>
+              </div>
+              <span class="os-formats">.exe Installer / Portable</span>
+              <span class="dl-cta">Download &rarr;</span>
+            </a>
+
+            <a href="https://github.com/stuyk/meshcoat/releases" class="download-card">
+              <div class="os-row">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12.001 0C5.373 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.37-12-11.999-12z"/></svg>
+                <span class="os-name">Linux</span>
+              </div>
+              <span class="os-formats">.AppImage / .deb / .tar.gz</span>
+              <span class="dl-cta">Download &rarr;</span>
+            </a>
+
+            <a href="https://github.com/stuyk/meshcoat/releases" class="download-card">
+              <div class="os-row">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.37c.62-.75 1.04-1.8 1.01-2.87-.9.04-1.99.6-2.63 1.35-.57.65-1.07 1.73-.93 2.77 1 .08 2.03-.5 2.55-1.25z"/></svg>
+                <span class="os-name">macOS</span>
+              </div>
+              <span class="os-formats">.dmg (Apple Silicon &amp; Intel)</span>
+              <span class="dl-cta">Download &rarr;</span>
+            </a>
+          </div>
+
+          <div class="hero-quick-meta">
+            <span>Free Software &middot; GPL-3.0 License</span>
+            <div class="hero-links-cluster">
+              <a href="https://github.com/stuyk/meshcoat" target="_blank" rel="noopener noreferrer">GitHub Repository</a>
+              <span>&middot;</span>
+              <a href="https://github.com/stuyk/meshcoat/releases" target="_blank" rel="noopener noreferrer">All Releases &amp; Notes</a>
+              <span>&middot;</span>
+              <a href="#pipeline">Engine Export Guide</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Capability Strip -->
+      <div class="telemetry-strip">
+        <div class="telemetry-cell">
+          <span class="cell-title">Simultaneous Channels</span>
+          <span class="cell-value">4 Channels</span>
+          <span class="cell-desc">BaseColor, Rough, Metal, Normal</span>
+        </div>
+        <div class="telemetry-cell">
+          <span class="cell-title">Canvas Resolutions</span>
+          <span class="cell-value">512 to 8192px</span>
+          <span class="cell-desc">Retro PSX up to high-density 8K</span>
+        </div>
+        <div class="telemetry-cell">
+          <span class="cell-title">Multi-Piece Models</span>
+          <span class="cell-value">Texture Sets</span>
+          <span class="cell-desc">Independent stacks per mesh piece</span>
+        </div>
+        <div class="telemetry-cell">
+          <span class="cell-title">Engine Integration</span>
+          <span class="cell-value">Packed ORM</span>
+          <span class="cell-desc">One-click export for UE5, Unity &amp; Godot</span>
+        </div>
+        <div class="telemetry-cell">
+          <span class="cell-title">Privacy &amp; Data</span>
+          <span class="cell-value">100% Offline</span>
+          <span class="cell-desc">Zero telemetry, local storage only</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==========================================================================
+       Comprehensive Feature Matrix (Large Feature Set, Short & Concise)
+       ========================================================================== -->
+  <section class="features-section" id="features">
+    <div class="shell">
+      <div class="section-headline">
+        <div class="headline-sub">Full Workstation Capabilities</div>
+        <h2>Engineered for Technical 3D Texturing</h2>
+        <p>
+          A complete, focused feature set for painting game-ready 3D assets. No complicated node trees, no bloated cloud services, just immediate surface painting.
+        </p>
+      </div>
+
+      <div class="features-grid">
+
+        <!-- 1. Simultaneous 4-Channel PBR -->
+        <div class="feature-card">
+          <div class="feature-card-header">
+            <div class="feature-icon-wrap">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="19" cy="13" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="10" cy="20" r="2.5"/><path d="M12 2a10 10 0 1 0 0 20"/></svg>
+            </div>
+            <h3>4-Channel PBR Painting</h3>
+          </div>
+          <p>
+            Paint Base Color, Roughness, Metalness, and Tangent Normal relief simultaneously in a single coordinated brush stroke.
+          </p>
+          <div class="feature-tag">Color &middot; Rough &middot; Metal &middot; Normal</div>
+        </div>
+
+        <!-- 2. Hardware UV Projection -->
+        <div class="feature-card">
+          <div class="feature-card-header">
+            <div class="feature-icon-wrap">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9.06 11.9 8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg>
+            </div>
+            <h3>Hardware UV Projection</h3>
+          </div>
+          <p>
+            Directional camera-space projection with depth testing prevents paint bleeding through thin walls, ears, fingers, or occluded faces.
+          </p>
+          <div class="feature-tag">Zero Wall Bleed &middot; Depth Culling</div>
+        </div>
+
+        <!-- 3. Multi-Piece Texture Sets -->
+        <div class="feature-card">
+          <div class="feature-card-header">
+            <div class="feature-icon-wrap">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+            </div>
+            <h3>Multi-Piece Texture Sets</h3>
+          </div>
+          <p>
+            Each submesh piece gets an independent layer stack, canvas resolution, and undo history. Quickly isolate pieces to reach interior folds.
+          </p>
+          <div class="feature-tag">Isolated Stacks &middot; Tab Cycling</div>
+        </div>
+
+        <!-- 4. Face UV Projector -->
+        <div class="feature-card">
+          <div class="feature-card-header">
+            <div class="feature-icon-wrap">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 19 21 12 17 5 21 12 2"/></svg>
+            </div>
+            <h3>Face UV Projector</h3>
+          </div>
+          <p>
+            Select polygon faces to place trim-sheets and texture crops with real-time offset, rotation, and scale before baking to your layer.
+          </p>
+          <div class="feature-tag">Trim Sheets &middot; Live 3D Preview</div>
+        </div>
+
+        <!-- 5. 2D UV Painting Panel -->
+        <div class="feature-card">
+          <div class="feature-card-header">
+            <div class="feature-icon-wrap">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+            </div>
+            <h3>2D UV Canvas &amp; Split View</h3>
+          </div>
+          <p>
+            Paint directly on the flattened 2D texture map with synchronized wireframe overlays and real-time texel density feedback.
+          </p>
+          <div class="feature-tag">Flat Unwrap &middot; Wireframe Overlay</div>
+        </div>
+
+        <!-- 6. Photoshop .ABR Brushes -->
+        <div class="feature-card">
+          <div class="feature-card-header">
+            <div class="feature-icon-wrap">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m18 2 4 4-14 14H4v-4L18 2z"/></svg>
+            </div>
+            <h3>Photoshop .ABR Brushes</h3>
+          </div>
+          <p>
+            Import standard Photoshop brush collections directly. Includes tip previews, dynamic spacing, angle jitter, and normal relief generation.
+          </p>
+          <div class="feature-tag">ABR Ingestion &middot; Custom Alphas</div>
+        </div>
+
+        <!-- 7. Procedural Curvature Engines -->
+        <div class="feature-card">
+          <div class="feature-card-header">
+            <div class="feature-icon-wrap">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/><circle cx="12" cy="12" r="4"/></svg>
+            </div>
+            <h3>Edge Wear &amp; Crevice Grime</h3>
+          </div>
+          <p>
+            Procedural curvature analysis isolates convex ridges for paint chipping and concave crevices for grime and ambient occlusion.
+          </p>
+          <div class="feature-tag">Convex Wear &middot; Concave Dirt</div>
+        </div>
+
+        <!-- 8. Screen-Space Stencil HUD -->
+        <div class="feature-card">
+          <div class="feature-card-header">
+            <div class="feature-icon-wrap">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+            </div>
+            <h3>Screen Viewport Stencil</h3>
+          </div>
+          <p>
+            Pin any image overlay to the camera plane. Orbit your model beneath it and paint or stamp decals directly onto curved surfaces.
+          </p>
+          <div class="feature-tag">Mari/Mudbox Mode &middot; Key S</div>
+        </div>
+
+        <!-- 9. Non-Destructive Layer System -->
+        <div class="feature-card">
+          <div class="feature-card-header">
+            <div class="feature-icon-wrap">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+            </div>
+            <h3>Layer Stack &amp; Masks</h3>
+          </div>
+          <p>
+            Non-destructive layers with Normal, Multiply, Screen, and Overlay blend modes, layer opacity control, and dedicated grayscale layer masks.
+          </p>
+          <div class="feature-tag">Blend Modes &middot; Grayscale Masks</div>
+        </div>
+
+        <!-- 10. Packed ORM Engine Export -->
+        <div class="feature-card">
+          <div class="feature-card-header">
+            <div class="feature-icon-wrap">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </div>
+            <h3>Packed ORM Game Export</h3>
+          </div>
+          <p>
+            Export packed Occlusion-Roughness-Metallic textures optimized for Unreal Engine 5, Unity URP/HDRP, Godot 4, and glTF standards.
+          </p>
+          <div class="feature-tag">UE5 &middot; Unity &middot; Godot &middot; glTF</div>
+        </div>
+
+        <!-- 11. Blender 3D CLI Bridge -->
+        <div class="feature-card">
+          <div class="feature-card-header">
+            <div class="feature-icon-wrap">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            </div>
+            <h3>Blender 3D Native Bridge</h3>
+          </div>
+          <p>
+            Directly open <kbd>.blend</kbd> files in MeshCoat without intermediate exports. Re-import geometry updates while preserving all paint layers.
+          </p>
+          <div class="feature-tag">Headless CLI &middot; Auto Reload</div>
+        </div>
+
+        <!-- 12. Symmetry & Mirror Painting -->
+        <div class="feature-card">
+          <div class="feature-card-header">
+            <div class="feature-icon-wrap">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="2" x2="12" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            </div>
+            <h3>Symmetry Mirror Axis</h3>
+          </div>
+          <p>
+            Mirror brush strokes, stamps, and erasures across X, Y, or Z axes with customizable mirror plane offsets for characters and props.
+          </p>
+          <div class="feature-tag">X / Y / Z Planes &middot; Alt+X</div>
+        </div>
+
+        <!-- 13. Stylus Pen Pressure -->
+        <div class="feature-card">
+          <div class="feature-card-header">
+            <div class="feature-icon-wrap">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m14 2 8 8L7 25H2v-5L17 5"/><path d="m11 5 8 8"/></svg>
+            </div>
+            <h3>Wacom &amp; Stylus Pressure</h3>
+          </div>
+          <p>
+            Full graphics tablet stylus support. Map pressure independently to brush size, opacity, and hardness with minimum floor thresholds.
+          </p>
+          <div class="feature-tag">Pressure Curves &middot; Floor Limits</div>
+        </div>
+
+        <!-- 14. Clipboard Decal Paste -->
+        <div class="feature-card">
+          <div class="feature-card-header">
+            <div class="feature-icon-wrap">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
+            </div>
+            <h3>Clipboard Paste (Ctrl+V)</h3>
+          </div>
+          <p>
+            Copy any image from your browser or editor and press <kbd>Ctrl+V</kbd> to paste it directly as a floating stencil or texture stamp.
+          </p>
+          <div class="feature-tag">Zero File Saving &middot; Instant Decal</div>
+        </div>
+
+        <!-- 15. Effects Brush -->
+        <div class="feature-card">
+          <div class="feature-card-header">
+            <div class="feature-icon-wrap">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>
+            </div>
+            <h3>Smudge, Blur &amp; Pixelate</h3>
+          </div>
+          <p>
+            Surface filter brush featuring directional smudge along stroke vectors, Gaussian blur across all PBR channels, and retro PSX pixelation.
+          </p>
+          <div class="feature-tag">Smudge &middot; Blur &middot; PSX Pixelate</div>
+        </div>
+
+        <!-- 16. Face Selection & Island Masking -->
+        <div class="feature-card">
+          <div class="feature-card-header">
+            <div class="feature-icon-wrap">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l7 18 3-7 7-3L3 3z"/></svg>
+            </div>
+            <h3>Face Selection &amp; Islands</h3>
+          </div>
+          <p>
+            Constrain paint strictly to selected polygons. Select individual faces, entire connected UV islands, and save reusable selection groups.
+          </p>
+          <div class="feature-tag">UV Islands &middot; Selection Groups</div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ==========================================================================
+       Flat Workstation Tool Reference
+       ========================================================================== -->
+  <section class="tools-section" id="tools">
+    <div class="shell">
+      <div class="section-headline">
+        <div class="headline-sub">Workstation Tool Suite</div>
+        <h2>Direct Single-Key Toolset</h2>
+        <p>
+          11 dedicated primary painting tools and 2 modifier subsystems accessible via established 3D DCC muscle memory shortcuts.
+        </p>
+      </div>
+
+      <div class="tools-grid">
+
+        <!-- Tool 1: Brush -->
+        <div class="tool-flat-card">
+          <div class="tool-flat-header">
+            <div class="tool-title-group">
+              <span class="tool-flat-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9.06 11.9 8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg>
+              </span>
+              <h3>Brush Tool</h3>
+            </div>
+            <span class="tool-badge-key">B / 1</span>
+          </div>
+          <p>Direct 3D freehand material painter. Writes BaseColor, Roughness, Metalness, and Normal relief directly into texture maps.</p>
+          <ul class="tool-param-bullets">
+            <li>Interactive resize with <code>[ / ]</code> or Right-Click Drag</li>
+            <li>Stylus pressure mapped to radius and opacity</li>
+            <li>Angle, size, and color jitter options</li>
+          </ul>
+        </div>
+
+        <!-- Tool 2: Eraser -->
+        <div class="tool-flat-card">
+          <div class="tool-flat-header">
+            <div class="tool-title-group">
+              <span class="tool-flat-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
+              </span>
+              <h3>PBR Eraser</h3>
+            </div>
+            <span class="tool-badge-key">E / 2</span>
+          </div>
+          <p>Non-destructive coverage removal. Subtracts layer alpha to reveal underlying layers without corrupting PBR channels.</p>
+          <ul class="tool-param-bullets">
+            <li>Full support for textured .abr brush tips</li>
+            <li>Independent opacity and hardness sliders</li>
+            <li>Erases grayscale masks to unmask paint</li>
+          </ul>
+        </div>
+
+        <!-- Tool 3: Texture Stamp -->
+        <div class="tool-flat-card">
+          <div class="tool-flat-header">
+            <div class="tool-title-group">
+              <span class="tool-flat-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+              </span>
+              <h3>Texture Stamp</h3>
+            </div>
+            <span class="tool-badge-key">T / 3</span>
+          </div>
+          <p>Single-dab decal projection tool. Places cropped textures or alphas onto 3D surfaces with rotation and scale control.</p>
+          <ul class="tool-param-bullets">
+            <li>Rotate decal with <code>R / Shift+R</code> (&plusmn;15&deg;)</li>
+            <li>Clamp decal bounds to eliminate edge repeat</li>
+            <li>Generates tangent normal displacement from alpha</li>
+          </ul>
+        </div>
+
+        <!-- Tool 4: Fill Bucket -->
+        <div class="tool-flat-card">
+          <div class="tool-flat-header">
+            <div class="tool-title-group">
+              <span class="tool-flat-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z"/><path d="m5 2 5 5"/><path d="M2 13h15"/><path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z"/></svg>
+              </span>
+              <h3>Fill Bucket</h3>
+            </div>
+            <span class="tool-badge-key">G / 4</span>
+          </div>
+          <p>Point-and-click flood fill. Fills solid colors, cropped textures, or full PBR material sets across pieces, faces, or clicked triangles.</p>
+          <ul class="tool-param-bullets">
+            <li>Click and drag to sweep-fill consecutive triangles</li>
+            <li>Fit or repeat-tile placement modes</li>
+            <li>Respects active polygon face selection masks</li>
+          </ul>
+        </div>
+
+        <!-- Tool 5: Line Tool -->
+        <div class="tool-flat-card">
+          <div class="tool-flat-header">
+            <div class="tool-title-group">
+              <span class="tool-flat-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="19" x2="19" y2="5"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="5" r="2"/></svg>
+              </span>
+              <h3>Line Tool</h3>
+            </div>
+            <span class="tool-badge-key">L</span>
+          </div>
+          <p>Straight surface-interpolated lines. The line walks screen space and raycasts back onto the mesh, preventing strokes from tunneling.</p>
+          <ul class="tool-param-bullets">
+            <li>Hold Shift to snap line angles to 45&deg; increments</li>
+            <li>Renders all 4 PBR channels along trajectory</li>
+            <li>Cleanly terminates at surface silhouettes</li>
+          </ul>
+        </div>
+
+        <!-- Tool 6: Gradient Ramp -->
+        <div class="tool-flat-card">
+          <div class="tool-flat-header">
+            <div class="tool-title-group">
+              <span class="tool-flat-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 12h18"/><path d="M12 3v18"/></svg>
+              </span>
+              <h3>Gradient Ramp</h3>
+            </div>
+            <span class="tool-badge-key">D</span>
+          </div>
+          <p>Drag across the 3D model to paint linear or radial color ramps with multiple color stops and opacity blending.</p>
+          <ul class="tool-param-bullets">
+            <li>Unlimited color stops with live ramp preview</li>
+            <li>Linear directional and circular radial modes</li>
+            <li>Shift-snapping for 45&deg; planar alignment</li>
+          </ul>
+        </div>
+
+        <!-- Tool 7: Effects Brush -->
+        <div class="tool-flat-card">
+          <div class="tool-flat-header">
+            <div class="tool-title-group">
+              <span class="tool-flat-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>
+              </span>
+              <h3>Effects Brush</h3>
+            </div>
+            <span class="tool-badge-key">U / 7</span>
+          </div>
+          <p>Surface filter brush that reworks existing paint across four modes: Directional Smudge, Gaussian Blur, Sharpen, and Pixelate.</p>
+          <ul class="tool-param-bullets">
+            <li>Smudges along stroke motion vectors</li>
+            <li>Filters color and PBR channels together</li>
+            <li>Pixelate mode creates retro PSX texel grids</li>
+          </ul>
+        </div>
+
+        <!-- Tool 8: Eyedropper -->
+        <div class="tool-flat-card">
+          <div class="tool-flat-header">
+            <div class="tool-title-group">
+              <span class="tool-flat-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"/></svg>
+              </span>
+              <h3>Eyedropper</h3>
+            </div>
+            <span class="tool-badge-key">I / 5</span>
+          </div>
+          <p>3D surface sampler. Samples color and material parameters directly from the viewport, including from non-active mesh pieces.</p>
+          <ul class="tool-param-bullets">
+            <li>Hold <code>Alt</code> on any active tool for fast sampling</li>
+            <li>Cross-piece sampling without switching pieces</li>
+            <li>Add sampled colors directly to project palette</li>
+          </ul>
+        </div>
+
+        <!-- Tool 9: Face Selection -->
+        <div class="tool-flat-card">
+          <div class="tool-flat-header">
+            <div class="tool-title-group">
+              <span class="tool-flat-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l7 18 3-7 7-3L3 3z"/></svg>
+              </span>
+              <h3>Face Selection</h3>
+            </div>
+            <span class="tool-badge-key">V / 6</span>
+          </div>
+          <p>Surface masking engine. Restricts painting, stamping, and filling strictly to selected triangles.</p>
+          <ul class="tool-param-bullets">
+            <li><code>Alt+Click</code> selects entire connected UV island</li>
+            <li>Save named selection groups into project file</li>
+            <li>Hold <code>Ctrl+Drag</code> to select on any tool</li>
+          </ul>
+        </div>
+
+        <!-- Tool 10: Face UV Projector -->
+        <div class="tool-flat-card">
+          <div class="tool-flat-header">
+            <div class="tool-title-group">
+              <span class="tool-flat-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+              </span>
+              <h3>Face UV Projector</h3>
+            </div>
+            <span class="tool-badge-key">P / 8</span>
+          </div>
+          <p>TrenchBroom-style face texturing. Select faces, choose a texture region, and adjust placement with a live lit 3D preview.</p>
+          <ul class="tool-param-bullets">
+            <li>Fit-to-selection mode for trim sheets</li>
+            <li>Repeat tile mode with scale factors</li>
+            <li>90&deg; snap rotation and precision offsets</li>
+          </ul>
+        </div>
+
+        <!-- Tool 11: Text on Faces -->
+        <div class="tool-flat-card">
+          <div class="tool-flat-header">
+            <div class="tool-title-group">
+              <span class="tool-flat-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+              </span>
+              <h3>Text on Faces</h3>
+            </div>
+            <span class="tool-badge-key">Y</span>
+          </div>
+          <p>Direct typography decal tool. Type text, choose installed system fonts, customize fill and stroke, and bake onto faces.</p>
+          <ul class="tool-param-bullets">
+            <li>Live font picker for all installed system fonts</li>
+            <li>Independent fill color, stroke width, and outline</li>
+            <li>Positioned via Face UV Projector geometry</li>
+          </ul>
+        </div>
+
+        <!-- Modifier 12: Screen Stencil -->
+        <div class="tool-flat-card">
+          <div class="tool-flat-header">
+            <div class="tool-title-group">
+              <span class="tool-flat-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+              </span>
+              <h3>Screen Stencil</h3>
+            </div>
+            <span class="tool-badge-key">S</span>
+          </div>
+          <p>Floating camera-plane stencil overlay. Paint through reference images onto your model or stamp decals in one click.</p>
+          <ul class="tool-param-bullets">
+            <li>Model orbits freely beneath locked stencil</li>
+            <li>Paste crops directly with <code>Ctrl+V</code></li>
+            <li>Brightness masking or direct color stamping</li>
+          </ul>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ==========================================================================
+       In-App Production Screenshots Showcase
+       ========================================================================== -->
+  <section class="screenshots-section" id="screenshots">
+    <div class="shell">
+      <div class="section-headline">
+        <div class="headline-sub">In-App Visual Proof</div>
+        <h2>Workstation Interface</h2>
+        <p>
+          High-resolution captures of MeshCoat's real production environment and workspace tooling.
+        </p>
+      </div>
+
+      <div class="gallery-grid">
+        <!-- Shot 1: 3D Material Brush (Large) -->
+        <div class="gallery-item col-span-7">
+          <div class="gallery-thumb-wrap">
+            <img src="screenshots/image2.png" alt="3D Material Brush in Showcase Lighting" loading="lazy" />
+          </div>
+          <div class="gallery-caption">
+            <strong>3D Material Brush &amp; Viewport Lighting</strong>
+            <span>Single-stroke gold material deposition on a 3D sphere with RoomEnvironment IBL reflections and cast shadow.</span>
+          </div>
+        </div>
+
+        <!-- Shot 2: Bottom Texture Shelf Drawer -->
+        <div class="gallery-item col-span-5">
+          <div class="gallery-thumb-wrap">
+            <img src="screenshots/image1.png" alt="PBR Material Shelf Drawer" loading="lazy" />
+          </div>
+          <div class="gallery-caption">
+            <strong>PBR Texture Shelf Drawer</strong>
+            <span>Folder auto-discovery groups loose BaseColor, Roughness, and Normal files into unified material cards.</span>
+          </div>
+        </div>
+
+        <!-- Shot 3: Viewport Screen Stencil -->
+        <div class="gallery-item col-span-4">
+          <div class="gallery-thumb-wrap">
+            <img src="screenshots/image3.png" alt="Screen Stencil HUD" loading="lazy" />
+          </div>
+          <div class="gallery-caption">
+            <strong>Screen-Space Stencil HUD</strong>
+            <span>Floating viewport decal projection with real-time translation, rotation, and brightness-mask painting.</span>
+          </div>
+        </div>
+
+        <!-- Shot 4: Brush Preset Manager -->
+        <div class="gallery-item col-span-4">
+          <div class="gallery-thumb-wrap">
+            <img src="screenshots/image4.png" alt="Brush Preset Manager" loading="lazy" />
+          </div>
+          <div class="gallery-caption">
+            <strong>Photoshop .ABR Brush Library</strong>
+            <span>Direct ingestion of Photoshop brush packs with sample decoding, tip previewing, and normal generation.</span>
+          </div>
+        </div>
+
+        <!-- Shot 5: Unified Export Wizard -->
+        <div class="gallery-item col-span-4">
+          <div class="gallery-thumb-wrap">
+            <img src="screenshots/image5.png" alt="Unified Export Wizard" loading="lazy" />
+          </div>
+          <div class="gallery-caption">
+            <strong>Unified Export Wizard (Ctrl+E)</strong>
+            <span>Instant packed ORM export, multi-piece batch passes, and live file checklist for Unreal, Unity, and Godot.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==========================================================================
+       Production Engine Pipeline & Export Matrix
+       ========================================================================== -->
+  <section class="export-section" id="pipeline">
+    <div class="shell">
+      <div class="section-headline">
+        <div class="headline-sub">Game Engine Integration</div>
+        <h2>Direct Export to Major Engines</h2>
+        <p>
+          No manual channel recombining in external image editors. MeshCoat packages your painted channels into engine-standard texture maps on export.
+        </p>
+      </div>
+
+      <!-- Packed ORM Explainer -->
+      <div class="orm-explainer">
+        <div class="orm-badge-large">
+          <span class="orm-title">ORM</span>
+          <span class="orm-subtitle">Packed 3-Channel Texture</span>
+        </div>
+
+        <div class="orm-channel-breakdown">
+          <div class="orm-channel-col col-r">
+            <strong>RED Channel</strong>
+            <span>Ambient Occlusion (AO) from cavity generators or imported passes.</span>
+          </div>
+          <div class="orm-channel-col col-g">
+            <strong>GREEN Channel</strong>
+            <span>Roughness map &middot; Linear color space (0.0 gloss &rarr; 1.0 matte).</span>
+          </div>
+          <div class="orm-channel-col col-b">
+            <strong>BLUE Channel</strong>
+            <span>Metalness mask &middot; Linear color space (0.0 dielectric &rarr; 1.0 metal).</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Engine Matrix Grid -->
+      <div class="engine-matrix-grid">
+
+        <div class="engine-card">
+          <div class="engine-card-header">
+            <h3>Unreal Engine 5</h3>
+            <span class="engine-tag">PBR / Nanite</span>
+          </div>
+          <div class="engine-card-body">
+            Plug MeshCoat's packed <code>_ORM.png</code> directly into your material graph: R &rarr; Ambient Occlusion, G &rarr; Roughness, B &rarr; Metallic. Set Texture Group to <em>Masks (no sRGB)</em>.
+          </div>
+          <div class="engine-channel-mapping">
+            <span>Color: <em>_BaseColor.png</em></span>
+            <span>ORM: <em>_ORM.png (RGB)</em></span>
+            <span>Normal: <em>_Normal.png (DirectX/Tangent)</em></span>
+          </div>
+        </div>
+
+        <div class="engine-card">
+          <div class="engine-card-header">
+            <h3>Unity (URP / HDRP)</h3>
+            <span class="engine-tag">Lit Shader</span>
+          </div>
+          <div class="engine-card-body">
+            Compatible with Unity's Mask Map format. Use MeshCoat's export presets to write individual unpacked maps or packed ORM channels matching URP Universal Lit.
+          </div>
+          <div class="engine-channel-mapping">
+            <span>Albedo: <em>_BaseColor.png</em></span>
+            <span>Mask Map: <em>_ORM.png</em></span>
+            <span>Normal: <em>_Normal.png</em></span>
+          </div>
+        </div>
+
+        <div class="engine-card">
+          <div class="engine-card-header">
+            <h3>Godot 4.x</h3>
+            <span class="engine-tag">StandardMaterial3D</span>
+          </div>
+          <div class="engine-card-body">
+            Turn on <em>Roughness > Texture Channel</em> = Green and <em>Metallic > Texture Channel</em> = Blue in Godot's StandardMaterial3D inspector to use MeshCoat's ORM map without modifications.
+          </div>
+          <div class="engine-channel-mapping">
+            <span>Albedo: <em>_BaseColor.png</em></span>
+            <span>ORM: <em>_ORM.png</em></span>
+            <span>Normal: <em>_Normal.png</em></span>
+          </div>
+        </div>
+
+        <div class="engine-card">
+          <div class="engine-card-header">
+            <h3>Blender 3D Bridge</h3>
+            <span class="engine-tag">Principled BSDF</span>
+          </div>
+          <div class="engine-card-body">
+            Directly open <code>.blend</code> files in MeshCoat via our built-in headless Blender CLI bridge. Re-import updated models on the fly while retaining all paint layers.
+          </div>
+          <div class="engine-channel-mapping">
+            <span>Native Bridge: <em>Auto Blender CLI</em></span>
+            <span>Base Color: <em>Principled BSDF Color</em></span>
+            <span>ORM Unpack: <em>Separate Color Node</em></span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ==========================================================================
+       Flat Categorized Hotkey Index
+       ========================================================================== -->
+  <section class="hotkeys-section" id="hotkeys">
+    <div class="shell">
+      <div class="section-headline">
+        <div class="headline-sub">Keyboard-First Productivity</div>
+        <h2>Hotkey &amp; Shortcut Index</h2>
+        <p>
+          Organized reference of essential workstation shortcuts for rapid keyboard navigation and painting.
+        </p>
+      </div>
+
+      <div class="hotkey-categories-grid">
+
+        <!-- Category: Painting & Tools -->
+        <div class="hotkey-category-box">
+          <div class="hotkey-category-header">
+            Painting &amp; Tool Selection
+            <span>11 Shortcuts</span>
+          </div>
+          <table class="hotkeys-table">
+            <tbody>
+              <tr><td style="width: 150px;"><kbd>1 / B</kbd></td><td>Activate Brush tool (freehand 3D material painting)</td></tr>
+              <tr><td><kbd>2 / E</kbd></td><td>Activate PBR Eraser tool (subtract layer alpha coverage)</td></tr>
+              <tr><td><kbd>3 / T</kbd></td><td>Activate Texture Stamp tool (decal placement)</td></tr>
+              <tr><td><kbd>4 / G</kbd></td><td>Activate Fill Bucket tool (flood fill mesh or faces)</td></tr>
+              <tr><td><kbd>L</kbd></td><td>Activate Line tool (straight surface-interpolated strokes)</td></tr>
+              <tr><td><kbd>D</kbd></td><td>Activate Gradient Ramp tool (linear and radial ramps)</td></tr>
+              <tr><td><kbd>7 / U</kbd></td><td>Activate Effects Brush (Smudge, Blur, Sharpen, Pixelate)</td></tr>
+              <tr><td><kbd>5 / I</kbd></td><td>Activate Eyedropper (sample color &amp; material from surface)</td></tr>
+              <tr><td><kbd>P / 8</kbd></td><td>Activate Face UV Projector (trim-sheet placement)</td></tr>
+              <tr><td><kbd>Y</kbd></td><td>Activate Text Tool (render typography decal onto faces)</td></tr>
+              <tr><td><kbd>S</kbd></td><td>Toggle Screen-Space Stencil HUD</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Category: Brush Controls & Modifiers -->
+        <div class="hotkey-category-box">
+          <div class="hotkey-category-header">
+            Brush Modifiers &amp; Canvas
+            <span>8 Shortcuts</span>
+          </div>
+          <table class="hotkeys-table">
+            <tbody>
+              <tr><td style="width: 150px;"><kbd>[ / ]</kbd></td><td>Decrease / increase brush radius or tiling scale</td></tr>
+              <tr><td><kbd>RMB + Drag</kbd></td><td>Interactively resize brush radius in viewport</td></tr>
+              <tr><td><kbd>Shift + RMB + Drag</kbd></td><td>Interactively adjust brush opacity and hardness falloff</td></tr>
+              <tr><td><kbd>Shift + Click</kbd></td><td>Draw straight surface line from last brush dab</td></tr>
+              <tr><td><kbd>R / Shift + R</kbd></td><td>Rotate brush tip or decal stamp &plusmn;15 degrees</td></tr>
+              <tr><td><kbd>X</kbd></td><td>Swap solid color and texture (on mask: black &harr; white)</td></tr>
+              <tr><td><kbd>Alt + X</kbd></td><td>Cycle symmetry mirror axis (Off &rarr; X &rarr; Y &rarr; Z)</td></tr>
+              <tr><td><kbd>Ctrl + V</kbd></td><td>Paste clipboard image directly into texture shelf or stencil</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Category: Viewport Navigation -->
+        <div class="hotkey-category-box">
+          <div class="hotkey-category-header">
+            Viewport Navigation
+            <span>7 Shortcuts</span>
+          </div>
+          <table class="hotkeys-table">
+            <tbody>
+              <tr><td style="width: 150px;"><kbd>Alt + LMB</kbd></td><td>Orbit 3D camera around pivot</td></tr>
+              <tr><td><kbd>Alt + MMB</kbd></td><td>Pan 3D camera in view plane</td></tr>
+              <tr><td><kbd>Alt + RMB / Wheel</kbd></td><td>Smooth zoom camera in / out</td></tr>
+              <tr><td><kbd>F</kbd></td><td>Frame model in view (or frame active face selection)</td></tr>
+              <tr><td><kbd>W</kbd></td><td>Toggle topology wireframe overlay in 3D viewport</td></tr>
+              <tr><td><kbd>Tab / Shift + Tab</kbd></td><td>Switch to next / previous mesh piece (multi-piece models)</td></tr>
+              <tr><td><kbd>Double Click</kbd></td><td>Select the mesh piece directly under cursor in viewport</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Category: Selection & Project -->
+        <div class="hotkey-category-box">
+          <div class="hotkey-category-header">
+            Selection &amp; Project
+            <span>9 Shortcuts</span>
+          </div>
+          <table class="hotkeys-table">
+            <tbody>
+              <tr><td style="width: 150px;"><kbd>6 / V</kbd></td><td>Activate Face Selection mask tool</td></tr>
+              <tr><td><kbd>Ctrl + Click / Drag</kbd></td><td>Select / isolate faces on any active tool</td></tr>
+              <tr><td><kbd>Ctrl + Shift + Drag</kbd></td><td>Deselect faces on any active tool</td></tr>
+              <tr><td><kbd>Alt + Click</kbd></td><td>Select connected UV island (shared-edge topology)</td></tr>
+              <tr><td><kbd>Ctrl + A</kbd></td><td>Select all faces of the active mesh piece</td></tr>
+              <tr><td><kbd>Ctrl + D / Esc</kbd></td><td>Clear active face selection mask</td></tr>
+              <tr><td><kbd>Ctrl + S</kbd></td><td>Save MeshCoat project (.meshcoat with rolling backups)</td></tr>
+              <tr><td><kbd>Ctrl + E</kbd></td><td>Open Unified Texture Export Wizard (packed ORM)</td></tr>
+              <tr><td><kbd>Ctrl + Z / Ctrl + Y</kbd></td><td>Undo / Redo (100-step non-destructive history)</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ==========================================================================
+       Terminal Build Quickstart
+       ========================================================================== -->
+  <section class="quickstart-section">
+    <div class="shell">
+      <div class="section-headline">
+        <div class="headline-sub">Source Repository</div>
+        <h2>Build Directly From Source</h2>
+        <p>MeshCoat is built with TypeScript, Electron, Three.js, SolidJS, and Bun.</p>
+      </div>
+
+      <div class="terminal-box">
+        <div class="terminal-bar">
+          <div class="term-dot term-dot-red"></div>
+          <div class="term-dot term-dot-yellow"></div>
+          <div class="term-dot term-dot-green"></div>
+          <span>bash — terminal</span>
+        </div>
+        <div class="terminal-body">
+          <span class="cmd-comment"># Clone the repository</span><br />
+          <span class="cmd-prompt">$</span> git clone https://github.com/stuyk/meshcoat.git<br />
+          <span class="cmd-prompt">$</span> cd meshcoat<br /><br />
+          <span class="cmd-comment"># Install dependencies with Bun</span><br />
+          <span class="cmd-prompt">$</span> bun install<br /><br />
+          <span class="cmd-comment"># Run in local development workstation mode</span><br />
+          <span class="cmd-prompt">$</span> bun run dev<br /><br />
+          <span class="cmd-comment"># Or package standalone binaries for your OS</span><br />
+          <span class="cmd-prompt">$</span> bun run build:linux  <span class="cmd-comment"># AppImage, deb, tar.gz</span><br />
+          <span class="cmd-prompt">$</span> bun run build:win    <span class="cmd-comment"># NSIS installer, portable .exe</span><br />
+          <span class="cmd-prompt">$</span> bun run build:mac    <span class="cmd-comment"># DMG, zip</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==========================================================================
+       DCC Workstation Footer
+       ========================================================================== -->
+  <footer class="workstation-footer">
+    <div class="shell footer-inner">
+      <div class="footer-brand">
+        <img src="icon.png" alt="MeshCoat" />
+        <div>
+          <strong>MeshCoat</strong>
+          <div style="font-size: 11px; color: var(--text-faint);">3D Texture Painting Environment</div>
+        </div>
+      </div>
+
+      <div class="footer-links">
+        <a href="https://github.com/stuyk/meshcoat/releases" target="_blank" rel="noopener noreferrer">Releases</a>
+        <a href="https://github.com/stuyk/meshcoat" target="_blank" rel="noopener noreferrer">GitHub Repository</a>
+        <a href="https://github.com/stuyk/meshcoat/issues" target="_blank" rel="noopener noreferrer">Issue Tracker</a>
+        <a href="https://github.com/stuyk/meshcoat/blob/main/CHANGELOG.md" target="_blank" rel="noopener noreferrer">Changelog</a>
+        <a href="https://github.com/stuyk/meshcoat/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">GPL-3.0 License</a>
+      </div>
+
+      <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-faint);">
+        Crafted by Stuyk &middot; Yours to keep forever
+      </div>
     </div>
   </footer>
+
 </body>
 </html>

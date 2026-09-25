@@ -23,7 +23,7 @@ const SIZE_CLASSES = {
 
 export default function ColorSwatch(props: ColorSwatchProps) {
   const sizeClass = () => (props.size ? SIZE_CLASSES[props.size] : 'w-full aspect-square')
-  const roundedClass = () => (props.rounded === 'md' ? 'rounded-md' : 'rounded-full')
+  const roundedClass = () => (props.rounded === 'full' ? 'rounded-full' : 'rounded-[4px]')
 
   return (
     <button
@@ -33,8 +33,8 @@ export default function ColorSwatch(props: ColorSwatchProps) {
       title={props.title ?? props.label ?? props.color.toUpperCase()}
       class={`group relative border transition-all cursor-pointer select-none ${sizeClass()} ${roundedClass()} ${
         props.active
-          ? 'ring-2 ring-blue-500 ring-offset-1 ring-offset-zinc-950 border-white scale-110 z-10 shadow-xs'
-          : 'border-white/15 hover:scale-110 hover:border-white/40'
+          ? 'ring-2 ring-blue-500 ring-offset-1 ring-offset-zinc-950 border-white scale-105 z-10 shadow-sm'
+          : 'border-white/20 hover:scale-105 hover:border-white/50 hover:z-10 shadow-inner'
       } ${props.class ?? ''}`}
       style={{ 'background-color': props.color }}
     >
@@ -45,9 +45,9 @@ export default function ColorSwatch(props: ColorSwatchProps) {
             props.onRemove?.(e)
           }}
           title="Remove swatch"
-          class="opacity-0 group-hover:opacity-100 absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-400 hover:text-red-400 hover:border-red-500/50 flex items-center justify-center transition-opacity shadow-xs cursor-pointer z-20"
+          class="opacity-0 group-hover:opacity-100 absolute top-0.5 right-0.5 w-3 h-3 rounded-full bg-black/85 border border-white/30 text-zinc-300 hover:text-white hover:bg-red-600 hover:border-red-600 flex items-center justify-center transition-all shadow-xs cursor-pointer z-20"
         >
-          <XIcon size={9} />
+          <XIcon size={8} />
         </span>
       </Show>
     </button>

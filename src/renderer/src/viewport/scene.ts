@@ -1,7 +1,6 @@
 import * as THREE from 'three'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
-
-export type LightingMode = 'studio' | 'flat' | 'outdoor' | 'showcase'
+export type LightingMode = 'neutral' | 'flat' | 'outdoor' | 'warm' | 'cool'
 
 export interface SceneHandle {
   scene: THREE.Scene
@@ -251,91 +250,100 @@ interface LightingConfig {
 const DEFAULT_KEY_POSITION: [number, number, number] = [3, 5, 2]
 
 const LIGHTING_PRESETS: Record<LightingMode, LightingConfig> = {
-  // Balanced 3-point rig with gentle contrast — general-purpose default.
-  studio: {
+  // Neutral: Clean, balanced 5600K 3-point studio lighting with subtle ambient fill and soft grounding shadow.
+  neutral: {
     hemiSky: 0xffffff,
-    hemiGround: 0x3a3a44,
-    hemiIntensity: 1.6,
-    keyIntensity: 2.4,
-    keyColor: 0xffffff,
-    fillIntensity: 0.9,
-    fillColor: 0xcfe0ff,
-    rimIntensity: 1.1,
-    rimColor: 0xffffff,
-    exposure: 1.1,
+    hemiGround: 0x363842,
+    hemiIntensity: 0.6,
+    keyIntensity: 1.35,
+    keyColor: 0xfffcf7,
+    fillIntensity: 0.6,
+    fillColor: 0xdde7f5,
+    rimIntensity: 0.5,
+    rimColor: 0xf5f8ff,
+    exposure: 1.0,
     envIntensity: 0.85,
-    // A near-black background makes thin/grazing-angle edges look like harsh
-    // black outlines wherever GPU edge antialiasing blends surface color
-    // toward it — a much lighter neutral gray keeps that same antialiasing
-    // from ever reading as "black," matching what other texture painters do.
-    background: 0x3a3a40
+    shadows: true,
+    shadowOpacity: 0.18,
+    background: 0x323338
   },
-  // Bright, near-shadowless — for judging true texture color while painting.
+  // Flat: High albedo visibility for judging true color with delicate, subtle contact shadows.
   flat: {
     hemiSky: 0xffffff,
-    hemiGround: 0xe8e8ec,
-    hemiIntensity: 3.6,
-    keyIntensity: 0.15,
+    hemiGround: 0xf0f2f6,
+    hemiIntensity: 0.95,
+    keyIntensity: 0.35,
     keyColor: 0xffffff,
-    fillIntensity: 0.15,
+    keyPosition: [1, 5, 2],
+    fillIntensity: 0.25,
     fillColor: 0xffffff,
-    rimIntensity: 0,
+    rimIntensity: 0.1,
     rimColor: 0xffffff,
-    exposure: 1.35,
-    // Flat mode exists to judge raw texture color: a strong environment would
-    // paint reflections over exactly the thing being judged.
-    envIntensity: 0.15,
-    background: 0x57575e
-  },
-  // Strong warm sun + cool sky fill, higher contrast — good for checking material response.
-  outdoor: {
-    hemiSky: 0xaecbff,
-    hemiGround: 0x1a1610,
-    hemiIntensity: 0.9,
-    keyIntensity: 5.5,
-    keyColor: 0xffe4b0,
-    fillIntensity: 0.35,
-    fillColor: 0x6f9fff,
-    rimIntensity: 0.5,
-    rimColor: 0xaecbff,
     exposure: 1.0,
-    envIntensity: 1.2,
-    background: 0x2e333c
-  },
-  // Environment-dominant, for judging PBR material response rather than form.
-  //
-  // Roughness and metalness are read off *reflections*: a metal shows whatever
-  // surrounds it, and gloss reads as how sharply the surroundings appear in the
-  // surface. Direct lights give a surface almost nothing to reflect but a few
-  // hot spots, which is why a correct metalness map can look like flat grey
-  // paint under the other presets. Here the image-based environment carries the
-  // lighting and the direct rig drops to a single raking key — kept only
-  // because a grazing angle is what makes normal-map relief legible.
-  showcase: {
-    hemiSky: 0xffffff,
-    hemiGround: 0x2a2a33,
-    hemiIntensity: 0.25,
-    keyIntensity: 1.4,
-    keyColor: 0xfff2e0,
-    fillIntensity: 0.1,
-    fillColor: 0xbfd4ff,
-    rimIntensity: 0.6,
-    rimColor: 0xdce8ff,
-    exposure: 1.0,
-    envIntensity: 2.4,
-    // Low and to the side: a raking angle across the surface.
-    keyPosition: [4.5, 0.9, 2.2],
+    envIntensity: 0.35,
     shadows: true,
-    shadowOpacity: 0.4,
-    // Darker ground than the other presets so specular highlights and
-    // reflections read against it instead of competing with a bright field.
-    background: 0x23252b
+    shadowOpacity: 0.10,
+    background: 0x38393e
+  },
+  // Outdoor: Natural sunlight with golden direct key, sky-blue fill, and warm earth bounce.
+  outdoor: {
+    hemiSky: 0x90c2ff,
+    hemiGround: 0x382c20,
+    hemiIntensity: 0.7,
+    keyIntensity: 2.0,
+    keyColor: 0xfff0d6,
+    keyPosition: [4, 6, 2],
+    fillIntensity: 0.65,
+    fillColor: 0x72a8f8,
+    rimIntensity: 0.5,
+    rimColor: 0xcae0ff,
+    exposure: 1.0,
+    envIntensity: 1.0,
+    shadows: true,
+    shadowOpacity: 0.32,
+    background: 0x272c35
+  },
+  // Warm Light: Cozy 3200K tungsten / golden hour with rich amber tones and warm fill.
+  warm: {
+    hemiSky: 0xffe6cb,
+    hemiGround: 0x2e1d16,
+    hemiIntensity: 0.55,
+    keyIntensity: 1.5,
+    keyColor: 0xffba70,
+    keyPosition: [3, 4, 3],
+    fillIntensity: 0.5,
+    fillColor: 0xff9450,
+    rimIntensity: 0.6,
+    rimColor: 0xffe2b8,
+    exposure: 1.02,
+    envIntensity: 1.1,
+    shadows: true,
+    shadowOpacity: 0.28,
+    background: 0x2c2523
+  },
+  // Cool Light: Crisp 7500K blue hour / sci-fi lighting with cool highlights, azure fill, and electric cyan rim.
+  cool: {
+    hemiSky: 0x9cd2ff,
+    hemiGround: 0x161e2c,
+    hemiIntensity: 0.55,
+    keyIntensity: 1.45,
+    keyColor: 0xd6eeff,
+    keyPosition: [2, 5, 4],
+    fillIntensity: 0.55,
+    fillColor: 0x5a9ee0,
+    rimIntensity: 0.75,
+    rimColor: 0x76e2fc,
+    exposure: 0.98,
+    envIntensity: 1.05,
+    shadows: true,
+    shadowOpacity: 0.30,
+    background: 0x20242b
   }
 }
 
 export function createScene(canvas: HTMLCanvasElement): SceneHandle {
   const scene = new THREE.Scene()
-  scene.background = new THREE.Color(0x3a3a40)
+  scene.background = new THREE.Color(0x323338)
 
   const camera = new THREE.PerspectiveCamera(50, 1, 0.01, 1000)
   camera.position.set(2, 1.5, 2.5)
@@ -376,12 +384,18 @@ export function createScene(canvas: HTMLCanvasElement): SceneHandle {
   const fill = new THREE.DirectionalLight(0xcfe0ff, 0.6)
   fill.position.set(-4, 1.5, -2)
   scene.add(fill)
+  scene.add(fill.target)
   const rim = new THREE.DirectionalLight(0xffffff, 0.8)
   rim.position.set(-1, 2, -4)
   scene.add(rim)
+  scene.add(rim.target)
 
-  function setLightingMode(mode: LightingMode): void {
-    const c = LIGHTING_PRESETS[mode]
+  function setLightingMode(mode: LightingMode | string): void {
+    let normalized = mode as LightingMode
+    if (mode === 'studio') normalized = 'neutral'
+    else if (mode === 'showcase') normalized = 'warm'
+
+    const c = LIGHTING_PRESETS[normalized] ?? LIGHTING_PRESETS.neutral
     hemi.color.set(c.hemiSky)
     hemi.groundColor.set(c.hemiGround)
     hemi.intensity = c.hemiIntensity
@@ -396,12 +410,8 @@ export function createScene(canvas: HTMLCanvasElement): SceneHandle {
     const shadows = !!c.shadows
     renderer.shadowMap.enabled = shadows
     shadowCatcher.visible = shadows
-    shadowCatcherMaterial.opacity = c.shadowOpacity ?? 0.4
-    if (shadows) {
-      // The preset just moved the key, and shadow maps are only re-rendered
-      // when something asks: re-fit against the last known model bounds.
-      fitShadows(shadowFit.center, shadowFit.radius, shadowFit.groundY)
-    }
+    shadowCatcherMaterial.opacity = c.shadowOpacity ?? 0.25
+    fitShadows(shadowFit.center, shadowFit.radius, shadowFit.groundY)
 
     renderer.toneMappingExposure = c.exposure
     scene.environmentIntensity = c.envIntensity
@@ -427,7 +437,7 @@ export function createScene(canvas: HTMLCanvasElement): SceneHandle {
    * nothing but the shadow itself, so the plane never hides the grid or shifts
    * the background color — the model just gains something to sit on.
    */
-  const shadowCatcherMaterial = new THREE.ShadowMaterial({ opacity: 0.4, transparent: true })
+  const shadowCatcherMaterial = new THREE.ShadowMaterial({ opacity: 0.25, transparent: true })
   const shadowCatcher = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), shadowCatcherMaterial)
   shadowCatcher.rotation.x = -Math.PI / 2
   shadowCatcher.receiveShadow = true
@@ -443,17 +453,21 @@ export function createScene(canvas: HTMLCanvasElement): SceneHandle {
     shadowFit = { center: center.clone(), radius: Math.max(radius, 0.05), groundY }
 
     const r = shadowFit.radius
-    // The key is a direction, not a place: park it that direction away from the
-    // model at a distance scaled to the model, so the same rig works for a
-    // 0.1-unit prop and a 50-unit building.
+    // Scale lights relative to model size so lighting is consistent for props of all scales.
     const dir = key.position.clone().normalize()
     key.position.copy(center).addScaledVector(dir, r * 4)
     key.target.position.copy(center)
     key.target.updateMatrixWorld()
 
+    fill.position.copy(center).addScaledVector(new THREE.Vector3(-4, 1.5, -2).normalize(), r * 4)
+    fill.target.position.copy(center)
+    fill.target.updateMatrixWorld()
+
+    rim.position.copy(center).addScaledVector(new THREE.Vector3(-1, 2, -4).normalize(), r * 4)
+    rim.target.position.copy(center)
+    rim.target.updateMatrixWorld()
+
     const cam = key.shadow.camera
-    // 1.6x the bounding sphere: enough slack for a shadow cast well past the
-    // silhouette at the raking showcase angle.
     const half = r * 1.6
     cam.left = -half
     cam.right = half
@@ -465,12 +479,14 @@ export function createScene(canvas: HTMLCanvasElement): SceneHandle {
 
     shadowCatcher.position.set(center.x, groundY, center.z)
     shadowCatcher.scale.set(r * 8, r * 8, 1)
-    renderer.shadowMap.needsUpdate = true
+    if (renderer.shadowMap.enabled) {
+      renderer.shadowMap.needsUpdate = true
+    }
   }
 
   // Applied here, not next to the light rig: the preset drives the shadow
   // catcher and the shadow-camera fit, which only exist from this point on.
-  setLightingMode('showcase')
+  setLightingMode('neutral')
 
   const controls = new OrbitPanZoomControls(camera, renderer.domElement)
   controls.focus(new THREE.Vector3(0, 0.5, 0), 1.5)

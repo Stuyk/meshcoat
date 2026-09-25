@@ -1,4 +1,14 @@
-import { For, Show, createSignal, createMemo, createEffect, on, onMount, onCleanup } from 'solid-js'
+import {
+  For,
+  Show,
+  createSignal,
+  createMemo,
+  createEffect,
+  on,
+  onMount,
+  onCleanup,
+  type JSX
+} from 'solid-js'
 import {
   brush,
   setTexturePath,
@@ -10,12 +20,22 @@ import {
 import { groupMaterialSets, paintableChannels, type MaterialSet } from '../paint/materialSets'
 import { CHANNEL_SPECS } from '../paint/channels'
 import { Button, IconButton, SearchInput, Label, Select } from './ui'
-import { FolderOpenIcon, XIcon, CheckIcon, StampIcon, ClipboardIcon, Trash2Icon } from './icons'
+import {
+  FolderOpenIcon,
+  XIcon,
+  CheckIcon,
+  StampIcon,
+  ClipboardIcon,
+  Trash2Icon,
+  ChevronDownIcon,
+  ChevronUpIcon
+} from './icons'
 import { toAssetUrl } from '../utils/assetUrl'
 import { isBrowserDisplayable } from '../utils/textureLoad'
 import { fileName } from '../utils/paths'
 
-const COLS = 2
+const CARD_WIDTH = 108
+const COL_GAP = 8
 const ROW_CONTENT_HEIGHT = 133 // thumb + gap + label
 const ROW_GAP = 10
 const ROW_STEP = ROW_CONTENT_HEIGHT + ROW_GAP
@@ -36,7 +56,10 @@ export default function TextureShelf(props: {
   onClearFolder: () => void
   isMaskTarget?: () => boolean
   onToast?: (message: string, kind?: 'success' | 'warning' | 'error') => void
-}) {
+  onClose?: () => void
+  collapsed?: boolean
+  onToggleCollapse?: () => void
+}): JSX.Element {
   const [searchQuery, setSearchQuery] = createSignal('')
   const [activeShelf, setActiveShelf] = createSignal<'all' | 'used' | 'pasted'>('all')
   /** Subfolder filter for the All tab: ALL_FOLDERS, '' for the root, or a relative path. */
@@ -181,25 +204,29 @@ export default function TextureShelf(props: {
 
   let bodyRef: HTMLDivElement | undefined
   const [scrollTop, setScrollTop] = createSignal(0)
-  const [viewportHeight, setViewportHeight] = createSignal(400)
+  const [viewportHeight, setViewportHeight] = createSignal(200)
+  const [viewportWidth, setViewportWidth] = createSignal(600)
 
-  const totalRows = () => Math.ceil(displayItems().length / COLS)
-  const totalHeight = () => Math.max(0, totalRows() * ROW_STEP - ROW_GAP)
+  const cols = (): number =>
+    Math.max(2, Math.floor((viewportWidth() - 20 + COL_GAP) / (CARD_WIDTH + COL_GAP)))
+  const totalRows = (): number => Math.ceil(displayItems().length / cols())
+  const totalHeight = (): number => Math.max(0, totalRows() * ROW_STEP - ROW_GAP)
 
   const visibleRange = createMemo(() => {
+    const numCols = cols()
     const startRow = Math.max(0, Math.floor(scrollTop() / ROW_STEP) - OVERSCAN_ROWS)
     const endRow = Math.min(
       totalRows(),
       Math.ceil((scrollTop() + viewportHeight()) / ROW_STEP) + OVERSCAN_ROWS
     )
-    return { startRow, endRow }
+    return { startRow, endRow, numCols }
   })
 
   const visibleItems = createMemo(() => {
-    const { startRow, endRow } = visibleRange()
+    const { startRow, endRow, numCols } = visibleRange()
     const items = displayItems()
-    const startIndex = startRow * COLS
-    const endIndex = Math.min(items.length, endRow * COLS)
+    const startIndex = startRow * numCols
+    const endIndex = Math.min(items.length, endRow * numCols)
     const out: { item: ShelfItem; index: number }[] = []
     for (let i = startIndex; i < endIndex; i++) {
       out.push({ item: items[i], index: i })
@@ -222,23 +249,196 @@ export default function TextureShelf(props: {
       return
     }
     setViewportHeight(bodyRef.clientHeight)
+    setViewportWidth(bodyRef.clientWidth)
     resizeObserver = new ResizeObserver(() => {
       if (bodyRef) {
         setViewportHeight(bodyRef.clientHeight)
+        setViewportWidth(bodyRef.clientWidth)
       }
     })
     resizeObserver.observe(bodyRef)
   })
   onCleanup(() => resizeObserver?.disconnect())
 
-  return (
-    <aside class="w-[250px] min-w-[250px] max-w-[250px] h-full flex flex-col bg-[var(--bg-panel)] border-r border-[var(--border-color)] select-none z-20 shrink-0">
-      <div class="h-9 px-3 flex items-center justify-between border-b border-[var(--border-color)] bg-[var(--bg-panel-header)] shrink-0">
-        <Label uppercase badge={props.textures.length}>
-          Textures
-        </Label>
+  if (props.collapsed) {
+    return (
+      <div
+        class="w-full h-9 px-3 flex items-center justify-between bg-[var(--bg-panel-header)] border-t border-[var(--border-color)] select-none z-20 shrink-0 cursor-pointer hover:bg-white/5 transition-colors box-border"
+        onClick={props.onToggleCollapse}
+        title="Expand Texture Drawer (Ctrl+B)"
+      >
+        <div class="flex items-center gap-2 min-w-0">
+          <FolderOpenIcon size={14} class="text-amber-400 shrink-0" />
+          <span class="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)] shrink-0">
+            Textures
+          </span>
+          <Show when={props.textures.length > 0}>
+            <span class="font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--accent-color)]/20 text-[var(--accent-text)] border border-[var(--accent-color)]/40 font-semibold shrink-0">
+              {props.textures.length}
+            </span>
+          </Show>
+          <Show when={brush.texturePath()}>
+            <span class="text-xs text-[var(--text-muted)] truncate ml-1">
+              · {fileName(brush.texturePath()!, 'Texture')}
+            </span>
+          </Show>
+        </div>
 
-        <div class="flex items-center gap-1.5">
+        <div class="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+          <Button
+            variant="secondary"
+            size="xs"
+            onClick={props.onPickFolder}
+            title="Load folder of textures"
+          >
+            <FolderOpenIcon size={13} />
+            <span>Load Folder</span>
+          </Button>
+
+          <IconButton
+            size="xs"
+            variant="ghost"
+            onClick={props.onToggleCollapse}
+            tooltip="Expand Texture Drawer (Ctrl+B)"
+          >
+            <ChevronUpIcon size={14} />
+          </IconButton>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div class="w-full h-full flex flex-col bg-[var(--bg-panel)] border-t border-[var(--border-color)] select-none z-20 shrink-0 box-border">
+      <div class="h-9 px-3 flex items-center justify-between border-b border-[var(--border-color)] bg-[var(--bg-panel-header)] shrink-0 gap-3">
+        <div class="flex items-center gap-2.5 shrink-0">
+          <Label uppercase badge={props.textures.length}>
+            Textures
+          </Label>
+
+          <div class="flex items-center p-0.5 rounded-[var(--ui-radius)] bg-[var(--bg-input)] border border-[var(--border-color)]">
+            <button
+              type="button"
+              title="All loaded textures and material sets"
+              class={`flex items-center justify-center gap-1.5 py-0.5 px-2 rounded-[2px] text-xs font-medium transition-colors cursor-pointer ${
+                activeShelf() === 'all'
+                  ? 'bg-[var(--accent-color)] text-[var(--accent-text)] font-semibold shadow-xs'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5'
+              }`}
+              onClick={() => setActiveShelf('all')}
+            >
+              <span>All</span>
+            </button>
+            <button
+              type="button"
+              class={`flex items-center justify-center gap-1.5 py-0.5 px-2 rounded-[2px] text-xs font-medium transition-colors cursor-pointer ${
+                activeShelf() === 'used'
+                  ? 'bg-[var(--accent-color)] text-[var(--accent-text)] font-semibold shadow-xs'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5'
+              }`}
+              onClick={() => setActiveShelf('used')}
+              title="Textures you've painted, stamped, or filled with"
+            >
+              <span>Used</span>
+              <Show when={brush.recentTextures().length > 0}>
+                <span
+                  class={`font-mono text-[10px] px-1 rounded-full ${
+                    activeShelf() === 'used'
+                      ? 'bg-black/30 text-[var(--accent-text)]'
+                      : 'bg-white/10 text-[var(--text-muted)]'
+                  }`}
+                >
+                  {brush.recentTextures().length}
+                </span>
+              </Show>
+            </button>
+            <button
+              type="button"
+              class={`flex items-center justify-center gap-1.5 py-0.5 px-2 rounded-[2px] text-xs font-medium transition-colors cursor-pointer ${
+                activeShelf() === 'pasted'
+                  ? 'bg-[var(--accent-color)] text-[var(--accent-text)] font-semibold shadow-xs'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5'
+              }`}
+              onClick={() => setActiveShelf('pasted')}
+              title="Images pasted from the clipboard — kept in memory for this session only"
+            >
+              <span>Pasted</span>
+              <Show when={brush.pastedTextures().length > 0}>
+                <span
+                  class={`font-mono text-[10px] px-1 rounded-full ${
+                    activeShelf() === 'pasted'
+                      ? 'bg-black/30 text-[var(--accent-text)]'
+                      : 'bg-white/10 text-[var(--text-muted)]'
+                  }`}
+                >
+                  {brush.pastedTextures().length}
+                </span>
+              </Show>
+            </button>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2 flex-1 max-w-lg min-w-0">
+          <Show when={activeShelf() === 'all' && folders().length > 1}>
+            <div class="w-40 shrink-0">
+              <Select
+                size="xs"
+                class="w-full"
+                value={folderFilter()}
+                onChange={setFolderFilter}
+                options={folderOptions()}
+                title="Show textures from one subfolder of the loaded library"
+              />
+            </div>
+          </Show>
+
+          <Show when={sourceTextures().length > 0 || folderFilter() !== ALL_FOLDERS}>
+            <div class="flex-1 min-w-[120px]">
+              <SearchInput
+                value={searchQuery()}
+                onInput={setSearchQuery}
+                placeholder="Search textures..."
+              />
+            </div>
+          </Show>
+
+          <Show when={activeShelf() === 'pasted'}>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <Button
+                variant="primary"
+                size="xs"
+                onClick={() => void pasteFromClipboard()}
+                title="Paste the clipboard image as a texture (Ctrl+V)"
+              >
+                <ClipboardIcon size={12} />
+                <span>Paste Image</span>
+              </Button>
+              <Show when={brush.pastedTextures().length > 0}>
+                <IconButton
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => {
+                    const selected = selectedPasted()
+                    if (selected) {
+                      removePastedTexture(selected.url)
+                    } else {
+                      clearPastedTextures()
+                    }
+                  }}
+                  title={
+                    selectedPasted()
+                      ? `Discard ${selectedPasted()!.name}`
+                      : 'Discard every pasted texture'
+                  }
+                >
+                  <Trash2Icon size={12} class="text-[var(--text-muted)] hover:text-red-400" />
+                </IconButton>
+              </Show>
+            </div>
+          </Show>
+        </div>
+
+        <div class="flex items-center gap-1.5 shrink-0">
           <Button
             variant="secondary"
             size="xs"
@@ -246,7 +446,7 @@ export default function TextureShelf(props: {
             title="Load folder of textures"
           >
             <FolderOpenIcon size={14} />
-            <span>Load</span>
+            <span>Load Folder</span>
           </Button>
 
           <Show when={props.textures.length > 0}>
@@ -259,132 +459,20 @@ export default function TextureShelf(props: {
               <XIcon size={14} class="text-[var(--text-muted)] hover:text-red-400" />
             </IconButton>
           </Show>
-        </div>
-      </div>
 
-      <div class="px-2 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-panel-header)]">
-        <div class="flex items-center p-0.5 rounded-[var(--ui-radius)] bg-[var(--bg-input)] border border-[var(--border-color)]">
-          <button
-            type="button"
-            title="All loaded textures and material sets"
-            class={`flex-1 flex items-center justify-center gap-1.5 py-1 px-1.5 rounded-[2px] text-xs font-medium transition-colors cursor-pointer ${
-              activeShelf() === 'all'
-                ? 'bg-[var(--accent-color)] text-[var(--accent-text)] font-semibold shadow-xs'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5'
-            }`}
-            onClick={() => setActiveShelf('all')}
-          >
-            <span>All</span>
-          </button>
-          <button
-            type="button"
-            class={`flex-1 flex items-center justify-center gap-1.5 py-1 px-1.5 rounded-[2px] text-xs font-medium transition-colors cursor-pointer ${
-              activeShelf() === 'used'
-                ? 'bg-[var(--accent-color)] text-[var(--accent-text)] font-semibold shadow-xs'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5'
-            }`}
-            onClick={() => setActiveShelf('used')}
-            title="Textures you've painted, stamped, or filled with"
-          >
-            <span>Used</span>
-            <Show when={brush.recentTextures().length > 0}>
-              <span
-                class={`font-mono text-[10px] px-1 rounded-full ${
-                  activeShelf() === 'used'
-                    ? 'bg-black/30 text-[var(--accent-text)]'
-                    : 'bg-white/10 text-[var(--text-muted)]'
-                }`}
-              >
-                {brush.recentTextures().length}
-              </span>
-            </Show>
-          </button>
-          <button
-            type="button"
-            class={`flex-1 flex items-center justify-center gap-1.5 py-1 px-1.5 rounded-[2px] text-xs font-medium transition-colors cursor-pointer ${
-              activeShelf() === 'pasted'
-                ? 'bg-[var(--accent-color)] text-[var(--accent-text)] font-semibold shadow-xs'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5'
-            }`}
-            onClick={() => setActiveShelf('pasted')}
-            title="Images pasted from the clipboard — kept in memory for this session only"
-          >
-            <span>Pasted</span>
-            <Show when={brush.pastedTextures().length > 0}>
-              <span
-                class={`font-mono text-[10px] px-1 rounded-full ${
-                  activeShelf() === 'pasted'
-                    ? 'bg-black/30 text-[var(--accent-text)]'
-                    : 'bg-white/10 text-[var(--text-muted)]'
-                }`}
-              >
-                {brush.pastedTextures().length}
-              </span>
-            </Show>
-          </button>
-        </div>
-      </div>
-
-      {/* Paste toolbar — lives inside the Pasted tab rather than in the shelf
-          header, so the header keeps meaning "the loaded folder". */}
-      <Show when={activeShelf() === 'pasted'}>
-        <div class="px-2 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-panel)] flex items-center gap-1.5 shrink-0">
-          <Button
-            variant="primary"
-            size="xs"
-            class="flex-1"
-            onClick={() => void pasteFromClipboard()}
-            title="Paste the clipboard image as a texture (Ctrl+V)"
-          >
-            <ClipboardIcon size={12} />
-            <span>Paste Image</span>
-          </Button>
-          <Show when={brush.pastedTextures().length > 0}>
+          <Show when={props.onToggleCollapse}>
+            <div class="w-px h-4 bg-[var(--border-color)] mx-1" />
             <IconButton
               size="xs"
               variant="ghost"
-              onClick={() => {
-                const selected = selectedPasted()
-                if (selected) {
-                  removePastedTexture(selected.url)
-                } else {
-                  clearPastedTextures()
-                }
-              }}
-              title={
-                selectedPasted()
-                  ? `Discard ${selectedPasted()!.name}`
-                  : 'Discard every pasted texture'
-              }
+              onClick={props.onToggleCollapse}
+              tooltip="Collapse Texture Drawer (Ctrl+B)"
             >
-              <Trash2Icon size={12} class="text-[var(--text-muted)] hover:text-red-400" />
+              <ChevronDownIcon size={14} />
             </IconButton>
           </Show>
         </div>
-      </Show>
-
-      <Show when={activeShelf() === 'all' && folders().length > 1}>
-        <div class="px-2 pt-1.5 bg-[var(--bg-panel)] shrink-0">
-          <Select
-            size="xs"
-            class="w-full"
-            value={folderFilter()}
-            onChange={setFolderFilter}
-            options={folderOptions()}
-            title="Show textures from one subfolder of the loaded library"
-          />
-        </div>
-      </Show>
-
-      <Show when={sourceTextures().length > 0 || folderFilter() !== ALL_FOLDERS}>
-        <div class="px-2 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-panel)] shrink-0">
-          <SearchInput
-            value={searchQuery()}
-            onInput={setSearchQuery}
-            placeholder="Search textures..."
-          />
-        </div>
-      </Show>
+      </div>
 
       {/* Virtualized Texture Grid */}
       <div
@@ -439,13 +527,14 @@ export default function TextureShelf(props: {
               <div class="relative w-full" style={{ height: `${totalHeight()}px` }}>
                 <For each={visibleItems()}>
                   {({ item, index }) => {
-                    const row = Math.floor(index / COLS)
-                    const col = index % COLS
+                    const numCols = cols()
+                    const row = Math.floor(index / numCols)
+                    const col = index % numCols
                     const style = {
                       position: 'absolute' as const,
                       top: `${row * ROW_STEP}px`,
-                      left: col === 0 ? '0' : 'calc(50% + 5px)',
-                      width: 'calc(50% - 5px)'
+                      left: `${col * (CARD_WIDTH + COL_GAP)}px`,
+                      width: `${CARD_WIDTH}px`
                     }
 
                     if (item === SOLID_CARD) {
@@ -622,6 +711,6 @@ export default function TextureShelf(props: {
           </Show>
         </Show>
       </div>
-    </aside>
+    </div>
   )
 }

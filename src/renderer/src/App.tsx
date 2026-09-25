@@ -45,7 +45,6 @@ import { serializeProject, deserializeProject } from './utils/projectSerializer'
 import {
   SlidersIcon,
   LayersIcon,
-  FocusIcon,
   FolderOpenIcon,
   DownloadIcon,
   RefreshCwIcon,
@@ -55,6 +54,8 @@ import {
   PlusIcon,
   CubeIcon,
   ChevronDownIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   CheckIcon,
   PanelRightIcon
 } from './components/icons'
@@ -92,36 +93,90 @@ import {
 } from './paint/selectionGroups'
 import type { MeshCoatProject } from './utils/projectSerializer'
 import SelectionGroupsPanel from './components/SelectionGroupsPanel'
+import { loadLayoutProfile, saveLayoutProfile } from './utils/layoutProfile'
 
 export default function App(): JSX.Element {
-  const [activeTool, setActiveTool] = createSignal<ToolMode>('brush')
+  const initialProfile = loadLayoutProfile()
+
+  const [activeTool, setActiveToolSignal] = createSignal<ToolMode>(initialProfile.activeTool)
+  const setActiveTool = (tool: ToolMode): void => {
+    setActiveToolSignal(tool)
+    saveLayoutProfile({ activeTool: tool })
+  }
+
   const [showHelp, setShowHelp] = createSignal(false)
   const [showSettings, setShowSettings] = createSignal(false)
-  const [lightingMode, setLightingModeSignal] = createSignal<LightingMode>('showcase')
-  const [viewMode, setViewModeSignal] = createSignal<ChannelViewMode>('material')
-  const [wireframeVisible, setWireframeVisibleSignal] = createSignal(false)
+  const [lightingMode, setLightingModeSignal] = createSignal<LightingMode>(initialProfile.lightingMode)
+  const [viewMode, setViewModeSignal] = createSignal<ChannelViewMode>(initialProfile.viewMode)
+  const [wireframeVisible, setWireframeVisibleSignal] = createSignal(initialProfile.wireframeVisible)
   const [isolatePiece, setIsolatePieceSignal] = createSignal(false)
-  const [showUvPanel, setShowUvPanel] = createSignal(false)
+  const [showUvPanel, setShowUvPanelSignal] = createSignal(initialProfile.showUvPanel)
+  const setShowUvPanel = (show: boolean | ((prev: boolean) => boolean)): void => {
+    setShowUvPanelSignal((prev) => {
+      const next = typeof show === 'function' ? show(prev) : show
+      saveLayoutProfile({ showUvPanel: next })
+      return next
+    })
+  }
+
+  const [textureDrawerCollapsed, setTextureDrawerCollapsedSignal] = createSignal(
+    initialProfile.textureDrawerCollapsed
+  )
+  const setTextureDrawerCollapsed = (collapsed: boolean | ((prev: boolean) => boolean)): void => {
+    setTextureDrawerCollapsedSignal((prev) => {
+      const next = typeof collapsed === 'function' ? collapsed(prev) : collapsed
+      saveLayoutProfile({ textureDrawerCollapsed: next })
+      return next
+    })
+  }
+
+  const [textureDrawerHeight, setTextureDrawerHeightSignal] = createSignal(
+    initialProfile.textureDrawerHeight
+  )
+  const setTextureDrawerHeight = (height: number | ((prev: number) => number)): void => {
+    setTextureDrawerHeightSignal((prev) => {
+      const next = typeof height === 'function' ? height(prev) : height
+      saveLayoutProfile({ textureDrawerHeight: next })
+      return next
+    })
+  }
+
+  function startTextureDrawerResize(e: PointerEvent): void {
+    e.preventDefault()
+    const startY = e.clientY
+    const startH = textureDrawerHeight()
+    const onMove = (ev: PointerEvent) => {
+      const deltaY = startY - ev.clientY
+      const nextH = Math.max(140, Math.min(window.innerHeight * 0.6, startH + deltaY))
+      setTextureDrawerHeight(nextH)
+      saveLayoutProfile({ textureDrawerHeight: nextH })
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
 
   // --- Right sidebar sizing (issue #22) ---------------------------------
   const SIDEBAR_DEFAULT_WIDTH = 320
   const LAYERS_DEFAULT_HEIGHT = 340
   const SIDEBAR_SIZE_KEY = 'meshcoat:sidebar_size'
   let sidebarRef: HTMLElement | undefined
-  const loadSidebarSize = (): { width: number; layers: number } => {
-    try {
-      const raw = JSON.parse(localStorage.getItem(SIDEBAR_SIZE_KEY) ?? '{}')
-      return {
-        width: Number(raw.width) || SIDEBAR_DEFAULT_WIDTH,
-        layers: Number(raw.layers) || LAYERS_DEFAULT_HEIGHT
-      }
-    } catch {
-      return { width: SIDEBAR_DEFAULT_WIDTH, layers: LAYERS_DEFAULT_HEIGHT }
-    }
+
+  const [sidebarWidth, setSidebarWidth] = createSignal(initialProfile.sidebarWidth)
+  const [sidebarCollapsed, setSidebarCollapsedSignal] = createSignal(
+    initialProfile.sidebarCollapsed
+  )
+  const setSidebarCollapsed = (collapsed: boolean | ((prev: boolean) => boolean)): void => {
+    setSidebarCollapsedSignal((prev) => {
+      const next = typeof collapsed === 'function' ? collapsed(prev) : collapsed
+      saveLayoutProfile({ sidebarCollapsed: next })
+      return next
+    })
   }
-  const initialSidebar = loadSidebarSize()
-  const [sidebarWidth, setSidebarWidth] = createSignal(initialSidebar.width)
-  const [layersHeightRaw, setLayersHeight] = createSignal(initialSidebar.layers)
+  const [layersHeightRaw, setLayersHeight] = createSignal(initialProfile.layersHeight)
   const [windowHeight, setWindowHeight] = createSignal(window.innerHeight)
   const onWindowResize = (): void => {
     setWindowHeight(window.innerHeight)
@@ -136,10 +191,13 @@ export default function App(): JSX.Element {
   }
   function setSidebarSize(next: { width?: number; layers?: number }): void {
     if (next.width !== undefined) {
-      setSidebarWidth(Math.round(Math.min(Math.max(280, next.width), window.innerWidth * 0.5)))
+      const clampedWidth = Math.round(Math.min(Math.max(280, next.width), window.innerWidth * 0.5))
+      setSidebarWidth(clampedWidth)
+      saveLayoutProfile({ sidebarWidth: clampedWidth })
     }
     if (next.layers !== undefined) {
       setLayersHeight(next.layers)
+      saveLayoutProfile({ layersHeight: next.layers })
     }
     try {
       localStorage.setItem(
@@ -185,8 +243,29 @@ export default function App(): JSX.Element {
   const [piecesVersion, setPiecesVersion] = createSignal(0)
   const [showStencilPanel, setShowStencilPanel] = createSignal(false)
 
-  /** The docked tool-panel column beside the brush settings. */
-  const [showPanelDock, setShowPanelDock] = createSignal(true)
+  /** Whether the docked tool-panel column beside the brush settings is collapsed. */
+  const [toolPanelCollapsed, setToolPanelCollapsedSignal] = createSignal(
+    initialProfile.toolPanelCollapsed
+  )
+  const setToolPanelCollapsed = (collapsed: boolean | ((prev: boolean) => boolean)): void => {
+    setToolPanelCollapsedSignal((prev) => {
+      const next = typeof collapsed === 'function' ? collapsed(prev) : collapsed
+      saveLayoutProfile({ toolPanelCollapsed: next })
+      return next
+    })
+  }
+  const [toolPanelWidth, setToolPanelWidth] = createSignal(initialProfile.toolPanelWidth)
+
+  function startToolPanelResize(e: PointerEvent): void {
+    const startX = e.clientX
+    const startW = toolPanelWidth()
+    dragWith(e, 'col-resize', (ev) => {
+      const deltaX = startX - ev.clientX
+      const clamped = Math.round(Math.min(Math.max(200, startW + deltaX), window.innerWidth * 0.4))
+      setToolPanelWidth(clamped)
+      saveLayoutProfile({ toolPanelWidth: clamped })
+    })
+  }
   const [showExportWizard, setShowExportWizard] = createSignal(false)
 
   createEffect(() => {
@@ -194,7 +273,7 @@ export default function App(): JSX.Element {
     // sure the dock they live in is actually on screen — but only if the active
     // tool is one that owns a material panel.
     if (brush.texturePath() && toolUsesPanel(activeTool(), 'material')) {
-      setShowPanelDock(true)
+      setToolPanelCollapsed(false)
     }
   })
 
@@ -317,7 +396,11 @@ export default function App(): JSX.Element {
   const [showPieceMenu, setShowPieceMenu] = createSignal(false)
   const [showEdgeWearWizard, setShowEdgeWearWizard] = createSignal(false)
   /** Which view the lower sidebar panel shows. */
-  const [lowerTab, setLowerTab] = createSignal<'layers' | 'selections'>('layers')
+  const [lowerTab, setLowerTabSignal] = createSignal<'layers' | 'selections'>(initialProfile.lowerTab)
+  const setLowerTab = (tab: 'layers' | 'selections'): void => {
+    setLowerTabSignal(tab)
+    saveLayoutProfile({ lowerTab: tab })
+  }
 
   const activePieceName = (): string => modelPieces()[activePiece()]?.name ?? ''
 
@@ -730,11 +813,13 @@ export default function App(): JSX.Element {
   function selectLightingMode(mode: LightingMode): void {
     setLightingModeSignal(mode)
     viewportHandle?.setLightingMode(mode)
+    saveLayoutProfile({ lightingMode: mode })
   }
 
   function selectViewMode(mode: ChannelViewMode): void {
     setViewModeSignal(mode)
     viewportHandle?.setViewMode(mode)
+    saveLayoutProfile({ viewMode: mode })
     if (mode !== 'material' && !viewportHandle?.paintedChannels().includes(mode as PaintChannel)) {
       // Nothing has been painted into that channel, so there is no map to
       // inspect — say so rather than leaving the artist staring at the shaded
@@ -747,6 +832,7 @@ export default function App(): JSX.Element {
     const next = !wireframeVisible()
     setWireframeVisibleSignal(next)
     viewportHandle?.setWireframeVisible(next)
+    saveLayoutProfile({ wireframeVisible: next })
   }
 
   function toggleIsolatePiece(): void {
@@ -933,6 +1019,13 @@ export default function App(): JSX.Element {
         showToast('Inverted face selection', 'info')
         return
       }
+      if (e.key.toLowerCase() === 'b') {
+        e.preventDefault()
+        const next = !textureDrawerCollapsed()
+        setTextureDrawerCollapsed(next)
+        showToast(next ? 'Texture drawer collapsed' : 'Texture drawer expanded', 'info')
+        return
+      }
       return
     }
 
@@ -970,12 +1063,12 @@ export default function App(): JSX.Element {
       case '9':
       case 'y':
         setActiveTool('text')
-        setShowPanelDock(true)
+        setToolPanelCollapsed(false)
         break
       case '8':
       case 'p':
         setActiveTool('faceProjector')
-        setShowPanelDock(true)
+        setToolPanelCollapsed(false)
         break
       case '7':
       case 'u':
@@ -986,7 +1079,7 @@ export default function App(): JSX.Element {
           showToast(`Effect: ${EFFECT_MODE_LABELS[nextMode]}`, 'info', 1000)
         } else {
           setActiveTool('effect')
-          setShowPanelDock(true)
+          setToolPanelCollapsed(false)
         }
         break
       case 's': {
@@ -997,7 +1090,7 @@ export default function App(): JSX.Element {
             break
           }
           setShowStencilPanel((v) => !v)
-          setShowPanelDock(true)
+          setToolPanelCollapsed(false)
         }
         break
       }
@@ -1045,9 +1138,9 @@ export default function App(): JSX.Element {
       }
       case 'c': {
         if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-          const next = !showPanelDock()
-          setShowPanelDock(next)
-          showToast(next ? 'Tool panels shown' : 'Tool panels hidden', 'info')
+          const next = !toolPanelCollapsed()
+          setToolPanelCollapsed(next)
+          showToast(next ? 'Tool panels collapsed' : 'Tool panels expanded', 'info')
         }
         break
       }
@@ -1154,17 +1247,31 @@ export default function App(): JSX.Element {
    * a one-way door — nothing in the UI could bring it back.
    */
   /**
-   * The dock holds every tool panel now, so this menu is about the dock itself
-   * plus the one panel that is a mode as well as a panel (the stencil).
+   * Panels can be collapsed/hidden or expanded/shown, never fully removed.
    */
   const panelMenuItems = (): MenuItem[] => [
     { type: 'header', label: 'Workspace' },
     {
-      label: showPanelDock() ? 'Hide Tool Panels' : 'Show Tool Panels',
+      label: textureDrawerCollapsed() ? 'Show Texture Drawer' : 'Hide Texture Drawer',
+      shortcut: 'Ctrl+B',
+      icon: (p) => <FolderOpenIcon size={p.size} class="text-amber-400" />,
+      onClick: () => {
+        setTextureDrawerCollapsed((v) => !v)
+      }
+    },
+    {
+      label: toolPanelCollapsed() ? 'Show Tool Panels' : 'Hide Tool Panels',
       shortcut: 'C',
       icon: (p) => <PanelRightIcon size={p.size} class="text-blue-400" />,
       onClick: () => {
-        setShowPanelDock((v) => !v)
+        setToolPanelCollapsed((v) => !v)
+      }
+    },
+    {
+      label: sidebarCollapsed() ? 'Show Sidebar (Brush & Layers)' : 'Hide Sidebar (Brush & Layers)',
+      icon: (p) => <LayersIcon size={p.size} class="text-purple-400" />,
+      onClick: () => {
+        setSidebarCollapsed((v) => !v)
       }
     },
     {
@@ -1176,7 +1283,7 @@ export default function App(): JSX.Element {
         const next = !showStencilPanel()
         setShowStencilPanel(next)
         if (next) {
-          setShowPanelDock(true)
+          setToolPanelCollapsed(false)
         }
       }
     }
@@ -1282,24 +1389,51 @@ export default function App(): JSX.Element {
       label: 'Edge Wear & Highlights...',
       icon: (p) => <EdgeWearIcon size={p.size} class="text-amber-400" />,
       onClick: () => setShowEdgeWearWizard(true)
+    }
+  ]
+
+  const selectionMenuItems = (): MenuItem[] => [
+    {
+      label: 'Select All Faces',
+      shortcut: 'Ctrl+A',
+      onClick: () => {
+        viewportHandle?.selectAllFaces()
+        const count = viewportHandle?.getTotalFaces() ?? 0
+        if (count > 0) {
+          showToast(`Selected all ${count} faces`, 'info')
+        }
+      }
+    },
+    {
+      label: 'Deselect',
+      shortcut: 'Esc',
+      disabled: brush.selectedFaces().size === 0,
+      onClick: () => {
+        clearFaceSelection()
+        showToast('Cleared face selection', 'info')
+      }
+    },
+    {
+      label: 'Invert Selection',
+      shortcut: 'Ctrl+I',
+      onClick: () => {
+        viewportHandle?.invertFaceSelection()
+        showToast('Inverted face selection', 'info')
+      }
     },
     { type: 'divider' },
-    {
-      label: 'Frame Model in Viewport',
-      shortcut: 'F',
-      icon: (p) => <FocusIcon size={p.size} />,
-      onClick: frameCamera
-    },
-    {
-      label: 'Deselect Faces',
-      shortcut: 'Esc',
-      onClick: clearFaceSelection
-    },
     {
       label: 'Save Selection as Group...',
       icon: (p) => <BookmarkIcon size={p.size} class="text-amber-400" />,
       disabled: brush.selectedFaces().size === 0,
-      onClick: () => setLowerTab('selections')
+      onClick: () => {
+        const count = selectionGroups().filter((g) => g.piece === activePieceName()).length
+        const defaultName = `Selection ${count + 1}`
+        const name = window.prompt('Enter selection group name:', defaultName)
+        if (name && name.trim()) {
+          saveCurrentSelectionGroup(name.trim())
+        }
+      }
     },
     {
       label: 'Selection Groups',
@@ -1324,13 +1458,16 @@ export default function App(): JSX.Element {
         isRestoringSession={isRestoringSession()}
         fileMenuItems={fileMenuItems()}
         editMenuItems={editMenuItems()}
+        selectionMenuItems={selectionMenuItems()}
         panelMenuItems={panelMenuItems()}
         lightingMode={lightingMode()}
         onSelectLightingMode={selectLightingMode}
         viewMode={viewMode()}
         onSelectViewMode={selectViewMode}
-        showPanelDock={showPanelDock()}
-        onTogglePanelDock={() => setShowPanelDock((v) => !v)}
+        showPanelDock={!toolPanelCollapsed()}
+        onTogglePanelDock={() => setToolPanelCollapsed((v) => !v)}
+        sidebarCollapsed={sidebarCollapsed()}
+        onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
         wireframeVisible={wireframeVisible()}
         onToggleWireframe={toggleWireframe}
         showUvPanel={showUvPanel()}
@@ -1366,7 +1503,7 @@ export default function App(): JSX.Element {
                 stencilPanelOpen: showStencilPanel()
               }).length > 0
             ) {
-              setShowPanelDock(true)
+              setToolPanelCollapsed(false)
             }
           }}
           showStencilPanel={showStencilPanel()}
@@ -1376,7 +1513,7 @@ export default function App(): JSX.Element {
             // Only reveal the dock if the active tool is one that shows the
             // stencil panel — the eyedropper and face tools never do.
             if (next && toolUsesPanel(activeTool(), 'stencil')) {
-              setShowPanelDock(true)
+              setToolPanelCollapsed(false)
             }
           }}
           showEdgeWearWizard={showEdgeWearWizard()}
@@ -1391,19 +1528,8 @@ export default function App(): JSX.Element {
           onFrameCamera={frameCamera}
         />
 
-        <TextureShelf
-          textures={textures()}
-          textureRoot={textureRoot()}
-          onPickFolder={pickTextureFolder}
-          onClearFolder={clearTextureFolder}
-          onToast={showToast}
-          isMaskTarget={() => {
-            void layersVersion()
-            return !!viewportHandle?.getLayerStack()?.active?.isMask
-          }}
-        />
-
-        <main class="flex-1 relative overflow-hidden bg-[var(--bg-main)]">
+        <div class="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+          <main class="flex-1 relative overflow-hidden bg-[var(--bg-main)]">
           <Show when={brush.selectionHighlightHidden()}>
             <div class="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/95 text-black text-xs font-semibold shadow-lg pointer-events-auto">
               <span>
@@ -1435,6 +1561,9 @@ export default function App(): JSX.Element {
             onToolChange={(t) => setActiveTool(t)}
             onReady={(h) => {
               viewportHandle = h
+              h.setLightingMode(lightingMode())
+              h.setViewMode(viewMode())
+              h.setWireframeVisible(wireframeVisible())
               void restoreSessionInBackground()
               setTimeout(() => {
                 initialMountDone = true
@@ -1451,78 +1580,170 @@ export default function App(): JSX.Element {
                 viewportHandle?.setIsolateActivePiece(false)
               }
             }}
-            onWireframeChanged={setWireframeVisibleSignal}
+            onWireframeChanged={(visible) => {
+              setWireframeVisibleSignal(visible)
+              saveLayoutProfile({ wireframeVisible: visible })
+            }}
             onIsolatePieceChanged={setIsolatePieceSignal}
           />
 
           <Toast toast={toast()} onClose={() => setToast(null)} />
         </main>
 
-        {/* Right Sidebar Inspector */}
+        {/* Bottom Texture Drawer */}
+        <div
+          class="relative flex flex-col shrink-0 select-none z-20 overflow-hidden box-border"
+          style={{ height: textureDrawerCollapsed() ? '36px' : `${textureDrawerHeight()}px` }}
+        >
+          {/* Top edge drag handle to resize the drawer */}
+          <Show when={!textureDrawerCollapsed()}>
+            <div
+              class="absolute -top-1 left-0 right-0 h-2 z-30 cursor-row-resize hover:bg-[var(--accent-color)]/50 active:bg-[var(--accent-color)]"
+              title="Drag to resize texture drawer (double-click to reset)"
+              onPointerDown={startTextureDrawerResize}
+              onDblClick={() => setTextureDrawerHeight(220)}
+            />
+          </Show>
+          <TextureShelf
+            textures={textures()}
+            textureRoot={textureRoot()}
+            onPickFolder={pickTextureFolder}
+            onClearFolder={clearTextureFolder}
+            onToast={showToast}
+            collapsed={textureDrawerCollapsed()}
+            onToggleCollapse={() => setTextureDrawerCollapsed((v) => !v)}
+            isMaskTarget={() => {
+              void layersVersion()
+              return !!viewportHandle?.getLayerStack()?.active?.isMask
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Right Sidebar Inspector */}
         {/* Tool panel dock: everything that used to float over the viewport,
             in one column that slides out beside the brush settings. */}
-        <Show when={showPanelDock()}>
-          <div class="w-[300px] min-w-[300px] max-w-[300px] h-full z-20 flex-shrink-0 animate-in slide-in-from-right-4 duration-150">
-            <ToolPanelDock
-              activeTool={activeTool()}
-              textures={textures()}
-              isMaskTarget={() => {
-                void layersVersion()
-                return !!viewportHandle?.getLayerStack()?.active?.isMask
-              }}
-              onStamp={() => viewportHandle?.stampStencil() ?? false}
-              onToast={showToast}
-              onFillSelection={handleFillActiveLayer}
-              stencilPanelOpen={showStencilPanel()}
-            />
-          </div>
-        </Show>
+        <div class="h-full z-20 flex-shrink-0">
+          <ToolPanelDock
+            activeTool={activeTool()}
+            textures={textures()}
+            isMaskTarget={() => {
+              void layersVersion()
+              return !!viewportHandle?.getLayerStack()?.active?.isMask
+            }}
+            onStamp={() => viewportHandle?.stampStencil() ?? false}
+            onToast={showToast}
+            onFillSelection={handleFillActiveLayer}
+            stencilPanelOpen={showStencilPanel()}
+            collapsed={toolPanelCollapsed()}
+            onToggleCollapse={() => setToolPanelCollapsed((v) => !v)}
+            width={toolPanelWidth()}
+            onStartResize={startToolPanelResize}
+            onResetWidth={() => {
+              setToolPanelWidth(300)
+              saveLayoutProfile({ toolPanelWidth: 300 })
+            }}
+          />
+        </div>
 
         <aside
           ref={sidebarRef}
           class="relative h-full bg-[var(--bg-panel)] border-l border-[var(--border-color)] flex flex-col select-none z-20 shrink-0"
-          style={{ width: `${sidebarWidth()}px` }}
+          style={{ width: sidebarCollapsed() ? '32px' : `${sidebarWidth()}px` }}
         >
           {/* Left edge: drag to widen the whole sidebar. */}
-          <div
-            class="absolute left-0 top-0 bottom-0 w-1.5 -ml-0.5 z-30 cursor-col-resize hover:bg-[var(--accent-color)]/50 active:bg-[var(--accent-color)]"
-            title="Drag to resize the sidebar (double-click to reset)"
-            onPointerDown={startSidebarResize}
-            onDblClick={() => setSidebarSize({ width: SIDEBAR_DEFAULT_WIDTH })}
-          />
+          <Show when={!sidebarCollapsed()}>
+            <div
+              class="absolute left-0 top-0 bottom-0 w-1.5 -ml-0.5 z-30 cursor-col-resize hover:bg-[var(--accent-color)]/50 active:bg-[var(--accent-color)]"
+              title="Drag to resize the sidebar (double-click to reset)"
+              onPointerDown={startSidebarResize}
+              onDblClick={() => setSidebarSize({ width: SIDEBAR_DEFAULT_WIDTH })}
+            />
+          </Show>
           <Show
-            when={!showEdgeWearWizard()}
+            when={!sidebarCollapsed()}
             fallback={
-              <Suspense fallback={null}>
-                <EdgeWearWizard
-                  isOpen={showEdgeWearWizard()}
-                  initialColor={brush.color()}
-                  textures={textures()}
-                  onClose={() => setShowEdgeWearWizard(false)}
-                  onPreview={(params, asNewLayer, newLayerBackground) =>
-                    viewportHandle?.previewEdgeWear(params, asNewLayer, newLayerBackground)
-                  }
-                  onCancel={() => viewportHandle?.cancelEdgeWearPreview()}
-                  onCommit={(params, asNewLayer, newLayerBackground) => {
-                    viewportHandle?.commitEdgeWear(params, asNewLayer, newLayerBackground)
-                    bumpLayers()
-                    const label = params.mode === 'cavity' ? 'Crevice Dirt' : 'Edge Wear'
-                    showToast(
-                      asNewLayer
-                        ? `Created "${label}" layer`
-                        : `Applied ${label.toLowerCase()} to active layer`,
-                      'success'
-                    )
-                  }}
-                />
-              </Suspense>
+              <div
+                class="h-full w-8 min-w-8 max-w-8 flex flex-col items-center bg-[var(--bg-panel-header)] select-none z-20 cursor-pointer hover:bg-white/5 transition-colors"
+                onClick={() => setSidebarCollapsed(false)}
+                title="Expand Sidebar (Brush & Layers)"
+              >
+                <div class="h-9 flex items-center justify-center shrink-0">
+                  <IconButton
+                    size="xs"
+                    variant="ghost"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setSidebarCollapsed(false)
+                    }}
+                    tooltip="Expand Sidebar (Brush & Layers)"
+                  >
+                    <ChevronLeftIcon size={14} />
+                  </IconButton>
+                </div>
+                <div class="flex-1 flex flex-col items-center justify-center gap-2 py-4">
+                  <div class="flex flex-col items-center gap-2">
+                    <SlidersIcon size={14} class="text-[var(--accent-color)]" />
+                    <LayersIcon size={14} class="text-purple-400" />
+                  </div>
+                  <span
+                    class="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]"
+                    style={{ 'writing-mode': 'vertical-rl', transform: 'rotate(180deg)' }}
+                  >
+                    Brush & Layers
+                  </span>
+                  <Show when={currentLayerCount() > 0}>
+                    <span class="w-4 h-4 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 text-[10px] font-bold flex items-center justify-center">
+                      {currentLayerCount()}
+                    </span>
+                  </Show>
+                </div>
+              </div>
             }
           >
-            <div class="flex-1 overflow-y-auto border-b border-[var(--border-color)]">
-              <div class="h-9 px-3 flex items-center gap-2 border-b border-[var(--border-color)] bg-[var(--bg-panel-header)]">
-                <SlidersIcon size={15} class="text-[var(--accent-color)]" />
-                <Label uppercase>Brush Settings</Label>
-              </div>
+            <Show
+              when={!showEdgeWearWizard()}
+              fallback={
+                <Suspense fallback={null}>
+                  <EdgeWearWizard
+                    isOpen={showEdgeWearWizard()}
+                    initialColor={brush.color()}
+                    textures={textures()}
+                    onClose={() => setShowEdgeWearWizard(false)}
+                    onPreview={(params, asNewLayer, newLayerBackground) =>
+                      viewportHandle?.previewEdgeWear(params, asNewLayer, newLayerBackground)
+                    }
+                    onCancel={() => viewportHandle?.cancelEdgeWearPreview()}
+                    onCommit={(params, asNewLayer, newLayerBackground) => {
+                      viewportHandle?.commitEdgeWear(params, asNewLayer, newLayerBackground)
+                      bumpLayers()
+                      const label = params.mode === 'cavity' ? 'Crevice Dirt' : 'Edge Wear'
+                      showToast(
+                        asNewLayer
+                          ? `Created "${label}" layer`
+                          : `Applied ${label.toLowerCase()} to active layer`,
+                        'success'
+                      )
+                    }}
+                  />
+                </Suspense>
+              }
+            >
+              <div class="flex-1 overflow-y-auto border-b border-[var(--border-color)]">
+                <div class="h-9 px-3 flex items-center justify-between border-b border-[var(--border-color)] bg-[var(--bg-panel-header)] shrink-0">
+                  <div class="flex items-center gap-2">
+                    <SlidersIcon size={15} class="text-[var(--accent-color)]" />
+                    <Label uppercase>Brush Settings</Label>
+                  </div>
+                  <IconButton
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => setSidebarCollapsed(true)}
+                    tooltip="Collapse Sidebar (Brush & Layers)"
+                  >
+                    <ChevronRightIcon size={14} />
+                  </IconButton>
+                </div>
               <BrushSettingsTab
                 activeTool={activeTool()}
                 isMaskTarget={() => {
@@ -1646,14 +1867,6 @@ export default function App(): JSX.Element {
                       }))}
                     />
                   </div>
-                  <IconButton
-                    size="xs"
-                    variant="ghost"
-                    onClick={() => viewportHandle?.focusPiece()}
-                    tooltip="Frame this piece"
-                  >
-                    <FocusIcon size={14} />
-                  </IconButton>
                 </div>
               </Show>
               <div class="flex-1 overflow-hidden">
@@ -1683,6 +1896,7 @@ export default function App(): JSX.Element {
               </div>
             </div>
           </Show>
+          </Show>
         </aside>
       </div>
 
@@ -1694,7 +1908,6 @@ export default function App(): JSX.Element {
         selectedFaceCount={brush.selectedFaces().size}
         onOpenHelp={() => setShowHelp(true)}
         onClearFaceSelection={clearFaceSelection}
-        onFrameCamera={frameCamera}
       />
 
       {/* Lazy Modals */}

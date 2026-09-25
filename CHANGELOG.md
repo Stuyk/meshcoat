@@ -1,6 +1,6 @@
 # Changelog
 
-## v2.6.0
+## v3.0.0
 
 ### Added
 - **Gradient Tool (D)** ([#6](https://github.com/Stuyk/slip-texture-paint/issues/6)): Drag across the model to paint a color ramp onto whatever is visible under the line. Any number of stops with their own color, position and opacity; linear or radial; past the ends the ramp either extends or clips. Shift snaps to 45°. Uses the brush opacity and stays inside a face selection.
@@ -17,6 +17,8 @@
 - **Stencil Texture Search** ([#26](https://github.com/Stuyk/slip-texture-paint/issues/26)): The stencil panel's project textures are searchable and show a capped, lazily loaded result grid, and a button uses the brush's current texture as the stencil.
 - **Resizable Sidebar and Layers** ([#22](https://github.com/Stuyk/slip-texture-paint/issues/22)): Drag the bar between brush settings and layers to resize the layers panel (double-click toggles half height), and drag the sidebar's left edge to widen it. Sizes are remembered.
 - **Collapsible Stylus Settings**: Stylus pressure, projector depth and max angle live in a collapsible "Stylus & Projection" section.
+
+- **Layout**: The texture drawer is now bottom bound. All panels are collapseable.
 
 ### Fixed
 - **Color Picker Rejected Pasted Colors** ([#29](https://github.com/Stuyk/slip-texture-paint/issues/29)): The hex field truncated input to six characters and added a second `#`, so pasting `#ff0000` failed.

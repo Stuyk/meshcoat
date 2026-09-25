@@ -8,7 +8,7 @@ import {
   parseCssColor,
   type HSV
 } from '../../utils/colorUtils'
-import { EyedropperIcon, CopyIcon, CheckIcon, AppWindowIcon } from '../icons'
+import { EyedropperIcon, CopyIcon, CheckIcon, AppWindowIcon, PlusIcon } from '../icons'
 
 export interface ColorPickerProps {
   color: string
@@ -356,6 +356,16 @@ export default function ColorPicker(props: ColorPickerProps) {
         >
           {copied() ? <CheckIcon size={13} class="text-emerald-400" /> : <CopyIcon size={13} />}
         </button>
+        <Show when={props.onSaveColor}>
+          <button
+            type="button"
+            onClick={() => props.onSaveColor?.(props.color)}
+            title="Save active color to Swatches (+)"
+            class="text-zinc-500 hover:text-emerald-400 cursor-pointer ml-1.5 transition-colors"
+          >
+            <PlusIcon size={13} />
+          </button>
+        </Show>
       </div>
 
       {/* Channel values */}

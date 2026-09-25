@@ -3,6 +3,7 @@ import type { UvPanelApi } from '../viewport/viewportTypes'
 import { brush, setOpacity, setHardness } from '../paint/brush'
 import { FitIcon, WireframeIcon, XIcon } from './icons'
 import { IconButton, Slider } from './ui'
+import { loadLayoutProfile, saveLayoutProfile } from '../utils/layoutProfile'
 
 export interface UvPaintPanelProps {
   api: UvPanelApi
@@ -407,6 +408,7 @@ export default function UvPaintPanel(props: UvPaintPanelProps): JSX.Element {
     const up = (): void => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
+      saveLayoutProfile({ uvPanelX: pos().x, uvPanelY: pos().y })
     }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
@@ -435,19 +437,34 @@ export default function UvPaintPanel(props: UvPaintPanelProps): JSX.Element {
   })
 
   onMount(() => {
+    const profile = loadLayoutProfile()
+    const targetW = profile.uvPanelWidth || 560
+    const targetH = profile.uvPanelHeight || 640
+
     if (root) {
-      // Set once, not bound in the style: re-applying it on every move would
-      // undo whatever size the user dragged the panel to.
-      root.style.width = '560px'
-      root.style.height = '640px'
+      root.style.width = `${targetW}px`
+      root.style.height = `${targetH}px`
     }
+
+    const defaultX = Math.max(16, window.innerWidth - targetW - 40)
+    const defaultY = Math.max(56, window.innerHeight - targetH - 60)
     setPos({
-      x: Math.max(16, window.innerWidth - 940),
-      y: Math.max(56, window.innerHeight - 700)
+      x: profile.uvPanelX !== null ? Math.min(profile.uvPanelX, window.innerWidth - 100) : defaultX,
+      y: profile.uvPanelY !== null ? Math.min(profile.uvPanelY, window.innerHeight - 60) : defaultY
     })
+
     const ro = new ResizeObserver(() => {
       viewDirty = true
+      if (root && root.clientWidth > 0 && root.clientHeight > 0) {
+        saveLayoutProfile({
+          uvPanelWidth: root.clientWidth,
+          uvPanelHeight: root.clientHeight
+        })
+      }
     })
+    if (root) {
+      ro.observe(root)
+    }
     if (wrap) {
       ro.observe(wrap)
     }

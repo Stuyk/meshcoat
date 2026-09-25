@@ -1,6 +1,5 @@
 import { Show, type JSX } from 'solid-js'
 import { brush, setTextureMapping } from '../paint/brush'
-import { CHANNEL_SPECS, PAINT_CHANNELS } from '../paint/channels'
 import type { ToolMode } from '../paint/brush'
 import { stencil } from '../paint/stencil'
 import { EFFECT_MODE_LABELS } from '../paint/effectShader'
@@ -14,7 +13,6 @@ import {
   DropletsIcon,
   LineIcon,
   HelpCircleIcon,
-  FocusIcon,
   CompassIcon,
   TextIcon,
   XIcon, EyeIcon, EyeOffIcon,
@@ -29,7 +27,6 @@ export interface StatusBarProps {
   selectedFaceCount: number
   onOpenHelp: () => void
   onClearFaceSelection: () => void
-  onFrameCamera: () => void
 }
 
 type ToolIcon = (props: { size?: number; class?: string }) => JSX.Element
@@ -238,47 +235,11 @@ export default function StatusBar(props: StatusBarProps): JSX.Element {
           </div>
         </Show>
 
-        <Show when={props.tool === 'brush'}>
-          <div
-            class="hidden 2xl:flex items-center gap-1 text-[11px] text-[var(--text-muted)]"
-            title="Active PBR paint channels written per stroke"
-          >
-            <span class="font-medium">Channels:</span>
-            <div class="flex items-center gap-0.5">
-              {PAINT_CHANNELS.map((ch) => {
-                const on = () => brush.channelEnabled()[ch]
-                return (
-                  <span
-                    class={`px-1 rounded-[2px] font-mono text-[9px] font-bold ${
-                      on()
-                        ? 'text-[var(--accent-color)] bg-[var(--accent-color)]/10'
-                        : 'text-zinc-600 line-through'
-                    }`}
-                  >
-                    {CHANNEL_SPECS[ch].short}
-                  </span>
-                )
-              })}
-            </div>
-          </div>
-        </Show>
-
         <div class="hidden md:flex items-center gap-1 font-mono text-[11px] text-[var(--text-muted)] px-1.5">
           <span>
             {props.textureSize}×{props.textureSize}
           </span>
         </div>
-
-        <button
-          type="button"
-          class="flex items-center gap-1 text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors cursor-pointer px-1 py-0.5 rounded-[var(--ui-radius)] hover:bg-white/5 text-[11px]"
-          onClick={props.onFrameCamera}
-          title="Frame model (F)"
-        >
-          <FocusIcon size={12} />
-          <span class="hidden sm:inline">Frame</span>
-          <Kbd size="xs">F</Kbd>
-        </button>
 
         <button
           type="button"

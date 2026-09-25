@@ -115,6 +115,17 @@ export function deleteCustomPalette(id: string): void {
   persist()
 }
 
+export function addCustomPalette(name: string, colors: string[]): PalettePreset {
+  const palette: PalettePreset = {
+    id: `custom-${Date.now().toString(36)}`,
+    name: name.trim() || `My Palette ${customPalettes().length + 1}`,
+    colors: cleanColors(colors).slice(0, 48)
+  }
+  setCustomPalettesRaw((prev) => [...prev, palette])
+  persist()
+  return palette
+}
+
 export const colorLibrary = {
   savedSwatches,
   customPalettes,
@@ -122,5 +133,6 @@ export const colorLibrary = {
   saveSwatchesAsPalette,
   renameCustomPalette,
   deleteCustomPalette,
+  addCustomPalette,
   hydrateColorLibrary
 }

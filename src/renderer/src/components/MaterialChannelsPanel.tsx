@@ -36,6 +36,8 @@ export default function MaterialChannelsPanel(props: MaterialChannelsPanelProps)
       title="Material Channels"
       icon={(p) => <MaterialChannelsIcon size={p.size} class="text-amber-400" />}
       badge={enabledCount()}
+      collapsible={false}
+      defaultOpen={true}
     >
       <Show
         when={!disabled()}
