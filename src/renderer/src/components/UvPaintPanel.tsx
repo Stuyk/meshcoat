@@ -298,9 +298,14 @@ export default function UvPaintPanel(props: UvPaintPanelProps): JSX.Element {
       // Horizontal drag scales the brush; the cursor stays put so the ring
       // visibly grows around it.
       setSizePx(resizing.start * Math.exp((e.clientX - resizing.x) * 0.01))
+      const h = hover()
+      if (h) {
+        props.api.hover({ u: h.u, v: h.v, radiusPx: sizePx() })
+      }
       return
     }
     setHover({ x: p.x, y: p.y, u, v })
+    props.api.hover({ u, v, radiusPx: sizePx() })
     viewDirty = true
     if (panning) {
       const dx = e.clientX - panning.x
@@ -574,6 +579,7 @@ export default function UvPaintPanel(props: UvPaintPanelProps): JSX.Element {
           onPointerCancel={onPointerUp}
           onPointerLeave={() => {
             setHover(null)
+            props.api.hover(null)
             viewDirty = true
           }}
           onPointerEnter={() => viewCanvas?.focus({ preventScroll: true })}

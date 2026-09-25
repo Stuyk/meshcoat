@@ -21,6 +21,13 @@ export interface GizmoUpdateContext {
   getBrushTexture: () => THREE.Texture | null
   activeMesh: () => THREE.Mesh | undefined
   getMirroredHit: (hit: SurfaceHit) => SurfaceHit | null
+  /**
+   * World-space ring radius to draw instead of (ctx.radius ?? brush.radius()) — the 2D panel
+   * sizes its dab in texels, so the matching 3D cursor has to be converted.
+   */
+  radius?: number
+  /** Skip the symmetry mirror reticle (the 2D panel doesn't mirror). */
+  noMirror?: boolean
 }
 
 /**
@@ -230,11 +237,11 @@ function applyToolVisibility(
     if (hasTip) {
       gizmoHandle.brushRing.visible = false
       gizmoHandle.brushTipMesh.visible = true
-      gizmoHandle.brushTipMesh.scale.setScalar(brush.radius())
+      gizmoHandle.brushTipMesh.scale.setScalar(ctx.radius ?? brush.radius())
     } else {
       gizmoHandle.brushTipMesh.visible = false
       gizmoHandle.brushRing.visible = true
-      gizmoHandle.brushRing.scale.setScalar(brush.radius())
+      gizmoHandle.brushRing.scale.setScalar(ctx.radius ?? brush.radius())
     }
     gizmoHandle.stampPreviewMesh.visible = false
     hideHoverFace()
@@ -245,20 +252,20 @@ function applyToolVisibility(
     gizmoHandle.stampPreviewMesh.visible = showStampColorPreview
     if (showStampColorPreview) {
       gizmoHandle.stampReticle.visible = true
-      gizmoHandle.stampReticle.scale.setScalar(brush.radius())
-      gizmoHandle.stampPreviewMesh.scale.setScalar(brush.radius())
+      gizmoHandle.stampReticle.scale.setScalar(ctx.radius ?? brush.radius())
+      gizmoHandle.stampPreviewMesh.scale.setScalar(ctx.radius ?? brush.radius())
       gizmoHandle.brushTipMesh.visible = false
       gizmoHandle.brushRing.visible = false
     } else if (hasTip) {
       gizmoHandle.stampReticle.visible = false
       gizmoHandle.brushRing.visible = false
       gizmoHandle.brushTipMesh.visible = true
-      gizmoHandle.brushTipMesh.scale.setScalar(brush.radius())
+      gizmoHandle.brushTipMesh.scale.setScalar(ctx.radius ?? brush.radius())
     } else {
       gizmoHandle.stampReticle.visible = false
       gizmoHandle.brushTipMesh.visible = false
       gizmoHandle.brushRing.visible = true
-      gizmoHandle.brushRing.scale.setScalar(brush.radius())
+      gizmoHandle.brushRing.scale.setScalar(ctx.radius ?? brush.radius())
     }
     hideHoverFace()
   } else if (tool === 'eyedropper') {
@@ -316,17 +323,17 @@ function updateMirrorReticle(
     gizmoHandle.mirrorBrushRing.visible = false
     gizmoHandle.mirrorBrushTipMesh.visible = false
     gizmoHandle.mirrorStampPreviewMesh.visible = true
-    gizmoHandle.mirrorStampPreviewMesh.scale.setScalar(brush.radius())
+    gizmoHandle.mirrorStampPreviewMesh.scale.setScalar(ctx.radius ?? brush.radius())
   } else if (hasTip) {
     gizmoHandle.mirrorBrushRing.visible = false
     gizmoHandle.mirrorBrushTipMesh.visible = true
     gizmoHandle.mirrorStampPreviewMesh.visible = false
-    gizmoHandle.mirrorBrushTipMesh.scale.setScalar(brush.radius())
+    gizmoHandle.mirrorBrushTipMesh.scale.setScalar(ctx.radius ?? brush.radius())
   } else {
     gizmoHandle.mirrorBrushTipMesh.visible = false
     gizmoHandle.mirrorStampPreviewMesh.visible = false
     gizmoHandle.mirrorBrushRing.visible = true
-    gizmoHandle.mirrorBrushRing.scale.setScalar(brush.radius())
+    gizmoHandle.mirrorBrushRing.scale.setScalar(ctx.radius ?? brush.radius())
   }
 }
 
@@ -365,5 +372,9 @@ export function updateGizmo(ctx: GizmoUpdateContext, hit: SurfaceHit | null): vo
   updateBrushTipUniforms(gizmoHandle, brushTipTexture, brushTexture, tool, showStampColorPreview)
   resetGizmoVisibility(gizmoHandle)
   applyToolVisibility(ctx, gizmoHandle, hit, tool, hasTip, showStampColorPreview, reticleScale)
+  if (ctx.noMirror) {
+    gizmoHandle.mirrorGroup.visible = false
+    return
+  }
   updateMirrorReticle(ctx, gizmoHandle, hit, tool, hasTip, showStampColorPreview)
 }

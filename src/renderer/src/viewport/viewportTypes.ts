@@ -32,6 +32,8 @@ export interface UvPanelApi {
   pointerDown: (u: number, v: number, e: PointerEvent, radiusPx: number) => void
   pointerMove: (u: number, v: number, e: PointerEvent, radiusPx: number) => void
   pointerUp: () => void
+  /** Shows the 3D brush cursor where the 2D cursor is; null hides it. */
+  hover: (uv: { u: number; v: number; radiusPx: number } | null) => void
   /** Whether a UV lands on the active piece's unwrap. */
   covers: (u: number, v: number) => boolean
   /** Draws the active piece's composited base color into `ctx` at `size`². */

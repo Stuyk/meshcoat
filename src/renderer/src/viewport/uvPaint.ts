@@ -5,7 +5,8 @@ import { renderTextureToImageData } from '../paint/thumbnail'
 import type { SurfaceHit } from './raycast'
 import type { ViewportRuntime } from './viewportRuntime'
 import { activeMesh } from './viewportPieces'
-import { applyToolAt } from './viewportPointer'
+import { applyToolAt, buildGizmoCtx } from './viewportPointer'
+import { updateGizmo } from './gizmoUpdate'
 
 /**
  * Drives the ordinary paint tools from the 2D UV panel.
@@ -193,6 +194,57 @@ export function uvPointerUp(rt: ViewportRuntime): void {
     saved3d = null
   }
   rt.props.onLayersChanged?.()
+}
+
+/**
+ * World units per UV unit around a triangle — how big one texel is on the
+ * surface there. Used to size the 3D cursor to match a 2D dab.
+ */
+function worldPerUv(rt: ViewportRuntime, face: number): number | null {
+  const mesh = activeMesh(rt)
+  if (!mesh) {
+    return null
+  }
+  const g = mesh.geometry
+  const pos = g.getAttribute('position') as THREE.BufferAttribute
+  const uv = g.getAttribute('uv') as THREE.BufferAttribute | undefined
+  if (!uv) {
+    return null
+  }
+  const vert = (k: number): number => (g.index ? g.index.getX(face * 3 + k) : face * 3 + k)
+  const p = [0, 1, 2].map((k) =>
+    new THREE.Vector3().fromBufferAttribute(pos, vert(k)).applyMatrix4(mesh.matrixWorld)
+  )
+  const t = [0, 1, 2].map((k) => new THREE.Vector2().fromBufferAttribute(uv, vert(k)))
+  const worldArea = p[1].clone().sub(p[0]).cross(p[2].clone().sub(p[0])).length() / 2
+  const uvArea =
+    Math.abs((t[1].x - t[0].x) * (t[2].y - t[0].y) - (t[2].x - t[0].x) * (t[1].y - t[0].y)) / 2
+  if (worldArea <= 0 || uvArea <= 1e-12) {
+    return null
+  }
+  return Math.sqrt(worldArea / uvArea)
+}
+
+/**
+ * Mirrors the 2D panel's hover onto the 3D viewport: the brush cursor sits on
+ * the surface point under the 2D cursor, sized to the 2D dab. Null hides it
+ * (pointer left the panel, or it's over empty sheet).
+ */
+export function uvHover(
+  rt: ViewportRuntime,
+  uv: { u: number; v: number; radiusPx: number } | null
+): void {
+  const hit = uv ? uvHitAt(rt, uv.u, uv.v) : null
+  const ctx = buildGizmoCtx(rt)
+  if (!hit || !uv) {
+    console.log('UVHOVER miss', uv?.u, uv?.v)
+    updateGizmo(ctx, null)
+    return
+  }
+  const scale = worldPerUv(rt, hit.faceIndex)
+  console.log('UVHOVER', uv.u.toFixed(2), uv.v.toFixed(2), hit.point.toArray().map((n) => n.toFixed(2)).join(','), scale, rt.gizmoHandle?.group.visible)
+  const radius = scale ? uvRadius(rt, uv.radiusPx) * scale : undefined
+  updateGizmo({ ...ctx, radius, noMirror: true }, hit)
 }
 
 /** The surface under a UV, for the panel's hover readout. */

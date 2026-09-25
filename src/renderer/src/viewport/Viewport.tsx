@@ -40,6 +40,7 @@ import {
   uvPointerDown,
   uvPointerMove,
   uvPointerUp,
+  uvHover,
   renderUvTexture,
   uvEdges
 } from './uvPaint'
@@ -609,6 +610,7 @@ export default function Viewport(props: ViewportProps): JSX.Element {
         pointerDown: (u, v, e, radiusPx) => uvPointerDown(rt, u, v, e, radiusPx),
         pointerMove: (u, v, e, radiusPx) => uvPointerMove(rt, u, v, e, radiusPx),
         pointerUp: () => uvPointerUp(rt),
+        hover: (uv) => uvHover(rt, uv),
         covers: (u, v) => uvHitAt(rt, u, v) !== null,
         renderInto: (ctx, size) => renderUvTexture(rt, ctx, size),
         edges: () => uvEdges(rt)
