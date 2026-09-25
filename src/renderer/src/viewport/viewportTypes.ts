@@ -28,8 +28,9 @@ export type InitialTexturePayload =
 
 /** UV coordinates are 0-1 with v up, as in the mesh's own UV attribute. */
 export interface UvPanelApi {
-  pointerDown: (u: number, v: number, e: PointerEvent) => void
-  pointerMove: (u: number, v: number, e: PointerEvent) => void
+  /** `radiusPx` is the dab radius in texels of the active piece's texture. */
+  pointerDown: (u: number, v: number, e: PointerEvent, radiusPx: number) => void
+  pointerMove: (u: number, v: number, e: PointerEvent, radiusPx: number) => void
   pointerUp: () => void
   /** Whether a UV lands on the active piece's unwrap. */
   covers: (u: number, v: number) => boolean

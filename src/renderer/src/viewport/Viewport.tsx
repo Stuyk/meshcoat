@@ -605,8 +605,8 @@ export default function Viewport(props: ViewportProps): JSX.Element {
         })),
       activePieceIndex: () => rt.activePieceIndex,
       uvPanel: {
-        pointerDown: (u, v, e) => uvPointerDown(rt, u, v, e),
-        pointerMove: (u, v, e) => uvPointerMove(rt, u, v, e),
+        pointerDown: (u, v, e, radiusPx) => uvPointerDown(rt, u, v, e, radiusPx),
+        pointerMove: (u, v, e, radiusPx) => uvPointerMove(rt, u, v, e, radiusPx),
         pointerUp: () => uvPointerUp(rt),
         covers: (u, v) => uvHitAt(rt, u, v) !== null,
         renderInto: (ctx, size) => renderUvTexture(rt, ctx, size),

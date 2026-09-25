@@ -35,6 +35,13 @@ export const BRUSH_MASK_UNIFORMS_GLSL = /* glsl */ `
   uniform float uCameraNear;
   uniform float uCameraFar;
   uniform float uUseOcclusion;
+
+  // Texture-space dab (the 2D paint panel): a circle of uDabUvRadius around
+  // uDabUv, measured on the sheet itself rather than projected through space.
+  uniform float uUvDab;
+  uniform vec2 uDabUv;
+  uniform float uDabUvRadius;
+  uniform float uDabUvAngle;
 `
 
 /**
@@ -48,7 +55,31 @@ export const BRUSH_MASK_UNIFORMS_GLSL = /* glsl */ `
  *                 (the stencil stamp) that still must not reach hidden faces
  */
 export const BRUSH_MASK_GLSL = /* glsl */ `
+  /**
+   * Position inside the dab in units of its radius (-1..1 across it), rotated
+   * with the brush — what tips and stamps are sampled with. Texture-space
+   * dabs measure it on the sheet; surface dabs on the brush's tangent plane.
+   */
+  vec2 brushLocalXY(vec3 rel) {
+    if (uUvDab > 0.5) {
+      vec2 d = vUv - uDabUv;
+      float c = cos(uDabUvAngle);
+      float s = sin(uDabUvAngle);
+      return vec2(c * d.x + s * d.y, -s * d.x + c * d.y) / max(uDabUvRadius, 1e-6);
+    }
+    return vec2(dot(rel, uBrushTangent), dot(rel, uBrushBitangent)) / uBrushRadius;
+  }
+
   void computeBrushMask(out float falloff, out float facingMask, out float visibility) {
+    // Texture-space dab: WYSIWYG on the flat sheet. No projector, facing or
+    // camera terms — nothing is being projected and there is no camera.
+    if (uUvDab > 0.5) {
+      float radialUv = length(vUv - uDabUv);
+      falloff = 1.0 - smoothstep(uDabUvRadius * uBrushHardness, uDabUvRadius, radialUv);
+      facingMask = 1.0;
+      visibility = 1.0;
+      return;
+    }
     vec3 rel = vWorldPosition - uBrushWorldPos;
     vec3 brushNormal = normalize(uBrushNormal);
     vec3 texelNormal = normalize(vWorldNormal);
@@ -164,6 +195,26 @@ export interface BrushMaskUniforms {
   uCameraNear: THREE.IUniform<number>
   uCameraFar: THREE.IUniform<number>
   uUseOcclusion: THREE.IUniform<number>
+  uUvDab: THREE.IUniform<number>
+  uDabUv: THREE.IUniform<THREE.Vector2>
+  uDabUvRadius: THREE.IUniform<number>
+  uDabUvAngle: THREE.IUniform<number>
+}
+
+/** A dab placed directly on the texture: UV center, radius in UV units (1 = sheet width). */
+export interface UvDab {
+  uv: THREE.Vector2
+  radius: number
+}
+
+/** Sets (or clears, for null) the texture-space dab uniforms shared by both brush shaders. */
+export function applyUvDab(u: BrushMaskUniforms, dab: UvDab | null | undefined, angle = 0): void {
+  u.uUvDab.value = dab ? 1 : 0
+  if (dab) {
+    u.uDabUv.value.copy(dab.uv)
+    u.uDabUvRadius.value = dab.radius
+    u.uDabUvAngle.value = angle
+  }
 }
 
 export function createBrushMaskUniforms(): BrushMaskUniforms {
@@ -184,6 +235,10 @@ export function createBrushMaskUniforms(): BrushMaskUniforms {
     uNormalSign: { value: 1 },
     uCameraNear: { value: 0.01 },
     uCameraFar: { value: 1000 },
-    uUseOcclusion: { value: 0 }
+    uUseOcclusion: { value: 0 },
+    uUvDab: { value: 0 },
+    uDabUv: { value: new THREE.Vector2() },
+    uDabUvRadius: { value: 0.01 },
+    uDabUvAngle: { value: 0 }
   }
 }

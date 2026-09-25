@@ -209,9 +209,7 @@ ${BRUSH_MASK_GLSL}
     falloff *= facingMask;
 
     // 1. Local tangent stamp coordinates for brush tip or stamp tool
-    float lu = dot(rel, uBrushTangent) / uBrushRadius * 0.5 + 0.5;
-    float lv = dot(rel, uBrushBitangent) / uBrushRadius * 0.5 + 0.5;
-    vec2 stampUv = vec2(lu, lv);
+    vec2 stampUv = brushLocalXY(rel) * 0.5 + 0.5;
     float inStamp = step(0.0, stampUv.x) * step(stampUv.x, 1.0) * step(0.0, stampUv.y) * step(stampUv.y, 1.0);
 
     // Tip mask: alpha of the custom ABR or preset brush tip

@@ -1,3 +1,4 @@
+import type { UvDab } from '../paint/brushMask'
 import * as THREE from 'three'
 import { raycastMeshes, screenToNdc, type SurfaceHit } from './raycast'
 import {
@@ -396,6 +397,19 @@ export function stampStencilNow(rt: ViewportRuntime, diag?: StampDiagnostics): b
   return true
 }
 
+/**
+ * The 2D panel's dab for this application, scaled by whatever pressure or
+ * size jitter did to the world radius, so those settings behave the same on
+ * the flat sheet. Null outside the panel.
+ */
+function uvDabFor(rt: ViewportRuntime, worldRadius: number): UvDab | null {
+  if (!rt.uvPaintMode || !rt.uvDab) {
+    return null
+  }
+  const scale = worldRadius / Math.max(brush.radius(), 1e-9)
+  return { uv: rt.uvDab.uv, radius: rt.uvDab.radius * scale }
+}
+
 export function applyToolAt(
   rt: ViewportRuntime,
   hit: SurfaceHit,
@@ -577,10 +591,12 @@ export function applyToolAt(
       restrictFaces,
       angle: strokeAngle,
       occlusion,
-      stencil: stencilParams
+      stencil: stencilParams,
+      uvDab: uvDabFor(rt, strokeRadius)
     })
 
-    if (brush.symmetryEnabled()) {
+    // A texture-space dab has no mirror image on the sheet to aim at.
+    if (brush.symmetryEnabled() && !rt.uvPaintMode) {
       const mirrored = getMirroredHit(rt, hit)
       if (mirrored) {
         engine.paintStroke(mirrored, {
@@ -698,10 +714,12 @@ export function applyToolAt(
       restrictFaces,
       occlusion,
       brushTipTexture: rt.brushTipTexture,
-      angle: strokeAngle
+      angle: strokeAngle,
+      uvDab: uvDabFor(rt, effectDabRadius)
     })
 
-    if (brush.symmetryEnabled()) {
+    // A texture-space dab has no mirror image on the sheet to aim at.
+    if (brush.symmetryEnabled() && !rt.uvPaintMode) {
       const mirrored = getMirroredHit(rt, hit)
       if (mirrored) {
         engine.applyEffect(mirrored, {

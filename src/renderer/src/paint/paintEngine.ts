@@ -1,3 +1,4 @@
+import { applyUvDab, type UvDab } from './brushMask'
 import * as THREE from 'three'
 import { buildUvMesh } from './uvMesh'
 import { createPaintMaterial } from './paintShader'
@@ -121,6 +122,8 @@ export interface StrokeParams {
   restrictFaces?: ReadonlySet<number> | null
   /** Rotation angle in radians applied to the brush tip / stamp. */
   angle?: number
+  /** Place the dab directly on the texture instead of projecting it (2D panel). */
+  uvDab?: UvDab | null
   /** Camera-space occlusion test (see occlusionDepth.ts) — rejects paint on faces not actually visible from the paint camera, null/undefined = unrestricted. */
   occlusion?: OcclusionParams | null
   /** Screen-space stencil to paint through (see stencil.ts); null = unrestricted. */
@@ -863,6 +866,7 @@ export class PaintEngine {
     }
     u.uBrushTangent.value.copy(tangent)
     u.uBrushBitangent.value.copy(bitangent)
+    applyUvDab(u, params.uvDab, params.angle ?? 0)
 
     // One pass per enabled channel. They share every dab parameter set above —
     // the same footprint, the same tip alpha, the same stencil and occlusion
@@ -881,6 +885,9 @@ export class PaintEngine {
     }
     u.uChannelMode.value = 0
     u.uUseChannelMap.value = 0
+    // The material is shared with fill and the stencil stamp; a texture-space
+    // dab must not leak into them.
+    u.uUvDab.value = 0
     this._contentVersion++
   }
 
@@ -922,6 +929,7 @@ export class PaintEngine {
     u.uBrushBitangent.value.copy(bitangent)
     u.uBrushTipTexture.value = params.brushTipTexture ?? null
     u.uUseTipTexture.value = params.brushTipTexture ? 1 : 0
+    applyUvDab(u, params.uvDab, params.angle ?? 0)
 
     const restrict = params.restrictFaces != null
     u.uRestrictFace.value = restrict ? 1 : 0
@@ -1770,4 +1778,6 @@ export interface EffectParams {
   occlusion?: OcclusionParams | null
   brushTipTexture?: THREE.Texture | null
   angle?: number
+  /** Place the dab directly on the texture instead of projecting it (2D panel). */
+  uvDab?: UvDab | null
 }

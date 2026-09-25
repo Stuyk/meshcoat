@@ -1331,6 +1331,7 @@ export default function App(): JSX.Element {
               version={layersVersion()}
               pieceIndex={activePiece()}
               textureSize={modelPieces()[activePiece()]?.textureSize ?? textureSize()}
+              tool={activeTool()}
               onClose={() => setShowUvPanel(false)}
             />
           </Show>

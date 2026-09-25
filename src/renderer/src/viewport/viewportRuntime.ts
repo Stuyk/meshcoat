@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import type { SceneHandle } from './scene'
 import type { LoadedModel } from './modelLoader'
 import type { SurfaceHit } from './raycast'
+import type { UvDab } from '../paint/brushMask'
 import type { LayerStack } from '../paint/layers'
 import type { ChannelMaps } from '../paint/paintEngine'
 import { OcclusionDepthPass } from '../paint/occlusionDepth'
@@ -50,6 +51,8 @@ export class ViewportRuntime {
    * stencil must not gate the dab — every texel in the footprint is "visible".
    */
   uvPaintMode = false
+  /** The texture-space dab for the current 2D-panel application (see uvPaint.ts). */
+  uvDab: UvDab | null = null
   lastStampPos: THREE.Vector3 | null = null
   /**
    * World position of the last brush/eraser/stamp dab, kept ACROSS strokes (unlike

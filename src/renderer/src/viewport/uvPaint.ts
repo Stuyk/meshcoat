@@ -62,13 +62,67 @@ function applyFromUv(rt: ViewportRuntime, hit: SurfaceHit, e: PointerEvent): voi
     applyToolAt(rt, hit, e.shiftKey, e)
   } finally {
     rt.uvPaintMode = false
+    rt.uvDab = null
   }
 }
 
-export function uvPointerDown(rt: ViewportRuntime, u: number, v: number, e: PointerEvent): void {
+/**
+ * Stroke tools paint a texture-space dab (see brushMask.ts), so they don't
+ * need a real surface point under the cursor — a stroke keeps going across the
+ * empty gutter between islands, like it would in any 2D app. The hit's
+ * "point" is the UV itself, which is what dab spacing and follow-stroke
+ * rotation then measure in.
+ */
+function sheetHit(rt: ViewportRuntime, u: number, v: number): SurfaceHit {
+  return {
+    mesh: activeMesh(rt),
+    point: new THREE.Vector3(u, v, 0),
+    normal: new THREE.Vector3(0, 0, 1),
+    uv: new THREE.Vector2(u, v),
+    faceIndex: -1
+  }
+}
+
+/** Texture-space radius (1 = sheet width) of a dab `radiusPx` texels across the active piece. */
+function uvRadius(rt: ViewportRuntime, radiusPx: number): number {
+  const size = rt.layerStack?.textureSize ?? 2048
+  return Math.max(0.5, radiusPx) / size
+}
+
+let lastDabUv: THREE.Vector2 | null = null
+/** The 3D viewport's own stroke memory, parked while the panel borrows those fields. */
+let saved3d: { lastStampPos: THREE.Vector3 | null; lastBrushDabPos: THREE.Vector3 | null } | null =
+  null
+
+function dabAt(rt: ViewportRuntime, u: number, v: number, radiusPx: number, e: PointerEvent): void {
+  rt.uvDab = { uv: new THREE.Vector2(u, v), radius: uvRadius(rt, radiusPx) }
+  applyFromUv(rt, sheetHit(rt, u, v), e)
+  lastDabUv = new THREE.Vector2(u, v)
+}
+
+export function uvPointerDown(
+  rt: ViewportRuntime,
+  u: number,
+  v: number,
+  e: PointerEvent,
+  radiusPx: number
+): void {
   const tool = rt.props.tool()
+  if (!rt.layerStack || tool === 'line') {
+    return
+  }
+  if (STROKE_TOOLS.has(tool)) {
+    rt.layerStack.history.record()
+    saved3d = { lastStampPos: rt.lastStampPos, lastBrushDabPos: rt.lastBrushDabPos }
+    rt.lastStampPos = null
+    rt.lastEffectUv = null
+    stroking = true
+    dabAt(rt, u, v, radiusPx, e)
+    return
+  }
+
   const hit = uvHitAt(rt, u, v)
-  if (!hit || !rt.layerStack) {
+  if (!hit) {
     return
   }
   if (FACE_TOOLS.has(tool)) {
@@ -79,46 +133,50 @@ export function uvPointerDown(rt: ViewportRuntime, u: number, v: number, e: Poin
     }
     return
   }
-  if (tool === 'line') {
-    return
-  }
   if (tool === 'fill' && brush.fillMode() === 'face') {
     rt.fillDragFaces = new Set([hit.faceIndex])
   }
-  if (STROKE_TOOLS.has(tool)) {
-    rt.layerStack.history.record()
-    rt.lastEffectUv = null
-  }
-  rt.lastStampPos = null
   stroking = true
   applyFromUv(rt, hit, e)
 }
 
-export function uvPointerMove(rt: ViewportRuntime, u: number, v: number, e: PointerEvent): void {
+export function uvPointerMove(
+  rt: ViewportRuntime,
+  u: number,
+  v: number,
+  e: PointerEvent,
+  radiusPx: number
+): void {
   if (!stroking) {
     return
   }
   const tool = rt.props.tool()
-  const hit = uvHitAt(rt, u, v)
-  if (!hit) {
-    return
-  }
   if (tool === 'fill' && brush.fillMode() === 'face' && rt.fillDragFaces) {
-    if (!rt.fillDragFaces.has(hit.faceIndex)) {
+    const hit = uvHitAt(rt, u, v)
+    if (hit && !rt.fillDragFaces.has(hit.faceIndex)) {
       rt.fillDragFaces.add(hit.faceIndex)
       applyFromUv(rt, hit, e)
     }
     return
   }
-  if (!STROKE_TOOLS.has(tool)) {
+  if (!STROKE_TOOLS.has(tool) || !lastDabUv) {
     return
   }
-  // Same dab spacing as the 3D viewport, measured on the surface.
-  const minDist = applyPressure(brush.radius(), e, brush.pressureRadius()) * brush.spacing()
-  if (rt.lastStampPos && hit.point.distanceTo(rt.lastStampPos) < minDist) {
-    return
+  // Dabs at a fixed spacing along the path, measured on the sheet, so a fast
+  // flick is a continuous line rather than a row of dots.
+  const step = Math.max(
+    uvRadius(rt, applyPressure(radiusPx, e, brush.pressureRadius())) * brush.spacing(),
+    0.25 / (rt.layerStack?.textureSize ?? 2048)
+  )
+  const target = new THREE.Vector2(u, v)
+  let dist = target.distanceTo(lastDabUv)
+  // Guard against a pathological step count (tiny brush, huge jump).
+  let budget = 512
+  while (dist >= step && budget-- > 0) {
+    const next = lastDabUv.clone().lerp(target, step / dist)
+    dabAt(rt, next.x, next.y, radiusPx, e)
+    dist = target.distanceTo(lastDabUv)
   }
-  applyFromUv(rt, hit, e)
 }
 
 export function uvPointerUp(rt: ViewportRuntime): void {
@@ -126,8 +184,19 @@ export function uvPointerUp(rt: ViewportRuntime): void {
     return
   }
   stroking = false
+  lastDabUv = null
   rt.fillDragFaces = null
+  if (saved3d) {
+    rt.lastStampPos = saved3d.lastStampPos
+    rt.lastBrushDabPos = saved3d.lastBrushDabPos
+    saved3d = null
+  }
   rt.props.onLayersChanged?.()
+}
+
+/** The surface under a UV, for the panel's hover readout. */
+export function uvFaceAt(rt: ViewportRuntime, u: number, v: number): number | null {
+  return uvHitAt(rt, u, v)?.faceIndex ?? null
 }
 
 /** Draws the active piece's composited base color into `ctx` at `size`². */
