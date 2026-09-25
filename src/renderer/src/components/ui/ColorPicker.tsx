@@ -4,8 +4,8 @@ import {
   hsvToHex,
   hexToRgb,
   rgbToHex,
-  isValidHex,
   normalizeHex,
+  parseCssColor,
   type HSV
 } from '../../utils/colorUtils'
 import { EyedropperIcon, CopyIcon, CheckIcon } from '../icons'
@@ -29,6 +29,9 @@ export default function ColorPicker(props: ColorPickerProps) {
   const [isDraggingSV, setIsDraggingSV] = createSignal(false)
   const [isDraggingHue, setIsDraggingHue] = createSignal(false)
   const [copied, setCopied] = createSignal(false)
+  // While the text field has focus its draft is the user's, not ours — a
+  // round-trip through HSV must not rewrite "rgb(10, 20, 30)" mid-typing.
+  const [editingText, setEditingText] = createSignal(false)
 
   // Track initial color for comparison
   const [initialColor] = createSignal(props.color)
@@ -40,7 +43,9 @@ export default function ColorPicker(props: ColorPickerProps) {
       const currentHex = hsvToHex(hsv().h, hsv().s, hsv().v)
       if (normalizeHex(ext) !== normalizeHex(currentHex)) {
         setHsv(hexToHsv(ext))
-        setHexInput(ext.toUpperCase())
+        if (!editingText()) {
+          setHexInput(ext.toUpperCase())
+        }
       }
     }
   })
@@ -130,19 +135,20 @@ export default function ColorPicker(props: ColorPickerProps) {
     }
   }
 
-  // Handle Hex text edit
+  // Handle text edit: accepts hex (with or without '#'), rgb(), hsl() and named colors
   const handleHexChange = (val: string) => {
-    let clean = val.trim()
-    if (!clean.startsWith('#')) {
-      clean = `#${clean}`
+    setHexInput(val)
+    const parsed = parseCssColor(val)
+    if (parsed) {
+      setHsv(hexToHsv(parsed))
+      props.onChange(parsed)
     }
-    setHexInput(clean.toUpperCase())
+  }
 
-    if (isValidHex(clean)) {
-      const normalized = normalizeHex(clean)
-      setHsv(hexToHsv(normalized))
-      props.onChange(normalized)
-    }
+  // Leaving the field snaps whatever was typed back to the canonical hex
+  const commitHexInput = () => {
+    setEditingText(false)
+    setHexInput(normalizeHex(props.color).toUpperCase())
   }
 
   // Handle RGB channel edits
@@ -297,9 +303,16 @@ export default function ColorPicker(props: ColorPickerProps) {
             type="text"
             spellcheck={false}
             value={hexInput().replace(/^#/, '')}
+            onFocus={() => setEditingText(true)}
             onInput={(e) => handleHexChange(e.currentTarget.value)}
-            class="w-full bg-transparent font-mono text-xs font-semibold text-zinc-200 uppercase outline-hidden"
-            maxLength={6}
+            onBlur={commitHexInput}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.currentTarget.blur()
+              }
+            }}
+            placeholder="hex, rgb(), hsl(), name"
+            class="w-full bg-transparent font-mono text-xs font-semibold text-zinc-200 outline-hidden"
           />
           <button
             type="button"

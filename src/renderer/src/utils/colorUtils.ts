@@ -2,6 +2,7 @@
  * Color math and conversion utilities for MeshCoat
  * Supports HEX (#RRGGBB / #RGB), RGB (0-255), and HSV (H: 0-360, S: 0-1, V: 0-1).
  */
+import * as THREE from 'three'
 
 export interface RGB {
   r: number // 0 - 255
@@ -37,6 +38,68 @@ export function normalizeHex(hex: string, fallback = '#ffffff'): string {
     return `#${clean}`.toLowerCase()
   }
   return fallback.toLowerCase()
+}
+
+/** Parses a CSS number that may be a percentage; `scale` is what 100% maps to. */
+function cssNumber(token: string, scale: number): number {
+  const t = token.trim()
+  if (t.endsWith('%')) {
+    return (parseFloat(t) / 100) * scale
+  }
+  return parseFloat(t)
+}
+
+/**
+ * Parses any CSS color the artist is likely to paste — `#rgb`, `#rgba`,
+ * `#rrggbb`, `#rrggbbaa` (alpha dropped), bare hex without the `#`,
+ * `rgb()`/`rgba()`, `hsl()`/`hsla()` (comma or space syntax) and named
+ * colors — into lowercase '#rrggbb'. Returns null if it isn't a color.
+ */
+export function parseCssColor(input: string): string | null {
+  const s = input.trim().toLowerCase()
+  if (!s) {
+    return null
+  }
+
+  const hex = s.replace(/^#+/, '')
+  if (/^[0-9a-f]+$/.test(hex) && [3, 4, 6, 8].includes(hex.length)) {
+    const full = hex.length <= 4 ? [...hex.slice(0, 3)].map((c) => c + c).join('') : hex.slice(0, 6)
+    return `#${full}`
+  }
+
+  const fn = s.match(/^(rgba?|hsla?)\(([^)]*)\)$/)
+  if (fn) {
+    // Split on commas, whitespace and the `/` before a modern-syntax alpha.
+    const parts = fn[2].split(/[\s,/]+/).filter(Boolean)
+    if (parts.length < 3) {
+      return null
+    }
+    if (fn[1].startsWith('rgb')) {
+      const [r, g, b] = parts.slice(0, 3).map((p) => cssNumber(p, 255))
+      if ([r, g, b].some((n) => Number.isNaN(n))) {
+        return null
+      }
+      return rgbToHex(r, g, b)
+    }
+    const h = parseFloat(parts[0])
+    const sat = cssNumber(parts[1], 1) / (parts[1].endsWith('%') ? 1 : 100)
+    const light = cssNumber(parts[2], 1) / (parts[2].endsWith('%') ? 1 : 100)
+    if ([h, sat, light].some((n) => Number.isNaN(n))) {
+      return null
+    }
+    // HSL -> HSV, then reuse the existing conversion.
+    const l = Math.min(1, Math.max(0, light))
+    const sl = Math.min(1, Math.max(0, sat))
+    const v = l + sl * Math.min(l, 1 - l)
+    const sv = v === 0 ? 0 : 2 * (1 - l / v)
+    return hsvToHex(h, sv, v)
+  }
+
+  const named = (THREE.Color.NAMES as Record<string, number>)[s]
+  if (named !== undefined) {
+    return `#${named.toString(16).padStart(6, '0')}`
+  }
+  return null
 }
 
 /**
