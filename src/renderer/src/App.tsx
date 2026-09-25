@@ -102,6 +102,82 @@ export default function App(): JSX.Element {
   const [wireframeVisible, setWireframeVisibleSignal] = createSignal(false)
   const [isolatePiece, setIsolatePieceSignal] = createSignal(false)
   const [showUvPanel, setShowUvPanel] = createSignal(false)
+
+  // --- Right sidebar sizing (issue #22) ---------------------------------
+  const SIDEBAR_DEFAULT_WIDTH = 320
+  const LAYERS_DEFAULT_HEIGHT = 340
+  const SIDEBAR_SIZE_KEY = 'meshcoat:sidebar_size'
+  let sidebarRef: HTMLElement | undefined
+  const loadSidebarSize = (): { width: number; layers: number } => {
+    try {
+      const raw = JSON.parse(localStorage.getItem(SIDEBAR_SIZE_KEY) ?? '{}')
+      return {
+        width: Number(raw.width) || SIDEBAR_DEFAULT_WIDTH,
+        layers: Number(raw.layers) || LAYERS_DEFAULT_HEIGHT
+      }
+    } catch {
+      return { width: SIDEBAR_DEFAULT_WIDTH, layers: LAYERS_DEFAULT_HEIGHT }
+    }
+  }
+  const initialSidebar = loadSidebarSize()
+  const [sidebarWidth, setSidebarWidth] = createSignal(initialSidebar.width)
+  const [layersHeightRaw, setLayersHeight] = createSignal(initialSidebar.layers)
+  const [windowHeight, setWindowHeight] = createSignal(window.innerHeight)
+  const onWindowResize = (): void => {
+    setWindowHeight(window.innerHeight)
+  }
+  window.addEventListener('resize', onWindowResize)
+  onCleanup(() => window.removeEventListener('resize', onWindowResize))
+  /** Keeps at least ~150px of brush settings above the layers, whatever the window size. */
+  const layersHeight = (): number => {
+    void windowHeight()
+    const total = sidebarRef?.clientHeight ?? window.innerHeight
+    return Math.round(Math.min(Math.max(160, layersHeightRaw()), Math.max(160, total - 150)))
+  }
+  function setSidebarSize(next: { width?: number; layers?: number }): void {
+    if (next.width !== undefined) {
+      setSidebarWidth(Math.round(Math.min(Math.max(280, next.width), window.innerWidth * 0.5)))
+    }
+    if (next.layers !== undefined) {
+      setLayersHeight(next.layers)
+    }
+    try {
+      localStorage.setItem(
+        SIDEBAR_SIZE_KEY,
+        JSON.stringify({ width: sidebarWidth(), layers: layersHeightRaw() })
+      )
+    } catch {
+      // Layout sizes are a per-machine convenience.
+    }
+  }
+  function dragWith(e: PointerEvent, cursor: string, onMove: (ev: PointerEvent) => void): void {
+    e.preventDefault()
+    const prevCursor = document.body.style.cursor
+    document.body.style.cursor = cursor
+    const up = (): void => {
+      document.body.style.cursor = prevCursor
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', up)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', up)
+  }
+  function startSidebarResize(e: PointerEvent): void {
+    const startX = e.clientX
+    const startW = sidebarWidth()
+    dragWith(e, 'col-resize', (ev) => setSidebarSize({ width: startW + (startX - ev.clientX) }))
+  }
+  function startLayersResize(e: PointerEvent): void {
+    const startY = e.clientY
+    const startH = layersHeight()
+    dragWith(e, 'row-resize', (ev) => setSidebarSize({ layers: startH + (startY - ev.clientY) }))
+  }
+  function toggleLayersHalf(): void {
+    const half = Math.round((sidebarRef?.clientHeight ?? window.innerHeight) / 2)
+    setSidebarSize({
+      layers: Math.abs(layersHeight() - half) < 20 ? LAYERS_DEFAULT_HEIGHT : half
+    })
+  }
   const [textures, setTextures] = createSignal<string[]>([])
   /** Folder the shelf was loaded from, so it can offer its subfolders as a filter. */
   const [textureRoot, setTextureRoot] = createSignal<string | null>(null)
@@ -1399,7 +1475,18 @@ export default function App(): JSX.Element {
           </div>
         </Show>
 
-        <aside class="w-[320px] min-w-[320px] max-w-[320px] h-full bg-[var(--bg-panel)] border-l border-[var(--border-color)] flex flex-col select-none z-20 shrink-0">
+        <aside
+          ref={sidebarRef}
+          class="relative h-full bg-[var(--bg-panel)] border-l border-[var(--border-color)] flex flex-col select-none z-20 shrink-0"
+          style={{ width: `${sidebarWidth()}px` }}
+        >
+          {/* Left edge: drag to widen the whole sidebar. */}
+          <div
+            class="absolute left-0 top-0 bottom-0 w-1.5 -ml-0.5 z-30 cursor-col-resize hover:bg-[var(--accent-color)]/50 active:bg-[var(--accent-color)]"
+            title="Drag to resize the sidebar (double-click to reset)"
+            onPointerDown={startSidebarResize}
+            onDblClick={() => setSidebarSize({ width: SIDEBAR_DEFAULT_WIDTH })}
+          />
           <Show
             when={!showEdgeWearWizard()}
             fallback={
@@ -1445,7 +1532,17 @@ export default function App(): JSX.Element {
               />
             </div>
 
-            <div class="h-[340px] flex flex-col bg-[var(--bg-panel)]">
+            {/* Splitter: drag to give the layers more room; double-click toggles half height. */}
+            <div
+              class="h-1.5 shrink-0 cursor-row-resize bg-[var(--border-color)]/40 hover:bg-[var(--accent-color)]/50 active:bg-[var(--accent-color)]"
+              title="Drag to resize the layers panel (double-click: half height / default)"
+              onPointerDown={startLayersResize}
+              onDblClick={toggleLayersHalf}
+            />
+            <div
+              class="flex flex-col bg-[var(--bg-panel)] shrink-0"
+              style={{ height: `${layersHeight()}px` }}
+            >
               <div class="h-9 px-3 flex items-center justify-between border-b border-[var(--border-color)] bg-[var(--bg-panel-header)] shrink-0">
                 <div class="flex items-center gap-3 h-full">
                   <button
