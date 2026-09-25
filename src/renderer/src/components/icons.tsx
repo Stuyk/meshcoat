@@ -72,7 +72,9 @@ export {
   Bookmark as BookmarkIcon,
   Type as TextIcon,
   Scan as UvPanelIcon,
-  Expand as FitIcon
+  Expand as FitIcon,
+  Monitor as MonitorIcon,
+  AppWindow as AppWindowIcon
 } from 'lucide-solid'
 
 export function AppIcon(props: { size?: number; class?: string }) {

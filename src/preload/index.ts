@@ -105,6 +105,8 @@ const api = {
     ipcRenderer.invoke('blender:is-prompt-dismissed'),
   setBlenderPromptDismissed: (dismissed: boolean): Promise<boolean> =>
     ipcRenderer.invoke('blender:set-prompt-dismissed', dismissed),
+  /** Samples any pixel on screen (other apps included); null if cancelled. */
+  pickScreenColor: (): Promise<string | null> => ipcRenderer.invoke('color:pick-screen'),
   getColorLibrary: (): Promise<ColorLibrary | null> =>
     ipcRenderer.invoke('prefs:get-color-library'),
   setColorLibrary: (library: ColorLibrary): Promise<boolean> =>
