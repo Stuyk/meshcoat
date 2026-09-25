@@ -73,6 +73,7 @@ export {
   Type as TextIcon,
   Scan as UvPanelIcon,
   Expand as FitIcon,
+  ArrowRightLeft as CopyToPieceIcon,
   AppWindow as AppWindowIcon
 } from 'lucide-solid'
 

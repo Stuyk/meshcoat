@@ -1382,7 +1382,13 @@ export class PaintEngine {
   }
 
   /** Copies this layer's content onto another PaintEngine buffer (for duplication). */
-  copyOnto(other: PaintEngine): void {
+  /**
+   * `transform` mirrors the copy in UV space — for putting a layer painted on
+   * one half of a symmetric model onto the other half, whose UV island is the
+   * same shape but reflected. The target may be a different texture size; the
+   * blit resamples.
+   */
+  copyOnto(other: PaintEngine, transform?: { flipU?: boolean; flipV?: boolean }): void {
     const prevAutoClear = this.renderer.autoClear
     const prevTarget = this.renderer.getRenderTarget()
     // The destination must be cleared to TRANSPARENT, explicitly. clear() uses
@@ -1400,6 +1406,11 @@ export class PaintEngine {
       const mat = new THREE.MeshBasicMaterial({ map: this.buf(channel).read.texture })
       configurePremultipliedSourceMaterial(mat, 1)
       const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat)
+      if (transform?.flipU || transform?.flipV) {
+        // A negative scale reverses the winding, so the quad must draw both sides.
+        mat.side = THREE.DoubleSide
+        quad.scale.set(transform.flipU ? -1 : 1, transform.flipV ? -1 : 1, 1)
+      }
       const scene = new THREE.Scene()
       scene.add(quad)
       this.renderer.setRenderTarget(other.buf(channel).write)

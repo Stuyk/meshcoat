@@ -1671,6 +1671,10 @@ export default function App(): JSX.Element {
                     hideHeader={true}
                     onInspectLayer={inspectLayer}
                     onInspectFlattened={inspectFlattened}
+                    pieces={modelPieces()}
+                    activePiece={activePiece()}
+                    getPieceStack={(i) => viewportHandle?.getLayerStack(i)}
+                    onToast={showToast}
                   />
                 </Show>
               </div>
