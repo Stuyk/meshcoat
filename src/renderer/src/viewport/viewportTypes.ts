@@ -26,6 +26,19 @@ export type InitialTexturePayload =
       pieces: Record<string, InitialPbrTextures>
     }
 
+/** UV coordinates are 0-1 with v up, as in the mesh's own UV attribute. */
+export interface UvPanelApi {
+  pointerDown: (u: number, v: number, e: PointerEvent) => void
+  pointerMove: (u: number, v: number, e: PointerEvent) => void
+  pointerUp: () => void
+  /** Whether a UV lands on the active piece's unwrap. */
+  covers: (u: number, v: number) => boolean
+  /** Draws the active piece's composited base color into `ctx` at `size`². */
+  renderInto: (ctx: CanvasRenderingContext2D, size: number) => boolean
+  /** Active piece's UV edges as [u0, v0, u1, v1, ...]. */
+  edges: () => Float32Array | null
+}
+
 export interface LoadOptions {
   /** Paint at the requested size even when the model's own maps are a different size. */
   forceTextureSize?: boolean
@@ -54,6 +67,8 @@ export interface ViewportHandle {
   setActivePiece: (index: number) => void
   /** Frames the camera on one piece (defaults to the active one). */
   focusPiece: (index?: number) => void
+  /** Texture-space painting on the active piece, for the 2D UV panel. */
+  uvPanel: UvPanelApi
   /** The active piece's stack, or a specific piece's when given an index. */
   getLayerStack: (pieceIndex?: number) => LayerStack | undefined
   exportBaseColorPng: (pieceIndex?: number) => string | undefined

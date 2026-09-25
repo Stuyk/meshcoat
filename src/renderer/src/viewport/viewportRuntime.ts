@@ -44,6 +44,12 @@ export class ViewportRuntime {
   hoverPieceBox: THREE.Box3Helper | undefined
   rafId = 0
   painting = false
+  /**
+   * True while a stroke is driven from the 2D UV panel. There is no camera
+   * involved there, so the camera-visibility test and the screen-space
+   * stencil must not gate the dab — every texel in the footprint is "visible".
+   */
+  uvPaintMode = false
   lastStampPos: THREE.Vector3 | null = null
   /**
    * World position of the last brush/eraser/stamp dab, kept ACROSS strokes (unlike

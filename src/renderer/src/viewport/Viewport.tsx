@@ -34,6 +34,14 @@ import {
   updateProjectorPreviewUniforms
 } from './viewportHighlight'
 import { frameSelectionOrModel, loadDefaultModel, loadFromUrl, loadProject } from './viewportLoad'
+import {
+  uvHitAt,
+  uvPointerDown,
+  uvPointerMove,
+  uvPointerUp,
+  renderUvTexture,
+  uvEdges
+} from './uvPaint'
 import { raycastMeshes, screenToNdc } from './raycast'
 import {
   fillActive,
@@ -596,6 +604,14 @@ export default function Viewport(props: ViewportProps): JSX.Element {
           faceCount: piece.facePositions.length / 9
         })),
       activePieceIndex: () => rt.activePieceIndex,
+      uvPanel: {
+        pointerDown: (u, v, e) => uvPointerDown(rt, u, v, e),
+        pointerMove: (u, v, e) => uvPointerMove(rt, u, v, e),
+        pointerUp: () => uvPointerUp(rt),
+        covers: (u, v) => uvHitAt(rt, u, v) !== null,
+        renderInto: (ctx, size) => renderUvTexture(rt, ctx, size),
+        edges: () => uvEdges(rt)
+      },
       setActivePiece: (index) => setActivePiece(rt, index),
       focusPiece: (index?: number) => {
         const mesh = rt.pieces[index ?? rt.activePieceIndex]?.mesh

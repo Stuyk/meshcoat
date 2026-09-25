@@ -4,6 +4,7 @@ import {
   RefreshCwIcon,
   PanelRightIcon,
   WireframeIcon,
+  UvPanelIcon,
   EyeOffIcon,
   SymmetryIcon,
   FocusIcon,
@@ -30,6 +31,8 @@ export interface WorkstationHeaderProps {
   onTogglePanelDock: () => void
   wireframeVisible: boolean
   onToggleWireframe: () => void
+  showUvPanel: boolean
+  onToggleUvPanel: () => void
   isolatePiece: boolean
   onToggleIsolatePiece: () => void
   multiPiece: boolean
@@ -189,6 +192,15 @@ export default function WorkstationHeader(props: WorkstationHeaderProps): JSX.El
           tooltip="Toggle Wireframe (W)"
         >
           <WireframeIcon size={15} />
+        </IconButton>
+
+        <IconButton
+          size="xs"
+          active={props.showUvPanel}
+          onClick={props.onToggleUvPanel}
+          tooltip="2D Paint panel: paint directly on the UV layout"
+        >
+          <UvPanelIcon size={15} />
         </IconButton>
 
         <Show when={props.multiPiece}>

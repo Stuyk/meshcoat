@@ -452,7 +452,7 @@ export function applyToolAt(
     // mesh itself, so any of them in the map would occlude the very surface
     // being painted (see occlusionDepth.ts).
     let occlusion: OcclusionParams | null = null
-    if (rt.sceneHandle && rt.currentModel && rt.currentModel.meshes.length > 0) {
+    if (!rt.uvPaintMode && rt.sceneHandle && rt.currentModel && rt.currentModel.meshes.length > 0) {
       if (!rt.occlusionPass) {
         rt.occlusionPass = new OcclusionDepthPass()
       }
@@ -484,7 +484,13 @@ export function applyToolAt(
     }
     // Screen-space stencil: gate the dab by the viewport-pinned image.
     let stencilParams: StencilParams | null = null
-    if (rt.stencilTexture && stencil.stencilActive() && rt.canvasRef && rt.sceneHandle) {
+    if (
+      !rt.uvPaintMode &&
+      rt.stencilTexture &&
+      stencil.stencilActive() &&
+      rt.canvasRef &&
+      rt.sceneHandle
+    ) {
       const rect = rt.canvasRef.getBoundingClientRect()
       const r = stencil.stencilRect(rect.width, rect.height)
       const camera = rt.sceneHandle.camera
@@ -614,7 +620,7 @@ export function applyToolAt(
     // or alpha settings — only the dab footprint and the filter.
     const engine = layer.engine
     let occlusion: OcclusionParams | null = null
-    if (rt.sceneHandle && rt.currentModel && rt.currentModel.meshes.length > 0) {
+    if (!rt.uvPaintMode && rt.sceneHandle && rt.currentModel && rt.currentModel.meshes.length > 0) {
       if (!rt.occlusionPass) {
         rt.occlusionPass = new OcclusionDepthPass()
       }

@@ -62,6 +62,7 @@ import ToolPanelDock from './components/ToolPanelDock'
 import { panelsForTool, toolUsesPanel } from './paint/toolPanels'
 import { openUvInspector, closeAllUvInspectors } from './utils/uvInspector'
 import WorkstationHeader from './components/WorkstationHeader'
+import UvPaintPanel from './components/UvPaintPanel'
 import WorkstationShelf from './components/WorkstationShelf'
 import { EFFECT_MODES, EFFECT_MODE_LABELS } from './paint/effectShader'
 import {
@@ -100,6 +101,7 @@ export default function App(): JSX.Element {
   const [viewMode, setViewModeSignal] = createSignal<ChannelViewMode>('material')
   const [wireframeVisible, setWireframeVisibleSignal] = createSignal(false)
   const [isolatePiece, setIsolatePieceSignal] = createSignal(false)
+  const [showUvPanel, setShowUvPanel] = createSignal(false)
   const [textures, setTextures] = createSignal<string[]>([])
   /** Folder the shelf was loaded from, so it can offer its subfolders as a filter. */
   const [textureRoot, setTextureRoot] = createSignal<string | null>(null)
@@ -1252,6 +1254,8 @@ export default function App(): JSX.Element {
         onTogglePanelDock={() => setShowPanelDock((v) => !v)}
         wireframeVisible={wireframeVisible()}
         onToggleWireframe={toggleWireframe}
+        showUvPanel={showUvPanel()}
+        onToggleUvPanel={() => setShowUvPanel((v) => !v)}
         isolatePiece={isolatePiece()}
         onToggleIsolatePiece={toggleIsolatePiece}
         multiPiece={modelPieces().length > 1}
@@ -1321,6 +1325,15 @@ export default function App(): JSX.Element {
         />
 
         <main class="flex-1 relative overflow-hidden bg-[var(--bg-main)]">
+          <Show when={showUvPanel() && modelPieces().length > 0 && viewportHandle}>
+            <UvPaintPanel
+              api={viewportHandle!.uvPanel}
+              version={layersVersion()}
+              pieceIndex={activePiece()}
+              textureSize={modelPieces()[activePiece()]?.textureSize ?? textureSize()}
+              onClose={() => setShowUvPanel(false)}
+            />
+          </Show>
           <Viewport
             tool={activeTool}
             textures={textures()}
