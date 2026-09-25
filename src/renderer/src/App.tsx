@@ -1325,6 +1325,21 @@ export default function App(): JSX.Element {
         />
 
         <main class="flex-1 relative overflow-hidden bg-[var(--bg-main)]">
+          <Show when={brush.selectionHighlightHidden()}>
+            <div class="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/95 text-black text-xs font-semibold shadow-lg pointer-events-auto">
+              <span>
+                Selection highlight hidden — painting is still limited to{' '}
+                {brush.selectedFaces().size} face{brush.selectedFaces().size === 1 ? '' : 's'}
+              </span>
+              <button
+                type="button"
+                class="px-2 py-0.5 rounded-full bg-black/80 text-amber-300 hover:bg-black cursor-pointer"
+                onClick={() => brush.setSelectionHighlightHidden(false)}
+              >
+                Show
+              </button>
+            </div>
+          </Show>
           <Show when={showUvPanel() && modelPieces().length > 0 && viewportHandle}>
             <UvPaintPanel
               api={viewportHandle!.uvPanel}

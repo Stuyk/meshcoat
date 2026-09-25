@@ -537,7 +537,24 @@ export function setTipTexturePath(path: string | null): void {
  * automatically confines brush/stamp/eraser/fill to them — Esc (or
  * clearFaceSelection) drops back to painting the whole model.
  */
-const [selectedFaces, setSelectedFacesRaw] = createSignal<ReadonlySet<number>>(new Set())
+const [selectedFaces, setSelectedFacesSignal] = createSignal<ReadonlySet<number>>(new Set())
+
+/**
+ * Hides the selection outline/wash without dropping the selection — for fine
+ * work in a color close to the highlight's. Any change to the selection turns
+ * it back on, so a selection can never silently outlive the moment the artist
+ * chose to hide it.
+ */
+const [selectionHighlightHidden, setSelectionHighlightHiddenRaw] = createSignal(false)
+
+export function setSelectionHighlightHidden(v: boolean): void {
+  setSelectionHighlightHiddenRaw(v && selectedFaces().size > 0)
+}
+
+function setSelectedFacesRaw(next: ReadonlySet<number>): void {
+  setSelectionHighlightHiddenRaw(false)
+  setSelectedFacesSignal(next)
+}
 
 /**
  * Selects a texture-shelf image for the brush. Resets paint color to white by
@@ -813,6 +830,8 @@ export const brush = {
   tipTexturePath,
   setTipTexturePath,
   selectedFaces,
+  selectionHighlightHidden,
+  setSelectionHighlightHidden,
   textureMapping,
   setTextureMapping,
   fillMode,

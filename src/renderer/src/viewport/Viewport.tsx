@@ -829,8 +829,16 @@ export default function Viewport(props: ViewportProps): JSX.Element {
 
   createEffect(() => {
     brush.selectedFaces()
+    const hidden = brush.selectionHighlightHidden()
     updateHighlight(rt)
     updateProjectorPreview(rt)
+    // Hiding only affects what's drawn; painting stays confined to the selection.
+    if (rt.highlightMesh) {
+      rt.highlightMesh.visible = !hidden
+    }
+    if (hidden && rt.selectionFillMesh) {
+      rt.selectionFillMesh.visible = false
+    }
   })
 
   createEffect(() => {

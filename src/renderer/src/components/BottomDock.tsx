@@ -17,8 +17,7 @@ import {
   FocusIcon,
   CompassIcon,
   TextIcon,
-  XIcon
-} from './icons'
+  XIcon, EyeIcon, EyeOffIcon } from './icons'
 import { Kbd } from './ui'
 
 export interface StatusBarProps {
@@ -90,6 +89,25 @@ export default function StatusBar(props: StatusBarProps): JSX.Element {
             <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
             <span class="font-medium">{props.selectedFaceCount} masked</span>
             <XIcon size={12} class="text-amber-400" />
+          </button>
+          <button
+            type="button"
+            class={`flex items-center gap-1 px-1.5 py-0.5 rounded-[var(--ui-radius)] border transition-colors cursor-pointer text-[11px] ${
+              brush.selectionHighlightHidden()
+                ? 'bg-amber-500 text-black border-amber-400 font-semibold'
+                : 'bg-[var(--bg-input)] border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)]'
+            }`}
+            onClick={() => brush.setSelectionHighlightHidden(!brush.selectionHighlightHidden())}
+            title={
+              brush.selectionHighlightHidden()
+                ? 'Selection highlight is hidden — painting is still confined to the selection. Click to show.'
+                : 'Hide the selection highlight (painting stays confined to the selection)'
+            }
+          >
+            {brush.selectionHighlightHidden() ? <EyeOffIcon size={12} /> : <EyeIcon size={12} />}
+            <Show when={brush.selectionHighlightHidden()}>
+              <span>Highlight hidden</span>
+            </Show>
           </button>
         </Show>
 
