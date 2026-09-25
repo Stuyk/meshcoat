@@ -9,6 +9,8 @@ import FaceProjectorHUD from './FaceProjectorHUD'
 import TextHUD from './TextHUD'
 import EffectHUD from './EffectHUD'
 import StencilHUD from './StencilHUD'
+import GradientHUD from './GradientHUD'
+import { gradient } from '../paint/gradient'
 import {
   ImagesIcon,
   CropIcon,
@@ -19,7 +21,8 @@ import {
   EyeIcon,
   EyeOffIcon,
   FocusIcon,
-  TextIcon
+  TextIcon,
+  GradientIcon
 } from './icons'
 import { IconButton, PanelSection, Label } from './ui'
 import { setTexturePath, resetTextureRegion } from '../paint/brush'
@@ -125,6 +128,13 @@ export default function ToolPanelDock(props: ToolPanelDockProps): JSX.Element {
       icon: (p) => <DropletsIcon {...p} />,
       summary: () => brush.effectMode(),
       render: () => <EffectHUD docked isOpen onClose={() => {}} />
+    },
+    gradient: {
+      title: 'Gradient',
+      icon: (p) => <GradientIcon {...p} />,
+      summary: () =>
+        `${gradient.stops().length} stops · ${gradient.shape()} · ${gradient.ends()}`,
+      render: () => <GradientHUD />
     },
     stencil: {
       title: 'Screen Stencil',

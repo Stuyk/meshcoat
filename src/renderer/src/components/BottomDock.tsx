@@ -17,7 +17,9 @@ import {
   FocusIcon,
   CompassIcon,
   TextIcon,
-  XIcon, EyeIcon, EyeOffIcon } from './icons'
+  XIcon, EyeIcon, EyeOffIcon,
+  GradientIcon
+} from './icons'
 import { Kbd } from './ui'
 
 export interface StatusBarProps {
@@ -42,7 +44,8 @@ const TOOL_CONFIG: Record<ToolMode, { label: string; key: string; num: string; I
   faceSelect: { label: 'Face Select', key: 'V', num: '6', Icon: MousePointerIcon },
   effect: { label: 'Effects', key: 'U', num: '7', Icon: DropletsIcon },
   faceProjector: { label: 'Face UV Projector', key: 'P', num: '8', Icon: CompassIcon },
-  text: { label: 'Text', key: 'Y', num: '9', Icon: TextIcon }
+  text: { label: 'Text', key: 'Y', num: '9', Icon: TextIcon },
+  gradient: { label: 'Gradient', key: 'D', num: 'D', Icon: GradientIcon }
 }
 
 export default function StatusBar(props: StatusBarProps): JSX.Element {

@@ -1,3 +1,4 @@
+import { gradient } from '../paint/gradient'
 import { onMount, onCleanup, createEffect, untrack, Show, type JSX } from 'solid-js'
 import * as THREE from 'three'
 import { createScene } from './scene'
@@ -1108,6 +1109,36 @@ export default function Viewport(props: ViewportProps): JSX.Element {
             : `tool-${props.tool()}`
         }`}
       />
+      {/* Gradient tool guide: the line being dragged, start and end handles. */}
+      <Show when={gradient.drag()}>
+        {(d) => (
+          <svg class="absolute inset-0 w-full h-full pointer-events-none z-10">
+            <line
+              x1={d().x0}
+              y1={d().y0}
+              x2={d().x1}
+              y2={d().y1}
+              stroke="black"
+              stroke-width="4"
+              stroke-opacity="0.6"
+            />
+            <line x1={d().x0} y1={d().y0} x2={d().x1} y2={d().y1} stroke="white" stroke-width="2" />
+            <Show when={gradient.shape() === 'radial'}>
+              <circle
+                cx={d().x0}
+                cy={d().y0}
+                r={Math.hypot(d().x1 - d().x0, d().y1 - d().y0)}
+                fill="none"
+                stroke="white"
+                stroke-dasharray="6 4"
+                stroke-opacity="0.8"
+              />
+            </Show>
+            <circle cx={d().x0} cy={d().y0} r="6" fill="white" stroke="black" stroke-width="2" />
+            <circle cx={d().x1} cy={d().y1} r="6" fill="black" stroke="white" stroke-width="2" />
+          </svg>
+        )}
+      </Show>
       {/* Orbit nav cube: drag to spin the camera around the current pivot
           (selection center, or the whole model when nothing's selected). */}
       <canvas

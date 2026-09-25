@@ -944,6 +944,9 @@ export default function App(): JSX.Element {
       case 'l':
         setActiveTool('line')
         break
+      case 'd':
+        setActiveTool('gradient')
+        break
       case '2':
       case 'e':
         setActiveTool('eraser')

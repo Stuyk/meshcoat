@@ -1,3 +1,4 @@
+import { gradient, renderGradientCanvas } from '../paint/gradient'
 import type { UvDab } from '../paint/brushMask'
 import * as THREE from 'three'
 import { raycastMeshes, screenToNdc, type SurfaceHit } from './raycast'
@@ -291,16 +292,55 @@ export interface StampDiagnostics {
  * reprints itself on the far side of the model.
  */
 export function stampStencilNow(rt: ViewportRuntime, diag?: StampDiagnostics): boolean {
+  if (!rt.stencilTexture || !stencil.texturePath()) {
+    if (diag) {
+      diag.bail = 'no stencil texture loaded'
+    }
+    return false
+  }
+  if (!rt.canvasRef) {
+    return false
+  }
+  const rect = rt.canvasRef.getBoundingClientRect()
+  const r = stencil.stencilRect(rect.width, rect.height)
+  return projectScreenImage(
+    rt,
+    {
+      texture: rt.stencilTexture,
+      rect: new THREE.Vector4(r.centerX, r.centerY, r.width, r.height),
+      rotationRad: r.rotationRad,
+      invert: stencil.invert(),
+      hasAlpha: stencil.imageHasAlpha(),
+      useLuminance: stencil.stampUseLuminance(),
+      color: new THREE.Color(brush.color())
+    },
+    diag
+  )
+}
+
+/**
+ * Projects a screen-space image onto every visible texel of the active piece
+ * in one pass — the stencil stamp, and the gradient tool's ramp. `rect` is the
+ * image's center (xy) and size (zw) in canvas CSS pixels.
+ */
+function projectScreenImage(
+  rt: ViewportRuntime,
+  image: {
+    texture: THREE.Texture
+    rect: THREE.Vector4
+    rotationRad: number
+    invert: boolean
+    hasAlpha: boolean
+    useLuminance: boolean
+    /** Multiplies the image's colors (white = the image as-is). */
+    color: THREE.Color
+  },
+  diag?: StampDiagnostics
+): boolean {
   const layer = rt.layerStack?.active
   if (!rt.layerStack || !layer || !rt.sceneHandle || !rt.canvasRef || !rt.currentModel) {
     if (diag) {
       diag.bail = 'no layer stack / active layer / scene / canvas / model'
-    }
-    return false
-  }
-  if (!rt.stencilTexture || !stencil.texturePath()) {
-    if (diag) {
-      diag.bail = 'no stencil texture loaded'
     }
     return false
   }
@@ -313,7 +353,6 @@ export function stampStencilNow(rt: ViewportRuntime, diag?: StampDiagnostics): b
 
   const camera = rt.sceneHandle.camera
   const rect = rt.canvasRef.getBoundingClientRect()
-  const r = stencil.stencilRect(rect.width, rect.height)
 
   if (!rt.occlusionPass) {
     rt.occlusionPass = new OcclusionDepthPass()
@@ -325,10 +364,10 @@ export function stampStencilNow(rt: ViewportRuntime, diag?: StampDiagnostics): b
     stampOccluderMeshes(rt)
   )
 
-  // Derive the normal sign from whatever the stencil's own center is pointing
+  // Derive the normal sign from whatever the image's own center is pointing
   // at, the same way a brush dab derives it from the face under the cursor —
   // an inverted-normal import would otherwise reject the entire projection.
-  const centerNdc = screenToNdc(rect.left + r.centerX, rect.top + r.centerY, rt.canvasRef)
+  const centerNdc = screenToNdc(rect.left + image.rect.x, rect.top + image.rect.y, rt.canvasRef)
   const stampMesh = activeMesh(rt)
   const centerHit = stampMesh ? raycastMeshes(centerNdc.x, centerNdc.y, camera, [stampMesh]) : null
   const camPos = camera.getWorldPosition(new THREE.Vector3())
@@ -347,14 +386,14 @@ export function stampStencilNow(rt: ViewportRuntime, diag?: StampDiagnostics): b
     diag.stampMeshVisible = stampMesh?.visible
     diag.occluders = occluders.map((m) => ({ name: m.name, visible: m.visible }))
     diag.canvas = { width: rect.width, height: rect.height }
-    diag.rect = r
+    diag.rect = image.rect.toArray()
     diag.centerHit = centerHit
       ? { point: centerHit.point.toArray(), face: centerHit.faceIndex }
       : null
     diag.normalSign = normalSign
     diag.stencil = {
-      useLuminance: stencil.stampUseLuminance(),
-      invert: stencil.invert(),
+      useLuminance: image.useLuminance,
+      invert: image.invert,
       opacity: brush.opacity()
     }
     diag.restrictedFaces = brush.selectedFaces().size
@@ -364,11 +403,11 @@ export function stampStencilNow(rt: ViewportRuntime, diag?: StampDiagnostics): b
   rt.layerStack.history.record()
   layer.engine.stampStencil({
     stencil: {
-      texture: rt.stencilTexture,
-      rect: new THREE.Vector4(r.centerX, r.centerY, r.width, r.height),
-      rotationRad: r.rotationRad,
-      invert: stencil.invert(),
-      hasAlpha: stencil.imageHasAlpha(),
+      texture: image.texture,
+      rect: image.rect,
+      rotationRad: image.rotationRad,
+      invert: image.invert,
+      hasAlpha: image.hasAlpha,
       canvasWidth: rect.width,
       canvasHeight: rect.height,
       viewProjMatrix
@@ -383,18 +422,62 @@ export function stampStencilNow(rt: ViewportRuntime, diag?: StampDiagnostics): b
       near: camera.near,
       far: camera.far
     },
-    color: new THREE.Color(brush.color()),
+    color: image.color,
     opacity: brush.opacity(),
-    useLuminance: stencil.stampUseLuminance(),
+    useLuminance: image.useLuminance,
     restrictFaces: brush.selectedFaces().size > 0 ? brush.selectedFaces() : null,
     channels: brush.buildChannelPayload({
-      baseColor: { color: new THREE.Color(brush.color()), alpha: 1 },
+      baseColor: { color: image.color, alpha: 1 },
       baseColorOnly: !!layer.isMask
     })
   })
   rt.layerStack.recomposite()
   rt.props.onLayersChanged?.()
   return true
+}
+
+/**
+ * Gradient tool: renders the current stops along the dragged line into a
+ * viewport-sized image and projects it like a stencil stamp (issue #6).
+ */
+function applyGradient(
+  rt: ViewportRuntime,
+  line: { x0: number; y0: number; x1: number; y1: number }
+): boolean {
+  if (!rt.canvasRef) {
+    return false
+  }
+  const rect = rt.canvasRef.getBoundingClientRect()
+  const canvas = renderGradientCanvas(rect.width, rect.height, line.x0, line.y0, line.x1, line.y1)
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.wrapS = THREE.ClampToEdgeWrapping
+  texture.wrapT = THREE.ClampToEdgeWrapping
+  try {
+    return projectScreenImage(rt, {
+      texture,
+      rect: new THREE.Vector4(rect.width / 2, rect.height / 2, rect.width, rect.height),
+      rotationRad: 0,
+      invert: false,
+      hasAlpha: true,
+      useLuminance: false,
+      color: new THREE.Color(1, 1, 1)
+    })
+  } finally {
+    texture.dispose()
+  }
+}
+
+/** Canvas-relative position of a pointer event. */
+function canvasPoint(
+  rt: ViewportRuntime,
+  e: { clientX: number; clientY: number }
+): {
+  x: number
+  y: number
+} {
+  const r = rt.canvasRef!.getBoundingClientRect()
+  return { x: e.clientX - r.left, y: e.clientY - r.top }
 }
 
 /**
@@ -845,6 +928,22 @@ export function onPointerMove(rt: ViewportRuntime, e: PointerEvent): void {
   rt.lastClientX = e.clientX
   rt.lastClientY = e.clientY
 
+  const gradientDrag = gradient.drag()
+  if (gradientDrag && rt.canvasRef) {
+    let p = canvasPoint(rt, e)
+    if (e.shiftKey) {
+      // Shift snaps the direction to 45° steps, like most paint apps.
+      const dx = p.x - gradientDrag.x0
+      const dy = p.y - gradientDrag.y0
+      const len = Math.hypot(dx, dy)
+      const step = Math.PI / 4
+      const angle = Math.round(Math.atan2(dy, dx) / step) * step
+      p = { x: gradientDrag.x0 + Math.cos(angle) * len, y: gradientDrag.y0 + Math.sin(angle) * len }
+    }
+    gradient.setDrag({ ...gradientDrag, x1: p.x, y1: p.y })
+    return
+  }
+
   if (rt.stencilDrag && rt.canvasRef) {
     const rect = rt.canvasRef.getBoundingClientRect()
     const dx = (e.clientX - rt.stencilDrag.lastX) / rect.width
@@ -1019,13 +1118,28 @@ export function onPointerDown(rt: ViewportRuntime, e: PointerEvent): void {
   // applies to every other tool unless holding Ctrl.
   // The bucket has no radius to drag, so right-drag stays a plain context
   // gesture there rather than silently changing a number nothing reads.
-  if (e.button === 2 && !isFaceSelectTool && !isCtrl && rt.props.tool() !== 'fill') {
+  if (
+    e.button === 2 &&
+    !isFaceSelectTool &&
+    !isCtrl &&
+    rt.props.tool() !== 'fill' &&
+    rt.props.tool() !== 'gradient'
+  ) {
     e.preventDefault()
     rt.resizeDrag = { shift: e.shiftKey, lastX: e.clientX, lastY: e.clientY }
     window.addEventListener('pointermove', rt.boundPointerMove)
     window.addEventListener('pointerup', rt.boundPointerUp)
     return
   }
+  if (e.button === 0 && rt.props.tool() === 'gradient' && !isCtrl && rt.canvasRef) {
+    e.preventDefault()
+    const p = canvasPoint(rt, e)
+    gradient.setDrag({ x0: p.x, y0: p.y, x1: p.x, y1: p.y })
+    window.addEventListener('pointermove', rt.boundPointerMove)
+    window.addEventListener('pointerup', rt.boundPointerUp)
+    return
+  }
+
   if (e.button === 0) {
     const hit = hitFromEvent(rt, e)
 
@@ -1218,6 +1332,17 @@ function commitLineStroke(rt: ViewportRuntime, endHit: SurfaceHit): void {
 }
 
 export function onPointerUp(rt: ViewportRuntime, e?: PointerEvent): void {
+  const gradientDrag = gradient.drag()
+  if (gradientDrag) {
+    gradient.setDrag(null)
+    window.removeEventListener('pointermove', rt.boundPointerMove)
+    window.removeEventListener('pointerup', rt.boundPointerUp)
+    // A click without a drag has no direction; ignore it rather than flood-fill.
+    if (Math.hypot(gradientDrag.x1 - gradientDrag.x0, gradientDrag.y1 - gradientDrag.y0) >= 4) {
+      applyGradient(rt, gradientDrag)
+    }
+    return
+  }
   rt.stencilDrag = null
   rt.resizeDrag = null
   rt.ctrlFaceSelecting = false

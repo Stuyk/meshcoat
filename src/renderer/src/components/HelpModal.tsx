@@ -57,6 +57,11 @@ const SHORTCUTS: ShortcutItem[] = [
   { category: 'Tools & Radial Menu', keys: ['T'], desc: 'Stamp decal tool (alternate)' },
   { category: 'Tools & Radial Menu', keys: ['4'], desc: 'Fill bucket tool' },
   { category: 'Tools & Radial Menu', keys: ['G'], desc: 'Fill bucket tool (alternate)' },
+  {
+    category: 'Tools & Radial Menu',
+    keys: ['D'],
+    desc: 'Gradient tool — drag across the model (Shift snaps to 45°)'
+  },
   { category: 'Tools & Radial Menu', keys: ['5'], desc: 'Eyedropper / Color picker' },
   { category: 'Tools & Radial Menu', keys: ['I'], desc: 'Eyedropper (alternate)' },
   { category: 'Tools & Radial Menu', keys: ['6'], desc: 'Face selection tool' },

@@ -15,6 +15,7 @@ export type ToolMode =
   | 'effect'
   | 'faceProjector'
   | 'text'
+  | 'gradient'
 export type BrushTextureMapping = 'uv' | 'triplanar' | 'tip'
 /**
  * How the selected region repeats across a stroke.

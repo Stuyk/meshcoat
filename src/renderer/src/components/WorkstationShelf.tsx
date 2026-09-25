@@ -5,6 +5,7 @@ import {
   StampIcon,
   EraserIcon,
   FillIcon,
+  GradientIcon,
   DropletsIcon,
   ImagesIcon,
   EyedropperIcon,
@@ -85,6 +86,16 @@ export default function WorkstationShelf(props: WorkstationShelfProps): JSX.Elem
           tooltip="Fill Bucket (G)"
         >
           <FillIcon size={18} />
+        </IconButton>
+
+        <IconButton
+          size="sm"
+          active={props.activeTool === 'gradient'}
+          onClick={() => props.onSelectTool('gradient')}
+          shortcut="D"
+          tooltip="Gradient — drag across the model (D)"
+        >
+          <GradientIcon size={18} />
         </IconButton>
 
         <IconButton
