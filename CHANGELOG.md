@@ -1,5 +1,29 @@
 # Changelog
 
+## v2.6.0
+
+### Added
+- **Gradient Tool (D)** ([#6](https://github.com/Stuyk/slip-texture-paint/issues/6)): Drag across the model to paint a color ramp onto whatever is visible under the line. Any number of stops with their own color, position and opacity; linear or radial; past the ends the ramp either extends or clips. Shift snaps to 45°. Uses the brush opacity and stays inside a face selection.
+- **2D Paint Panel** ([#28](https://github.com/Stuyk/slip-texture-paint/issues/28)): A floating, resizable panel showing the active piece's texture laid flat with a UV wireframe overlay. Painting in it lays texture-space dabs — exact circles on the sheet, sized in pixels — with a brush ring cursor, size / opacity / hardness controls, pan and zoom, and a texel readout. Fill, eyedropper and face selection work there too.
+- **Brush Randomness** ([#7](https://github.com/Stuyk/slip-texture-paint/issues/7), [#14](https://github.com/Stuyk/slip-texture-paint/issues/14)): Hue, saturation and lightness jitter join angle and size jitter, and a switch re-rolls the variation every dab or once per stroke. A Chaos toggle turns on a mix of all of them in one click.
+- **Copy Layer to Another Piece** ([#21](https://github.com/Stuyk/slip-texture-paint/issues/21)): Copy a layer onto another piece of the model, with optional horizontal / vertical flips for mirrored UV islands. Lines up when both pieces share an unwrap; different texture sizes are resampled.
+- **Hide Selection Highlight** ([#33](https://github.com/Stuyk/slip-texture-paint/issues/33)): An eye toggle beside the "masked" status chip hides the selection outline without clearing the selection, with a viewport banner while it's hidden. Any change to the selection shows it again.
+- **Custom Palettes from Saved Colors** ([#30](https://github.com/Stuyk/slip-texture-paint/issues/30)): Saved colors and palettes now live in a global settings file instead of browser storage, and "To Palette" turns your saved colors into a named preset under My Palettes, which can be renamed or deleted.
+- **Force Canvas Resolution on Import** ([#20](https://github.com/Stuyk/slip-texture-paint/issues/20)): An "Always use this resolution" option in the start wizard stops a model's existing material maps (typically a `.blend`'s) from overriding the chosen canvas size.
+
+### Changed
+- **Color Picker Redesign**: A taller color field, full-width hue slider, a hex field that also takes `rgb()`, `hsl()` and color names, labelled RGB/HSV value fields, and a before/after swatch that reverts on click. Everything stays inside its panel.
+- **Wheel Menu Colors** ([#31](https://github.com/Stuyk/slip-texture-paint/issues/31)): The wheel menu shows your saved colors and a palette picker instead of a fixed color list.
+- **Stencil Texture Search** ([#26](https://github.com/Stuyk/slip-texture-paint/issues/26)): The stencil panel's project textures are searchable and show a capped, lazily loaded result grid, and a button uses the brush's current texture as the stencil.
+- **Resizable Sidebar and Layers** ([#22](https://github.com/Stuyk/slip-texture-paint/issues/22)): Drag the bar between brush settings and layers to resize the layers panel (double-click toggles half height), and drag the sidebar's left edge to widen it. Sizes are remembered.
+- **Collapsible Stylus Settings**: Stylus pressure, projector depth and max angle live in a collapsible "Stylus & Projection" section.
+
+### Fixed
+- **Color Picker Rejected Pasted Colors** ([#29](https://github.com/Stuyk/slip-texture-paint/issues/29)): The hex field truncated input to six characters and added a second `#`, so pasting `#ff0000` failed.
+- **UV Island Selection Picked the Wrong Faces** ([#27](https://github.com/Stuyk/slip-texture-paint/issues/27)): Island detection assumed non-indexed geometry, which imported GLB and `.blend` models aren't. Islands are now found by shared edges, which also keeps mirrored and corner-touching islands apart.
+- **Stencil Stamp Ignored Transparency** ([#19](https://github.com/Stuyk/slip-texture-paint/issues/19)): A brush-style PNG (black with the shape in alpha) stamped solid black, or not at all in Color Mask mode. Images with transparency now use it as their shape, and grayscale cut-outs switch to Color Mask automatically.
+- **Stencil Stamp and Hidden Geometry** ([#25](https://github.com/Stuyk/slip-texture-paint/issues/25)): The occlusion pass drew back faces the viewport culls, so looking through a single-sided shell rejected the stamp on both surfaces. It now matches each mesh's own culling, and other visible pieces block the stamp as they block your view.
+
 ## v2.5.0
 
 ### Added
