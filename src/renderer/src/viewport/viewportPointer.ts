@@ -529,7 +529,7 @@ export function applyToolAt(
         : new THREE.Color(brush.color())
       : tool === 'eraser'
         ? engine.baseColor
-        : new THREE.Color(brush.color())
+        : brush.jitteredColor()
     const alpha = isMask ? (tool === 'eraser' ? 1 : 1) : tool === 'eraser' ? engine.baseAlpha : 1
     const strokeTexture = isMask ? null : tool === 'eraser' ? null : rt.brushTexture
     const strokeTip = rt.brushTipTexture
@@ -549,12 +549,12 @@ export function applyToolAt(
     }
 
     if (brush.angleJitter() > 0) {
-      strokeAngle += (Math.random() - 0.5) * 2 * Math.PI * brush.angleJitter()
+      strokeAngle += brush.jitterSample('angle') * Math.PI * brush.angleJitter()
     }
 
     let strokeRadius = brush.radius()
     if (brush.sizeJitter() > 0) {
-      strokeRadius *= Math.max(0.1, 1 + (Math.random() - 0.5) * 2 * brush.sizeJitter())
+      strokeRadius *= Math.max(0.1, 1 + brush.jitterSample('size') * brush.sizeJitter())
     }
 
     // Stylus pressure. `event` is absent for synthesized dabs (shift-click
@@ -680,7 +680,7 @@ export function applyToolAt(
 
     let effectDabRadius = brush.radius()
     if (brush.sizeJitter() > 0) {
-      effectDabRadius *= Math.max(0.1, 1 + (Math.random() - 0.5) * 2 * brush.sizeJitter())
+      effectDabRadius *= Math.max(0.1, 1 + brush.jitterSample('size') * brush.sizeJitter())
     }
     effectDabRadius = applyPressure(effectDabRadius, event, brush.pressureRadius())
 
@@ -697,7 +697,7 @@ export function applyToolAt(
       }
     }
     if (brush.angleJitter() > 0) {
-      strokeAngle += (Math.random() - 0.5) * 2 * Math.PI * brush.angleJitter()
+      strokeAngle += brush.jitterSample('angle') * Math.PI * brush.angleJitter()
     }
 
     engine.applyEffect(hit, {
@@ -1046,6 +1046,7 @@ export function onPointerDown(rt: ViewportRuntime, e: PointerEvent): void {
     }
 
     if (rt.props.tool() === 'line') {
+      brush.beginStrokeJitter()
       rt.layerStack?.history.record()
       rt.painting = true
       rt.lineStartHit = hit
@@ -1063,6 +1064,8 @@ export function onPointerDown(rt: ViewportRuntime, e: PointerEvent): void {
     }
 
     const tool = rt.props.tool()
+    // Per-stroke jitter (see brush.jitterScope) re-rolls once per press.
+    brush.beginStrokeJitter()
     if (tool === 'fill' && brush.fillMode() === 'face') {
       // The first face goes down via applyToolAt below; the set tracks it so
       // the same triangle isn't refilled on every pointer sample after it.
@@ -1169,7 +1172,7 @@ function commitLineStroke(rt: ViewportRuntime, endHit: SurfaceHit): void {
   const stepDist = Math.max(0.002, radius * spacing)
   const steps = Math.max(1, Math.ceil(dist / stepDist))
 
-  const strokeColor = new THREE.Color(brush.color())
+  const strokeColor = isMask ? new THREE.Color(brush.color()) : brush.jitteredColor()
   const strokeAlpha = 1
   const lineChannels = brush.buildChannelPayload({
     baseColor: { color: strokeColor, alpha: strokeAlpha },

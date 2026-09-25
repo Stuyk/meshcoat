@@ -42,7 +42,8 @@ import {
   ToggleSwitch,
   ColorSwatch,
   Kbd,
-  TextInput
+  TextInput,
+  SegmentedControl
 } from './ui'
 import { toAssetUrl } from '../utils/assetUrl'
 import {
@@ -103,6 +104,7 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
   let fileInputRef: HTMLInputElement | undefined
 
   const [showColorPicker, setShowColorPicker] = createSignal(true)
+  const [showStylus, setShowStylus] = createSignal(false)
   const { savedSwatches, setSavedSwatches, customPalettes } = colorLibrary
   const [activePresetId, setActivePresetId] = createSignal<string>('essentials')
 
@@ -709,79 +711,90 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
               icon={(p) => <FeatherIcon size={p.size} />}
             />
 
-            <div class="flex flex-col gap-2 pt-2 border-t border-[var(--border-color)]/60">
-              <Label uppercase>Stylus Pressure</Label>
-              <div class="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => brush.setPressureRadius(!brush.pressureRadius())}
-                  title="Stylus pressure controls brush radius (tapered strokes)"
-                  class={`flex-1 h-7 rounded-[var(--ui-radius)] border text-xs font-medium transition-colors cursor-pointer ${
-                    brush.pressureRadius()
-                      ? 'bg-[var(--accent-color)] border-[var(--accent-color)] text-[var(--accent-text)]'
-                      : 'bg-[var(--bg-input)] border-[var(--border-color)] text-[var(--text-muted)] hover:border-white/20'
-                  }`}
-                >
-                  → Size
-                </button>
-                <button
-                  type="button"
-                  onClick={() => brush.setPressureOpacity(!brush.pressureOpacity())}
-                  title="Stylus pressure controls brush opacity (feathering and blending)"
-                  class={`flex-1 h-7 rounded-[var(--ui-radius)] border text-xs font-medium transition-colors cursor-pointer ${
-                    brush.pressureOpacity()
-                      ? 'bg-[var(--accent-color)] border-[var(--accent-color)] text-[var(--accent-text)]'
-                      : 'bg-[var(--bg-input)] border-[var(--border-color)] text-[var(--text-muted)] hover:border-white/20'
-                  }`}
-                >
-                  → Opacity
-                </button>
+            <button
+              type="button"
+              onClick={() => setShowStylus((v) => !v)}
+              class="flex items-center justify-between w-full pt-2 border-t border-[var(--border-color)]/60 text-[var(--text-muted)] hover:text-[var(--text-main)] cursor-pointer"
+              title="Stylus pressure, projector depth and max angle"
+            >
+              <Label uppercase>Stylus &amp; Projection</Label>
+              {showStylus() ? <ChevronUpIcon size={14} /> : <ChevronDownIcon size={14} />}
+            </button>
+            <Show when={showStylus()}>
+              <div class="flex flex-col gap-2">
+                <Label uppercase>Stylus Pressure</Label>
+                <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => brush.setPressureRadius(!brush.pressureRadius())}
+                    title="Stylus pressure controls brush radius (tapered strokes)"
+                    class={`flex-1 h-7 rounded-[var(--ui-radius)] border text-xs font-medium transition-colors cursor-pointer ${
+                      brush.pressureRadius()
+                        ? 'bg-[var(--accent-color)] border-[var(--accent-color)] text-[var(--accent-text)]'
+                        : 'bg-[var(--bg-input)] border-[var(--border-color)] text-[var(--text-muted)] hover:border-white/20'
+                    }`}
+                  >
+                    → Size
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => brush.setPressureOpacity(!brush.pressureOpacity())}
+                    title="Stylus pressure controls brush opacity (feathering and blending)"
+                    class={`flex-1 h-7 rounded-[var(--ui-radius)] border text-xs font-medium transition-colors cursor-pointer ${
+                      brush.pressureOpacity()
+                        ? 'bg-[var(--accent-color)] border-[var(--accent-color)] text-[var(--accent-text)]'
+                        : 'bg-[var(--bg-input)] border-[var(--border-color)] text-[var(--text-muted)] hover:border-white/20'
+                    }`}
+                  >
+                    → Opacity
+                  </button>
+                </div>
+                <Slider
+                  label="Min Pressure Floor"
+                  value={brush.pressureMin()}
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  onChange={(v) => brush.setPressureMin(v)}
+                  displayValue={(v) => `${Math.round(v * 100)}%`}
+                  icon={(p) => <FeatherIcon size={p.size} />}
+                />
               </div>
-              <Slider
-                label="Min Pressure Floor"
-                value={brush.pressureMin()}
-                min={0}
-                max={1}
-                step={0.01}
-                onChange={(v) => brush.setPressureMin(v)}
-                displayValue={(v) => `${Math.round(v * 100)}%`}
-                icon={(p) => <FeatherIcon size={p.size} />}
-              />
-            </div>
 
-            <div class="flex flex-col gap-3.5 pt-2 border-t border-[var(--border-color)]/60">
-              <Slider
-                label="Depth (Bleed Through)"
-                value={brush.projectorDepth()}
-                min={0.02}
-                max={2}
-                step={0.01}
-                onChange={(v) => brush.setProjectorDepth(v)}
-                displayValue={(v) => `${Math.round(v * 100)}%`}
-                presets={[
-                  { label: 'Thin', value: 0.15 },
-                  { label: 'Default', value: 0.35 },
-                  { label: 'Wrap', value: 1 }
-                ]}
-                icon={(p) => <FeatherIcon size={p.size} />}
-              />
+              <div class="flex flex-col gap-3.5 pt-2 border-t border-[var(--border-color)]/60">
+                <Slider
+                  label="Depth (Bleed Through)"
+                  value={brush.projectorDepth()}
+                  min={0.02}
+                  max={2}
+                  step={0.01}
+                  onChange={(v) => brush.setProjectorDepth(v)}
+                  displayValue={(v) => `${Math.round(v * 100)}%`}
+                  presets={[
+                    { label: 'Thin', value: 0.15 },
+                    { label: 'Default', value: 0.35 },
+                    { label: 'Wrap', value: 1 }
+                  ]}
+                  icon={(p) => <FeatherIcon size={p.size} />}
+                />
 
-              <Slider
-                label="Max Angle"
-                value={brush.maxAngle()}
-                min={5}
-                max={180}
-                step={1}
-                unit="°"
-                onChange={(v) => brush.setMaxAngle(v)}
-                presets={[
-                  { label: '60°', value: 60 },
-                  { label: '85°', value: 85 },
-                  { label: '120°', value: 120 }
-                ]}
-                icon={(p) => <RotateIcon size={p.size} />}
-              />
-            </div>
+                <Slider
+                  label="Max Angle"
+                  value={brush.maxAngle()}
+                  min={5}
+                  max={180}
+                  step={1}
+                  unit="°"
+                  onChange={(v) => brush.setMaxAngle(v)}
+                  presets={[
+                    { label: '60°', value: 60 },
+                    { label: '85°', value: 85 },
+                    { label: '120°', value: 120 }
+                  ]}
+                  icon={(p) => <RotateIcon size={p.size} />}
+                />
+              </div>
+            </Show>
 
             <div class="flex flex-col gap-2 pt-2 border-t border-[var(--border-color)]/60">
               <div class="flex items-center justify-between">
@@ -837,9 +850,45 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
             </div>
 
             <div class="flex flex-col gap-3 pt-2 border-t border-[var(--border-color)]/60">
+              <div class="flex items-center justify-between">
+                <Label uppercase>Randomness</Label>
+                <button
+                  type="button"
+                  onClick={() => brush.setChaos(!brush.chaosActive())}
+                  title={
+                    brush.chaosActive()
+                      ? 'Turn every jitter off'
+                      : 'Chaos: new rotation, size and slight color drift on every stroke'
+                  }
+                  class={`flex items-center gap-1 px-2 py-0.5 rounded-[var(--ui-radius)] border text-[11px] font-medium cursor-pointer transition-colors ${
+                    brush.chaosActive()
+                      ? 'bg-[var(--accent-color)] border-[var(--accent-color)] text-[var(--accent-text)]'
+                      : 'bg-[var(--bg-input)] border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)]'
+                  }`}
+                >
+                  <SparklesIcon size={12} />
+                  <span>{brush.chaosActive() ? 'Reset' : 'Chaos'}</span>
+                </button>
+              </div>
+
+              <SegmentedControl
+                size="xs"
+                options={[
+                  { value: 'dab', label: 'Every dab', title: 'Re-roll the variation on every dab' },
+                  {
+                    value: 'stroke',
+                    label: 'Every stroke',
+                    title: 'Re-roll once per stroke — each click gets its own variation'
+                  }
+                ]}
+                value={brush.jitterScope()}
+                onChange={(v) => brush.setJitterScope(v)}
+                class="w-full justify-between"
+              />
+
               <Slider
                 label="Angle Jitter"
-                title="Randomly varies the brush tip rotation angle per stamp dab"
+                title="Randomly varies the brush tip rotation"
                 value={brush.angleJitter()}
                 min={0}
                 max={1}
@@ -850,13 +899,46 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
 
               <Slider
                 label="Size Jitter"
-                title="Randomly varies the brush radius per stamp dab"
+                title="Randomly varies the brush radius"
                 value={brush.sizeJitter()}
                 min={0}
                 max={1}
                 step={0.05}
                 onChange={(v) => brush.setSizeJitter(v)}
                 displayValue={(v) => `${Math.round(v * 100)}%`}
+              />
+
+              <Slider
+                label="Hue Jitter"
+                title="Randomly shifts the paint hue, up to ±60°"
+                value={brush.hueJitter()}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(v) => brush.setHueJitter(v)}
+                displayValue={(v) => `±${Math.round(v * 60)}°`}
+              />
+
+              <Slider
+                label="Saturation Jitter"
+                title="Randomly raises or lowers saturation"
+                value={brush.saturationJitter()}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(v) => brush.setSaturationJitter(v)}
+                displayValue={(v) => `±${Math.round(v * 50)}%`}
+              />
+
+              <Slider
+                label="Lightness Jitter"
+                title="Randomly lightens or darkens the paint"
+                value={brush.valueJitter()}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(v) => brush.setValueJitter(v)}
+                displayValue={(v) => `±${Math.round(v * 35)}%`}
               />
             </div>
           </Show>

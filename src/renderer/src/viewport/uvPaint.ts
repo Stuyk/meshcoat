@@ -112,6 +112,7 @@ export function uvPointerDown(
     return
   }
   if (STROKE_TOOLS.has(tool)) {
+    brush.beginStrokeJitter()
     rt.layerStack.history.record()
     saved3d = { lastStampPos: rt.lastStampPos, lastBrushDabPos: rt.lastBrushDabPos }
     rt.lastStampPos = null
