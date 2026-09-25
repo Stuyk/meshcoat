@@ -20,7 +20,7 @@ import { tmpdir } from 'os'
 
 const OVERLAY_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; cursor: none; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; cursor: crosshair; }
   #shot { position: fixed; inset: 0; width: 100vw; height: 100vh; image-rendering: pixelated; }
   #loupe { position: fixed; pointer-events: none; width: 154px; border-radius: 10px; overflow: hidden;
     background: #111; box-shadow: 0 6px 24px rgba(0,0,0,.6); border: 2px solid #fff; display: none; }
@@ -71,8 +71,15 @@ const OVERLAY_HTML = `<!doctype html>
   cross.style.cssText = 'position:absolute;left:70px;top:70px;width:14px;height:14px;box-sizing:border-box;border:2px solid #fff;outline:1px solid #000;pointer-events:none'
   loupe.style.position = 'fixed'; loupe.appendChild(cross)
   window.addEventListener('mousemove', sample)
+  // Commit on release, not press: the overlay closes on commit, and a release
+  // landing on the app window underneath would otherwise click it.
+  let pressed = false
   window.addEventListener('mousedown', (e) => {
     if (e.button === 2) { document.title = 'pick:cancel'; return }
+    if (e.button === 0) { pressed = true; sample(e) }
+  })
+  window.addEventListener('mouseup', (e) => {
+    if (e.button !== 0 || !pressed) return
     sample(e)
     if (current) document.title = 'pick:' + current
   })
@@ -103,8 +110,9 @@ async function runPicker(owner: BrowserWindow | null): Promise<string | null> {
   const ownerWasVisible = !!owner && owner.isVisible() && !owner.isMinimized()
   if (ownerWasVisible) {
     owner!.hide()
-    // Give the compositor a moment to actually take the window off screen.
-    await new Promise((r) => setTimeout(r, 250))
+    // Give the window manager a moment to actually take the window off screen
+    // (Cinnamon/Muffin animate unmaps), or the capture would still show it.
+    await new Promise((r) => setTimeout(r, 400))
   }
 
   const dir = mkdtempSync(join(tmpdir(), 'meshcoat-pick-'))
@@ -140,6 +148,10 @@ async function runPicker(owner: BrowserWindow | null): Promise<string | null> {
 
         const win = new BrowserWindow({
           ...display.bounds,
+          // A real fullscreen window: a frameless window merely sized to the
+          // display gets pushed around by panels/struts on X11 window managers,
+          // and any offset means the picked pixel isn't the one under the cursor.
+          fullscreen: true,
           frame: false,
           show: false,
           resizable: false,
@@ -166,7 +178,17 @@ async function runPicker(owner: BrowserWindow | null): Promise<string | null> {
         win.once('ready-to-show', () => {
           win.setBounds(display.bounds)
           win.show()
+          win.setFullScreen(true)
+          win.moveTop()
           win.focus()
+          // X11 focus-stealing prevention can leave keyboard focus behind, which
+          // makes Esc do nothing; ask once more after the map settles.
+          setTimeout(() => {
+            if (!win.isDestroyed()) {
+              win.focus()
+              win.webContents.focus()
+            }
+          }, 150)
         })
         void win.loadFile(join(shotDir, 'index.html'))
         overlays.push(win)
