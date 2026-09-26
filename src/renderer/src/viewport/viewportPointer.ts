@@ -925,6 +925,10 @@ export function fillActive(rt: ViewportRuntime): void {
 }
 
 export function onPointerMove(rt: ViewportRuntime, e: PointerEvent): void {
+  if (e === rt.lastMoveEvent) {
+    return
+  }
+  rt.lastMoveEvent = e
   rt.lastClientX = e.clientX
   rt.lastClientY = e.clientY
 
@@ -1060,16 +1064,44 @@ export function onPointerMove(rt: ViewportRuntime, e: PointerEvent): void {
     return
   }
   if (tool === 'brush' || tool === 'stamp' || tool === 'eraser' || tool === 'effect') {
-    // Discrete applications at spacing intervals (spec: brush Spacing)
-    // instead of painting every pointer sample, which would blend into a
-    // smear rather than a repeated pass.
-    // Spacing follows the pressure-adjusted radius, so a light (thin) part of
-    // a tapered stroke lays dabs closer together instead of leaving gaps
-    // sized for the full-pressure brush.
-    const minDist = applyPressure(brush.radius(), e, brush.pressureRadius()) * brush.spacing()
-    if (rt.lastStampPos && hit.point.distanceTo(rt.lastStampPos) < minDist) {
-      return
+    // A pen reports several samples per frame; the browser folds them into one
+    // pointermove. Walking the coalesced samples keeps a fast stroke's curve
+    // (and its pressure taper) instead of joining frame endpoints. Samples a
+    // couple of pixels apart can't land a new dab, so they skip the raycast.
+    const coalesced = e.getCoalescedEvents?.() ?? []
+    let lastX = Number.NaN
+    let lastY = Number.NaN
+    for (const sample of coalesced.length ? coalesced : [e]) {
+      const last = sample === coalesced[coalesced.length - 1]
+      if (!last && Math.hypot(sample.clientX - lastX, sample.clientY - lastY) < 2) {
+        continue
+      }
+      lastX = sample.clientX
+      lastY = sample.clientY
+      const sampleHit = sample === e || last ? hit : hitFromEvent(rt, sample)
+      if (sampleHit) {
+        applyDabAt(rt, sampleHit, sample)
+      }
     }
+    return
+  }
+  applyToolAt(rt, hit, e.shiftKey, e)
+}
+
+/**
+ * Lays one brush/stamp/eraser/effect dab during a drag, unless it falls
+ * within the spacing distance of the previous one.
+ */
+function applyDabAt(rt: ViewportRuntime, hit: SurfaceHit, e: PointerEvent): void {
+  // Discrete applications at spacing intervals (spec: brush Spacing)
+  // instead of painting every pointer sample, which would blend into a
+  // smear rather than a repeated pass.
+  // Spacing follows the pressure-adjusted radius, so a light (thin) part of
+  // a tapered stroke lays dabs closer together instead of leaving gaps
+  // sized for the full-pressure brush.
+  const minDist = applyPressure(brush.radius(), e, brush.pressureRadius()) * brush.spacing()
+  if (rt.lastStampPos && hit.point.distanceTo(rt.lastStampPos) < minDist) {
+    return
   }
   applyToolAt(rt, hit, e.shiftKey, e)
 }

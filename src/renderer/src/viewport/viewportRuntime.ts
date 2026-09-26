@@ -103,6 +103,12 @@ export class ViewportRuntime {
 
   lastClientX = window.innerWidth / 2
   lastClientY = window.innerHeight / 2
+  /**
+   * The pointermove last handled. During a drag the canvas listener and the
+   * window listener both receive the same event object as it bubbles, so this
+   * lets onPointerMove run once per sample instead of twice.
+   */
+  lastMoveEvent: PointerEvent | null = null
 
   /** Cached flipped/premultiplied copy behind getPreviewTexture, keyed by source. */
   previewTextureSource: THREE.Texture | null = null
