@@ -586,6 +586,12 @@ export default function Viewport(props: ViewportProps): JSX.Element {
     }
 
     window.addEventListener('keydown', boundKeyDown)
+    // With touch-action: none the browser shouldn't claim a pen drag for panning,
+    // but it can still cancel a stroke (palm rejection, a system gesture). No
+    // pointerup follows a cancel, so without this the stroke would stay live
+    // and keep painting on hover. On window, since a pen that has left the
+    // canvas is no longer targeting it.
+    window.addEventListener('pointercancel', rt.boundPointerUp)
     rt.canvasRef.addEventListener('pointermove', rt.boundPointerMove)
     rt.canvasRef.addEventListener('pointerdown', boundPointerDownCapture, { capture: true })
     rt.canvasRef.addEventListener('dblclick', boundDblClick)
@@ -1048,6 +1054,7 @@ export default function Viewport(props: ViewportProps): JSX.Element {
     window.removeEventListener('keydown', boundKeyDown)
     window.removeEventListener('pointermove', rt.boundPointerMove)
     window.removeEventListener('pointerup', rt.boundPointerUp)
+    window.removeEventListener('pointercancel', rt.boundPointerUp)
     rt.canvasRef?.removeEventListener('pointermove', rt.boundPointerMove)
     rt.canvasRef?.removeEventListener('pointerdown', boundPointerDownCapture, { capture: true })
     rt.canvasRef?.removeEventListener('dblclick', boundDblClick)
@@ -1105,7 +1112,7 @@ export default function Viewport(props: ViewportProps): JSX.Element {
         ref={(el) => {
           rt.canvasRef = el
         }}
-        class={`absolute inset-0 w-full h-full block ${
+        class={`absolute inset-0 w-full h-full block touch-none ${
           stencil.transforming() && stencil.stencilActive()
             ? 'stencil-transform-active'
             : `tool-${props.tool()}`

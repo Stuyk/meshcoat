@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.0.1
+
+### Fixed
+- **Pen Painting on the 3D Model with Windows Ink** ([Closes #35](https://github.com/Stuyk/slip-texture-paint/issues/35)): Windows treated pen drags on the viewport as a pan gesture, which cut strokes short and could leave the brush painting on hover after the pen lifted. Pen strokes now stay a paint stroke with pressure intact, and fast strokes follow the pen's full path.
+
 ## v3.0.0
 
 ### Added

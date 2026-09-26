@@ -56,6 +56,7 @@ export class OrbitPanZoomControls {
     this.domElement.removeEventListener('contextmenu', this.onContextMenu)
     window.removeEventListener('pointermove', this.onPointerMove)
     window.removeEventListener('pointerup', this.onPointerUp)
+    window.removeEventListener('pointercancel', this.onPointerUp)
   }
 
   private syncSphericalFromCamera(): void {
@@ -98,6 +99,7 @@ export class OrbitPanZoomControls {
     this.lastY = e.clientY
     window.addEventListener('pointermove', this.onPointerMove)
     window.addEventListener('pointerup', this.onPointerUp)
+    window.addEventListener('pointercancel', this.onPointerUp)
   }
 
   private onPointerMove(e: PointerEvent): void {
@@ -132,6 +134,7 @@ export class OrbitPanZoomControls {
     this.dragging = null
     window.removeEventListener('pointermove', this.onPointerMove)
     window.removeEventListener('pointerup', this.onPointerUp)
+    window.removeEventListener('pointercancel', this.onPointerUp)
   }
 
   private onWheel(e: WheelEvent): void {
