@@ -29,6 +29,7 @@ import {
   IconButton,
   Toast,
   Label,
+  TextInput,
   type MenuItem,
   type ToastData
 } from './components/ui'
@@ -57,6 +58,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   CheckIcon,
+  Edit2Icon,
   PanelRightIcon
 } from './components/icons'
 import ToolPanelDock from './components/ToolPanelDock'
@@ -93,6 +95,7 @@ import {
 } from './paint/selectionGroups'
 import type { MeshCoatProject } from './utils/projectSerializer'
 import SelectionGroupsPanel from './components/SelectionGroupsPanel'
+import UnsavedChangesModal from './components/UnsavedChangesModal'
 import { loadLayoutProfile, saveLayoutProfile } from './utils/layoutProfile'
 
 export default function App(): JSX.Element {
@@ -394,6 +397,16 @@ export default function App(): JSX.Element {
 
   const [toast, setToast] = createSignal<ToastData | null>(null)
   const [showPieceMenu, setShowPieceMenu] = createSignal(false)
+  const [pieceAliasDraft, setPieceAliasDraft] = createSignal<string | null>(null)
+  function commitPieceAlias(): void {
+    const draft = pieceAliasDraft()
+    if (draft !== null) {
+      viewportHandle?.renamePiece(activePiece(), draft)
+      setPiecesVersion((v) => v + 1)
+      setIsDirty(true)
+    }
+    setPieceAliasDraft(null)
+  }
   const [showEdgeWearWizard, setShowEdgeWearWizard] = createSignal(false)
   /** Which view the lower sidebar panel shows. */
   const [lowerTab, setLowerTabSignal] = createSignal<'layers' | 'selections'>(initialProfile.lowerTab)
@@ -443,6 +456,8 @@ export default function App(): JSX.Element {
   const [textureSize, setTextureSize] = createSignal<TextureSize>(DEFAULT_TEXTURE_SIZE)
   const [showStartWizard, setShowStartWizard] = createSignal(true)
   const [isDirty, setIsDirty] = createSignal(false)
+  const [showUnsavedChangesModal, setShowUnsavedChangesModal] = createSignal(false)
+  const [isSavingBeforeClose, setIsSavingBeforeClose] = createSignal(false)
   const [currentProjectPath, setCurrentProjectPath] = createSignal<string | null>(null)
   const [currentModelPath, setCurrentModelPath] = createSignal<string | null>(null)
 
@@ -507,16 +522,16 @@ export default function App(): JSX.Element {
    * Every paintable piece paired with its stack, in the order the viewport
    * holds them — the shape both saving and exporting work in.
    */
-  function projectPieces(): { name: string; layerStack: LayerStack }[] {
+  function projectPieces(): { name: string; alias?: string; layerStack: LayerStack }[] {
     const handle = viewportHandle
     if (!handle) {
       return []
     }
-    const out: { name: string; layerStack: LayerStack }[] = []
+    const out: { name: string; alias?: string; layerStack: LayerStack }[] = []
     for (const info of handle.pieces()) {
       const stack = handle.getLayerStack(info.index)
       if (stack) {
-        out.push({ name: info.name, layerStack: stack })
+        out.push({ name: info.name, alias: info.alias, layerStack: stack })
       }
     }
     return out
@@ -532,7 +547,8 @@ export default function App(): JSX.Element {
     if (!targetPath) {
       targetPath = await window.api.saveFileDialog({
         defaultPath: `${modelName().replace(/\.[^/.]+$/, '')}.meshcoat`,
-        filters: [{ name: 'MeshCoat Project', extensions: ['meshcoat'] }]
+        filters: [{ name: 'MeshCoat Project', extensions: ['meshcoat'] }],
+        key: 'project'
       })
       if (!targetPath) {
         return false
@@ -567,7 +583,8 @@ export default function App(): JSX.Element {
 
     const targetPath = await window.api.saveFileDialog({
       defaultPath: `${modelName().replace(/\.[^/.]+$/, '')}.meshcoat`,
-      filters: [{ name: 'MeshCoat Project', extensions: ['meshcoat'] }]
+      filters: [{ name: 'MeshCoat Project', extensions: ['meshcoat'] }],
+      key: 'project'
     })
     if (!targetPath) {
       return false
@@ -591,6 +608,32 @@ export default function App(): JSX.Element {
     }
     showToast('Failed to save project', 'error')
     return false
+  }
+
+  function handleRequestClose(): void {
+    if (isDirty()) {
+      setShowUnsavedChangesModal(true)
+      return
+    }
+    window.api.confirmClose()
+  }
+
+  async function handleSaveBeforeClose(): Promise<void> {
+    setIsSavingBeforeClose(true)
+    try {
+      const ok = await handleSaveProject()
+      if (ok) {
+        setShowUnsavedChangesModal(false)
+        window.api.confirmClose()
+      }
+    } finally {
+      setIsSavingBeforeClose(false)
+    }
+  }
+
+  function handleDiscardAndClose(): void {
+    setShowUnsavedChangesModal(false)
+    window.api.confirmClose()
   }
 
   async function getReadyViewport(): Promise<ViewportHandle> {
@@ -628,7 +671,8 @@ export default function App(): JSX.Element {
 
   async function handleBrowseAndOpenModel(): Promise<void> {
     const paths = await window.api.openFileDialog({
-      filters: [{ name: '3D Models', extensions: ['glb', 'gltf', 'obj', 'blend'] }]
+      filters: [{ name: '3D Models', extensions: ['glb', 'gltf', 'obj', 'blend'] }],
+      key: 'model'
     })
     const path = paths?.[0]
     if (!path) {
@@ -646,7 +690,8 @@ export default function App(): JSX.Element {
 
   async function handleBrowseAndOpenProject(): Promise<void> {
     const paths = await window.api.openFileDialog({
-      filters: [{ name: 'MeshCoat Project', extensions: ['meshcoat', 'json'] }]
+      filters: [{ name: 'MeshCoat Project', extensions: ['meshcoat', 'json'] }],
+      key: 'project'
     })
     const path = paths?.[0]
     if (!path) {
@@ -1171,6 +1216,8 @@ export default function App(): JSX.Element {
 
   onMount(() => {
     window.addEventListener('keydown', onKeyDown)
+    const offBeforeClose = window.api.onBeforeClose(() => handleRequestClose())
+    onCleanup(offBeforeClose)
     if (typeof window !== 'undefined') {
       ;(
         window as unknown as {
@@ -1822,7 +1869,36 @@ export default function App(): JSX.Element {
 
               <Show when={modelPieces().length > 1}>
                 <div class="px-2.5 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-input)] flex items-center gap-1.5">
-                  <div class="relative flex-1 min-w-0">
+                  <Show when={pieceAliasDraft() !== null}>
+                    <TextInput
+                      size="xs"
+                      value={pieceAliasDraft() ?? ''}
+                      onInput={(val) => setPieceAliasDraft(val)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          commitPieceAlias()
+                        }
+                        if (e.key === 'Escape') {
+                          setPieceAliasDraft(null)
+                        }
+                      }}
+                      placeholder={modelPieces()[activePiece()]?.name}
+                      autofocus
+                      class="flex-1 min-w-0"
+                    />
+                    <IconButton
+                      size="xs"
+                      variant="ghost"
+                      onClick={commitPieceAlias}
+                      tooltip="Confirm rename (leave empty to restore the mesh name)"
+                    >
+                      <CheckIcon size={13} />
+                    </IconButton>
+                  </Show>
+                  <div
+                    class="relative flex-1 min-w-0"
+                    classList={{ hidden: pieceAliasDraft() !== null }}
+                  >
                     <button
                       type="button"
                       onClick={() => setShowPieceMenu((v) => !v)}
@@ -1836,7 +1912,7 @@ export default function App(): JSX.Element {
                       <div class="flex items-center gap-1.5 min-w-0 flex-1">
                         <CubeIcon size={13} class="text-purple-400 shrink-0" />
                         <span class="truncate font-medium">
-                          {modelPieces()[activePiece()]?.name ?? `Piece ${activePiece() + 1}`}
+                          {modelPieces()[activePiece()]?.label ?? `Piece ${activePiece() + 1}`}
                         </span>
                         <span class="text-[11px] text-[var(--text-muted)] font-mono shrink-0">
                           {modelPieces()[activePiece()]?.textureSize ?? 2048}px
@@ -1854,7 +1930,7 @@ export default function App(): JSX.Element {
                       onClose={() => setShowPieceMenu(false)}
                       items={modelPieces().map((piece) => ({
                         type: 'item' as const,
-                        label: `${piece.name} (${piece.textureSize}px)`,
+                        label: `${piece.label} (${piece.textureSize}px)`,
                         icon: () =>
                           piece.index === activePiece() ? (
                             <CheckIcon size={14} class="text-[var(--accent-color)]" />
@@ -1867,6 +1943,19 @@ export default function App(): JSX.Element {
                       }))}
                     />
                   </div>
+                  <Show when={pieceAliasDraft() === null}>
+                    <IconButton
+                      size="xs"
+                      variant="ghost"
+                      onClick={() => {
+                        setShowPieceMenu(false)
+                        setPieceAliasDraft(modelPieces()[activePiece()]?.alias ?? '')
+                      }}
+                      tooltip="Rename piece"
+                    >
+                      <Edit2Icon size={12} />
+                    </IconButton>
+                  </Show>
                 </div>
               </Show>
               <div class="flex-1 overflow-hidden">
@@ -1919,6 +2008,14 @@ export default function App(): JSX.Element {
           onOpenModel={handleOpenModel}
           onOpenProjectFile={handleOpenProjectFile}
           onRestoreRecovery={handleRestoreRecovery}
+        />
+        <UnsavedChangesModal
+          isOpen={showUnsavedChangesModal()}
+          modelName={modelName()}
+          saving={isSavingBeforeClose()}
+          onSave={handleSaveBeforeClose}
+          onDiscard={handleDiscardAndClose}
+          onCancel={() => setShowUnsavedChangesModal(false)}
         />
         <HelpModal isOpen={showHelp()} onClose={() => setShowHelp(false)} />
         <SettingsModal

@@ -69,7 +69,8 @@ export default function BrushManagerModal(props: { isOpen: boolean; onClose: () 
     try {
       const paths = await window.api.openFileDialog({
         filters: [{ name: 'Photoshop Brushes (*.abr)', extensions: ['abr'] }],
-        multi: true
+        multi: true,
+        key: 'brush'
       })
       if (!paths || paths.length === 0) {
         return

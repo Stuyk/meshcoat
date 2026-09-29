@@ -340,7 +340,8 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
 
   async function browseForTexture(): Promise<void> {
     const paths = await window.api.openFileDialog({
-      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }]
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }],
+      key: 'texture'
     })
     const path = paths?.[0]
     if (path) {

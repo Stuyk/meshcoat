@@ -608,6 +608,8 @@ export default function Viewport(props: ViewportProps): JSX.Element {
         rt.pieces.map((piece, index) => ({
           index,
           name: piece.name,
+          alias: piece.alias,
+          label: piece.alias || piece.name,
           textureSize: piece.stack.textureSize,
           faceCount: piece.facePositions.length / 9
         })),
@@ -622,6 +624,14 @@ export default function Viewport(props: ViewportProps): JSX.Element {
         edges: () => uvEdges(rt)
       },
       setActivePiece: (index) => setActivePiece(rt, index),
+      renamePiece: (index, alias) => {
+        const piece = rt.pieces[index]
+        if (!piece) {
+          return
+        }
+        piece.alias = alias.trim() || undefined
+        updatePieceOutlines(rt)
+      },
       focusPiece: (index?: number) => {
         const mesh = rt.pieces[index ?? rt.activePieceIndex]?.mesh
         if (!mesh || !rt.sceneHandle) {

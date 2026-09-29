@@ -12,6 +12,8 @@ interface Prefs {
   lastImportFolder?: string
   lastExportFolder?: string
   lastTextureFolder?: string
+  /** Last folder browsed to/saved in, per dialog purpose (e.g. 'model', 'project', 'export'). */
+  lastPaths?: Record<string, string>
   blenderPath?: string
   blenderPromptDismissed?: boolean
   colorLibrary?: ColorLibrary
@@ -64,6 +66,16 @@ export function getLastTextureFolder(): string | undefined {
 export function setLastTextureFolder(folder: string): void {
   const prefs = load()
   prefs.lastTextureFolder = folder
+  save(prefs)
+}
+
+export function getLastPath(key: string): string | undefined {
+  return load().lastPaths?.[key]
+}
+
+export function setLastPath(key: string, folder: string): void {
+  const prefs = load()
+  prefs.lastPaths = { ...prefs.lastPaths, [key]: folder }
   save(prefs)
 }
 

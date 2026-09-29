@@ -307,6 +307,7 @@ export async function loadProject(
       return
     }
     taken.add(saved)
+    piece.alias = project.pieces?.[saved]?.alias
     piece.stack.restoreState(snapshots[saved])
   })
   setActivePiece(rt, Math.min(project.activePieceIndex ?? 0, Math.max(0, rt.pieces.length - 1)))

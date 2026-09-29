@@ -45,6 +45,8 @@ export const PROJECT_VERSION = 4
 export interface SerializedPiece {
   /** Mesh name, used to match saved layers back onto the reloaded model. */
   name: string
+  /** User display name for the piece. Optional — absent in older files. */
+  alias?: string
   textureSize: number
   activeLayerId: number
   layers: SerializedLayer[]
@@ -159,15 +161,16 @@ export function serializeProject(options: {
   modelPath: string | null
   modelName: string
   /** Every paintable piece, in model order. */
-  pieces: { name: string; layerStack: LayerStack }[]
+  pieces: { name: string; alias?: string; layerStack: LayerStack }[]
   activePieceIndex?: number
 }): string {
   const { modelPath, modelName, pieces, activePieceIndex = 0 } = options
 
-  const serializedPieces: SerializedPiece[] = pieces.map(({ name, layerStack }) => {
+  const serializedPieces: SerializedPiece[] = pieces.map(({ name, alias, layerStack }) => {
     const state = layerStack.captureState()
     return {
       name,
+      alias,
       textureSize: layerStack.textureSize,
       activeLayerId: state.activeId,
       layers: state.layers.map((l) => ({

@@ -299,7 +299,8 @@ export class LayerStack {
       engine,
       isMask
     }
-    this.layers.push(layer)
+    const activeIndex = this.layers.findIndex((l) => l.id === this.activeId)
+    this.layers.splice(activeIndex + 1, 0, layer)
     this.activeId = layer.id
     this.recomposite()
     return layer
@@ -312,6 +313,15 @@ export class LayerStack {
       return
     }
     this.history?.record()
+    if (!maskId) {
+      // Drop below the rest of its group so the remaining clipped layers stay contiguous.
+      const index = this.layers.indexOf(layer)
+      const unit = this.units().find((u) => index >= u.start && index <= u.end)
+      if (unit && unit.end > index) {
+        this.layers.splice(index, 1)
+        this.layers.splice(unit.start, 0, layer)
+      }
+    }
     layer.clippedToMaskId = maskId
     this.recomposite()
   }
@@ -475,25 +485,103 @@ export class LayerStack {
     this.recomposite()
   }
 
-  /** Moving a layer is the only way to attach/detach it from a mask — landing
-   * directly below a mask clips it to that mask, landing anywhere else clears it. */
+  /** Splits the stack (bottom → top) into units: a mask plus the contiguous run
+   * of layers clipped to it directly below, or a single standalone layer. */
+  private units(): Array<{ start: number; end: number }> {
+    const units: Array<{ start: number; end: number }> = []
+    let i = this.layers.length - 1
+    while (i >= 0) {
+      const layer = this.layers[i]
+      let start = i
+      while (
+        layer.isMask &&
+        start > 0 &&
+        !this.layers[start - 1].isMask &&
+        this.layers[start - 1].clippedToMaskId === layer.id
+      ) {
+        start--
+      }
+      units.unshift({ start, end: i })
+      i = start - 1
+    }
+    return units
+  }
+
+  /** Masks move together with their clipped layers. A clipped layer moves within
+   * its group and leaves it past the top/bottom edge; a standalone layer moving
+   * into a group joins it at that edge. */
   moveLayer(id: number, direction: 'up' | 'down'): void {
     const index = this.layers.findIndex((l) => l.id === id)
     if (index === -1) {
       return
     }
-    const targetIndex = direction === 'up' ? index + 1 : index - 1
-    if (targetIndex < 0 || targetIndex >= this.layers.length) {
+    const layer = this.layers[index]
+    const units = this.units()
+    const unitIndex = units.findIndex((u) => index >= u.start && index <= u.end)
+    const unit = units[unitIndex]
+    const up = direction === 'up'
+
+    if (layer.isMask) {
+      const neighbor = units[unitIndex + (up ? 1 : -1)]
+      if (!neighbor) {
+        return
+      }
+      this.history?.record()
+      const lower = up ? unit : neighbor
+      const upper = up ? neighbor : unit
+      const reordered = [
+        ...this.layers.slice(upper.start, upper.end + 1),
+        ...this.layers.slice(lower.start, lower.end + 1)
+      ]
+      this.layers.splice(lower.start, reordered.length, ...reordered)
+      this.recomposite()
+      return
+    }
+
+    if (unit.end > index) {
+      // Clipped member of the group whose mask sits at unit.end.
+      this.history?.record()
+      if (up && index + 1 === unit.end) {
+        this.layers.splice(index, 1)
+        this.layers.splice(unit.end, 0, layer)
+        layer.clippedToMaskId = undefined
+      } else if (!up && index === unit.start) {
+        layer.clippedToMaskId = undefined
+      } else {
+        this.swap(index, up ? index + 1 : index - 1)
+      }
+      this.recomposite()
+      return
+    }
+
+    const neighbor = units[unitIndex + (up ? 1 : -1)]
+    if (!neighbor) {
+      if (layer.clippedToMaskId) {
+        this.history?.record()
+        layer.clippedToMaskId = undefined
+        this.recomposite()
+      }
       return
     }
     this.history?.record()
-    const [layer] = this.layers.splice(index, 1)
-    this.layers.splice(targetIndex, 0, layer)
-    if (!layer.isMask) {
-      const above = this.layers[targetIndex + 1]
-      layer.clippedToMaskId = above && above.isMask ? above.id : undefined
+    const mask = this.layers[neighbor.end]
+    if (mask.isMask) {
+      layer.clippedToMaskId = mask.id
+      if (!up) {
+        this.layers.splice(index, 1)
+        this.layers.splice(neighbor.end, 0, layer)
+      }
+    } else {
+      layer.clippedToMaskId = undefined
+      this.swap(index, neighbor.start)
     }
     this.recomposite()
+  }
+
+  private swap(a: number, b: number): void {
+    const tmp = this.layers[a]
+    this.layers[a] = this.layers[b]
+    this.layers[b] = tmp
   }
 
   renameLayer(id: number, name: string): void {

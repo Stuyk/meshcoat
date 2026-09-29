@@ -34,7 +34,7 @@ export default function LayersTab(props: {
   /** Same, for the flattened result of the whole stack. */
   onInspectFlattened?: () => void
   /** Every piece of the model, for copying a layer onto another one (#21). */
-  pieces?: { index: number; name: string; textureSize: number }[]
+  pieces?: { index: number; label: string; textureSize: number }[]
   activePiece?: number
   getPieceStack?: (pieceIndex: number) => LayerStack | undefined
   onToast?: (text: string, type?: 'info' | 'success' | 'warning' | 'error') => void
@@ -43,7 +43,7 @@ export default function LayersTab(props: {
   const [copyTarget, setCopyTarget] = createSignal<number>(-1)
   const [flipU, setFlipU] = createSignal(false)
   const [flipV, setFlipV] = createSignal(false)
-  const otherPieces = (): { index: number; name: string; textureSize: number }[] =>
+  const otherPieces = (): { index: number; label: string; textureSize: number }[] =>
     (props.pieces ?? []).filter((p) => p.index !== props.activePiece)
 
   function openCopy(layerId: number): void {
@@ -59,7 +59,7 @@ export default function LayersTab(props: {
   function copyToPiece(layer: Layer): void {
     const target = props.getPieceStack?.(copyTarget())
     const piece = (props.pieces ?? []).find((p) => p.index === copyTarget())
-    const fromName = (props.pieces ?? []).find((p) => p.index === props.activePiece)?.name
+    const fromName = (props.pieces ?? []).find((p) => p.index === props.activePiece)?.label
     if (!target || !piece) {
       return
     }
@@ -72,7 +72,7 @@ export default function LayersTab(props: {
     const source = props.getStack()
     const resampled = source && source.textureSize !== target.textureSize
     props.onToast?.(
-      `Copied "${layer.name}" to ${piece.name}${resampled ? ` (resampled to ${target.textureSize}px)` : ''}`,
+      `Copied "${layer.name}" to ${piece.label}${resampled ? ` (resampled to ${target.textureSize}px)` : ''}`,
       'success'
     )
   }
@@ -212,17 +212,10 @@ export default function LayersTab(props: {
               if (layer.isMask) {
                 return undefined
               }
-              if (layer.clippedToMaskId && layer.clippedToMaskId > 0) {
-                return layers().find((l) => l.id === layer.clippedToMaskId)
+              if (!layer.clippedToMaskId) {
+                return undefined
               }
-              if (
-                layer.clippedToMaskId === undefined &&
-                index() + 1 < layers().length &&
-                layers()[index() + 1].isMask
-              ) {
-                return layers()[index() + 1]
-              }
-              return undefined
+              return layers().find((l) => l.id === layer.clippedToMaskId && l.isMask)
             }
 
             const isClipped = () => !!maskOwner()
@@ -505,7 +498,7 @@ export default function LayersTab(props: {
                       </button>
                       <button
                         type="button"
-                        disabled={isBottom()}
+                        disabled={isBottom() && !isClipped()}
                         onClick={() => run((s) => s.moveLayer(layer.id, 'down'))}
                         class="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
                         title="Move layer down"
@@ -573,7 +566,7 @@ export default function LayersTab(props: {
                             onChange={(e) => setCopyTarget(Number(e.currentTarget.value))}
                           >
                             <For each={otherPieces()}>
-                              {(p) => <option value={p.index}>{p.name}</option>}
+                              {(p) => <option value={p.index}>{p.label}</option>}
                             </For>
                           </select>
                         </div>

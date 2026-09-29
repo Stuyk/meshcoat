@@ -40,7 +40,8 @@ export default function NewProjectModal(props: {
 
   async function browse(): Promise<void> {
     const paths = await window.api.openFileDialog({
-      filters: [{ name: 'Models', extensions: MODEL_EXTENSIONS }]
+      filters: [{ name: 'Models', extensions: MODEL_EXTENSIONS }],
+      key: 'model'
     })
     const path = paths?.[0]
     if (path) {

@@ -139,7 +139,8 @@ export default function StencilHUD(props: StencilHUDProps) {
 
   async function browse(): Promise<void> {
     const paths = await window.api.openFileDialog({
-      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }]
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }],
+      key: 'texture'
     })
     const path = paths?.[0]
     if (path) {

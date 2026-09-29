@@ -68,6 +68,8 @@ export interface ViewportHandle {
   activePieceIndex: () => number
   /** Switches which piece receives strokes, layer edits and undo. */
   setActivePiece: (index: number) => void
+  /** Empty alias clears it back to the mesh name. */
+  renamePiece: (index: number, alias: string) => void
   /** Frames the camera on one piece (defaults to the active one). */
   focusPiece: (index?: number) => void
   /** Texture-space painting on the active piece, for the 2D UV panel. */
@@ -140,7 +142,10 @@ export type ChannelViewMode = 'material' | PaintChannel
  */
 export interface PaintPiece {
   mesh: THREE.Mesh
+  /** Mesh name from the file — the key saved layers and selection groups match on. */
   name: string
+  /** User-chosen display name; never used for matching. */
+  alias?: string
   stack: LayerStack
   /** Local-space triangle positions for the selection/hover overlays. */
   facePositions: Float32Array
@@ -180,6 +185,9 @@ export interface EmbeddedSlot {
 export interface PieceInfo {
   index: number
   name: string
+  alias?: string
+  /** What the UI shows: the alias, or the mesh name. */
+  label: string
   textureSize: number
   faceCount: number
 }

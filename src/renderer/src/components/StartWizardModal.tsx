@@ -471,7 +471,8 @@ export default function StartWizardModal(props: StartWizardModalProps) {
 
   async function browseModel(): Promise<void> {
     const paths = await window.api.openFileDialog({
-      filters: [{ name: '3D Models', extensions: MODEL_EXTENSIONS }]
+      filters: [{ name: '3D Models', extensions: MODEL_EXTENSIONS }],
+      key: 'model'
     })
     const path = paths?.[0]
     if (path) {
@@ -489,7 +490,8 @@ export default function StartWizardModal(props: StartWizardModalProps) {
 
   async function browseTextureSlot(slot: keyof InitialPbrTextures): Promise<void> {
     const paths = await window.api.openFileDialog({
-      filters: [{ name: 'Textures', extensions: IMAGE_EXTENSIONS }]
+      filters: [{ name: 'Textures', extensions: IMAGE_EXTENSIONS }],
+      key: 'texture'
     })
     const path = paths?.[0]
     if (path) {
@@ -509,7 +511,8 @@ export default function StartWizardModal(props: StartWizardModalProps) {
 
   async function browseProjectFile(): Promise<void> {
     const paths = await window.api.openFileDialog({
-      filters: [{ name: 'MeshCoat Project', extensions: ['meshcoat', 'json'] }]
+      filters: [{ name: 'MeshCoat Project', extensions: ['meshcoat', 'json'] }],
+      key: 'project'
     })
     const path = paths?.[0]
     if (path) {

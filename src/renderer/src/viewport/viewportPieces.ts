@@ -454,7 +454,7 @@ export function updatePieceOutlines(rt: ViewportRuntime, hoverMesh?: THREE.Mesh 
     if (rt.hoverPieceBox) {
       rt.hoverPieceBox.visible = false
     }
-    rt.setPieceHud({ active: active.name, hover: null })
+    rt.setPieceHud({ active: active.alias || active.name, hover: null })
     return
   }
 
@@ -484,7 +484,10 @@ export function updatePieceOutlines(rt: ViewportRuntime, hoverMesh?: THREE.Mesh 
     rt.hoverPieceBox.visible = false
   }
 
-  rt.setPieceHud({ active: active.name, hover: hoverPiece?.name ?? null })
+  rt.setPieceHud({
+    active: active.alias || active.name,
+    hover: hoverPiece ? hoverPiece.alias || hoverPiece.name : null
+  })
 }
 
 /**

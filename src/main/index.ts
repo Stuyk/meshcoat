@@ -9,7 +9,7 @@ import {
   net,
   clipboard
 } from 'electron'
-import { join, extname } from 'path'
+import { join, extname, dirname } from 'path'
 import { pathToFileURL } from 'url'
 import { readdir, writeFile, readFile } from 'fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -23,6 +23,8 @@ import {
 import {
   getLastTextureFolder,
   setLastTextureFolder,
+  getLastPath,
+  setLastPath,
   isBlenderPromptDismissed,
   setBlenderPromptDismissed,
   setBlenderPath,
@@ -66,6 +68,7 @@ app.commandLine.appendSwitch('enable-gpu-rasterization')
 app.commandLine.appendSwitch('enable-zero-copy')
 
 let mainWindow: BrowserWindow | null = null
+let forceClose = false
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -85,6 +88,17 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
+  })
+
+  // Never let a stray click on the close button, Alt+F4, or Cmd+Q throw away
+  // unsaved work — the renderer decides (via its own dirty state) whether to
+  // prompt, and tells us back through 'app:close-confirmed' when it's safe.
+  mainWindow.on('close', (event) => {
+    if (forceClose) {
+      return
+    }
+    event.preventDefault()
+    mainWindow?.webContents.send('app:before-close')
   })
 
   // The Text tool asks Chromium for the installed fonts (queryLocalFonts),
@@ -153,17 +167,27 @@ app.whenReady().then(() => {
     'file:open-dialog',
     async (
       _event,
-      options: { filters?: { name: string; extensions: string[] }[]; multi?: boolean }
+      options: {
+        filters?: { name: string; extensions: string[] }[]
+        multi?: boolean
+        /** Dialog purpose, e.g. 'model' or 'project' — remembers the folder per key. */
+        key?: string
+      }
     ) => {
       if (!mainWindow) {
         return null
       }
+      const lastFolder = options?.key ? getLastPath(options.key) : undefined
       const result = await dialog.showOpenDialog(mainWindow, {
         properties: options?.multi ? ['openFile', 'multiSelections'] : ['openFile'],
-        filters: options?.filters
+        filters: options?.filters,
+        ...(lastFolder && existsSync(lastFolder) ? { defaultPath: lastFolder } : {})
       })
       if (result.canceled || result.filePaths.length === 0) {
         return null
+      }
+      if (options?.key) {
+        setLastPath(options.key, dirname(result.filePaths[0]))
       }
       return result.filePaths
     }
@@ -173,17 +197,30 @@ app.whenReady().then(() => {
     'file:save-dialog',
     async (
       _event,
-      options: { defaultPath?: string; filters?: { name: string; extensions: string[] }[] }
+      options: {
+        defaultPath?: string
+        filters?: { name: string; extensions: string[] }[]
+        /** Dialog purpose, e.g. 'project' or 'export' — remembers the folder per key. */
+        key?: string
+      }
     ) => {
       if (!mainWindow) {
         return null
       }
+      const lastFolder = options?.key ? getLastPath(options.key) : undefined
+      const defaultPath =
+        lastFolder && existsSync(lastFolder) && options?.defaultPath
+          ? join(lastFolder, options.defaultPath)
+          : options?.defaultPath
       const result = await dialog.showSaveDialog(mainWindow, {
-        defaultPath: options?.defaultPath,
+        defaultPath,
         filters: options?.filters
       })
       if (result.canceled || !result.filePath) {
         return null
+      }
+      if (options?.key) {
+        setLastPath(options.key, dirname(result.filePath))
       }
       return result.filePath
     }
@@ -436,6 +473,11 @@ app.whenReady().then(() => {
   ipcMain.handle('prefs:set-color-library', (_e, library: ColorLibrary) => {
     setColorLibrary(library)
     return true
+  })
+
+  ipcMain.on('app:close-confirmed', () => {
+    forceClose = true
+    mainWindow?.close()
   })
 
   ipcMain.on('shell:reveal', (_e, filePath: string) => {

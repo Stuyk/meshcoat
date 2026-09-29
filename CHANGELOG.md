@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.0.2
+
+### Added
+- **Piece Renaming**: Give a model piece its own display name from the piece dropdown. Used in the viewport HUD, layer copy target list and export filenames; clearing it falls back to the mesh name. Saved with the project.
+- **Confirm Before Closing**: Closing the window with unsaved changes now prompts to save, discard, or cancel instead of quitting silently.
+
+### Changed
+- **Remembered File Dialogs**: Open/save dialogs (model, project, export, texture, brush) now reopen in the folder you last used for that purpose instead of the app's default location.
+- **New Layer Placement**: A new layer is inserted directly above the currently selected layer instead of always landing on top of the stack.
+- **Layer Reordering with Masks**: Moving a mask now carries its clipped layers with it as one unit; moving a clipped layer past the top or bottom of its group unclips it instead of getting stuck.
+
 ## v3.0.1
 
 ### Fixed

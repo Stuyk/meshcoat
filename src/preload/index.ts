@@ -23,10 +23,12 @@ const api = {
   openFileDialog: (options?: {
     filters?: FileFilter[]
     multi?: boolean
+    key?: string
   }): Promise<string[] | null> => ipcRenderer.invoke('file:open-dialog', options),
   saveFileDialog: (options?: {
     defaultPath?: string
     filters?: FileFilter[]
+    key?: string
   }): Promise<string | null> => ipcRenderer.invoke('file:save-dialog', options),
   saveProjectFile: (filePath: string, content: string): Promise<boolean> =>
     ipcRenderer.invoke('project:save-file', filePath, content),
@@ -108,7 +110,13 @@ const api = {
   getColorLibrary: (): Promise<ColorLibrary | null> =>
     ipcRenderer.invoke('prefs:get-color-library'),
   setColorLibrary: (library: ColorLibrary): Promise<boolean> =>
-    ipcRenderer.invoke('prefs:set-color-library', library)
+    ipcRenderer.invoke('prefs:set-color-library', library),
+  onBeforeClose: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('app:before-close', listener)
+    return () => ipcRenderer.removeListener('app:before-close', listener)
+  },
+  confirmClose: (): void => ipcRenderer.send('app:close-confirmed')
 }
 
 contextBridge.exposeInMainWorld('electron', electronAPI)

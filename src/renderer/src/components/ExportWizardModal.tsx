@@ -227,7 +227,7 @@ async function exportIndividualMode(
 ): Promise<number> {
   let writtenCount = 0
   for (const piece of pieceList) {
-    const pStem = pieceStem(chosenStem, piece.name, pieceList.length)
+    const pStem = pieceStem(chosenStem, piece.label, pieceList.length)
     const size = isNative ? piece.textureSize || 2048 : targetSize
     writtenCount += await exportPieceAllChannels(handle, piece, pStem, size, isNative, flags, dir)
   }
@@ -321,7 +321,7 @@ export default function ExportWizardModal(props: ExportWizardModalProps) {
       }
     } else {
       for (const piece of pieceList) {
-        const pStem = pieceStem(currentStem, piece.name, pieceList.length)
+        const pStem = pieceStem(currentStem, piece.label, pieceList.length)
         if (exportBaseColor()) {
           files.push(`${pStem}_BaseColor.png`)
         }
@@ -364,7 +364,8 @@ export default function ExportWizardModal(props: ExportWizardModalProps) {
     const defaultFileName = filesToGenerate[0]
     const filePath = await window.api.saveFileDialog({
       defaultPath: defaultFileName,
-      filters: [{ name: 'PNG Image', extensions: ['png'] }]
+      filters: [{ name: 'PNG Image', extensions: ['png'] }],
+      key: 'export'
     })
     if (!filePath) {
       return
