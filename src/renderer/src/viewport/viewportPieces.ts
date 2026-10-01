@@ -542,7 +542,12 @@ export function setupLayers(
   model: LoadedModel,
   textureSize?: number,
   /** Per-piece override by piece name, used when reopening a saved project. */
-  sizeByName?: Record<string, number>
+  sizeByName?: Record<string, number>,
+  /**
+   * The artist ticked "Always use this resolution": every piece gets exactly
+   * `textureSize`, with no GPU-budget downscale.
+   */
+  exactSize = false
 ): void {
   if (!rt.sceneHandle) {
     return
@@ -566,12 +571,13 @@ export function setupLayers(
    * black and every export comes out empty.
    *
    * Scale the per-piece resolution down until the whole model fits a sane
-   * budget. One piece keeps whatever the artist picked.
+   * budget. One piece keeps whatever the artist picked, and so does every
+   * piece when the size was forced in the start wizard.
    */
   const BUDGET_TEXELS = 4096 * 4096 * 4
   const fitSize = (requested: number): number => {
     let size = requested
-    while (size > 512 && paintable.length * size * size > BUDGET_TEXELS) {
+    while (!exactSize && size > 512 && paintable.length * size * size > BUDGET_TEXELS) {
       size /= 2
     }
     return size

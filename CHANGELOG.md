@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.0.3
+
+### Fixed
+- **"Always use this resolution" Ignored on Multi-Piece Models** ([Closes #39](https://github.com/Stuyk/slip-texture-paint/issues/39)): With the start wizard's option ticked, models with many pieces were still scaled down below the chosen size to fit a GPU memory budget. Every piece and layer now uses exactly the resolution picked in the wizard.
+
 ## v3.0.2
 
 ### Added

@@ -190,7 +190,7 @@ export async function loadFromUrl(
   rt.currentModel = model
   rt.sceneHandle.scene.add(model.root)
   frameModel(rt, model)
-  setupLayers(rt, model, textureSize, sizeByName)
+  setupLayers(rt, model, textureSize, sizeByName, !!options.forceTextureSize)
   setupWireframe(rt, model)
   if (!rt.symmetryGuide) {
     rt.symmetryGuide = createSymmetryGuide()

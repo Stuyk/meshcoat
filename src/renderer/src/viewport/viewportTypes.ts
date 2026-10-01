@@ -43,7 +43,10 @@ export interface UvPanelApi {
 }
 
 export interface LoadOptions {
-  /** Paint at the requested size even when the model's own maps are a different size. */
+  /**
+   * Paint every piece at the requested size, even when the model's own maps
+   * are a different size or the piece count would trip the GPU-budget downscale.
+   */
   forceTextureSize?: boolean
 }
 
