@@ -33,6 +33,7 @@ import type {
   StrokeParams
 } from '../paint/paintEngine'
 import { OcclusionDepthPass } from '../paint/occlusionDepth'
+import { brushPresets } from '../paint/brushPresets'
 import { findUvIslandFaces } from '../paint/uvMesh'
 import {
   activeMesh,
@@ -644,7 +645,9 @@ export function applyToolAt(
     // line interpolation, symmetry), which correctly fall back to full
     // strength — those aren't real pointer samples and have no pressure.
     strokeRadius = applyPressure(strokeRadius, event, brush.pressureRadius())
-    const strokeOpacity = applyPressure(brush.opacity(), event, brush.pressureOpacity())
+    const strokeOpacity = brush.jitteredOpacity(
+      applyPressure(brush.opacity(), event, brush.pressureOpacity())
+    )
 
     // A mask layer is grayscale coverage, and the eraser takes material back
     // out rather than laying it down — neither wants the brush's PBR values.
@@ -787,7 +790,9 @@ export function applyToolAt(
       mode: brush.effectMode(),
       radius: effectDabRadius,
       hardness: brush.hardness(),
-      opacity: applyPressure(brush.opacity(), event, brush.pressureOpacity()),
+      opacity: brush.jitteredOpacity(
+        applyPressure(brush.opacity(), event, brush.pressureOpacity())
+      ),
       projectorDepth: brush.projectorDepth(),
       maxAngle: brush.maxAngle(),
       strength: brush.effectStrength(),
@@ -1089,6 +1094,19 @@ export function onPointerMove(rt: ViewportRuntime, e: PointerEvent): void {
 }
 
 /**
+ * Swaps in the brush group's next tip, when a group is running. A tip whose
+ * image hasn't decoded yet is skipped rather than waited on — the previous
+ * tip simply stays for this dab.
+ */
+function rollBrushGroupTip(rt: ViewportRuntime): void {
+  const pick = brushPresets.nextGroupTip()
+  const texture = pick ? rt.tipTextures.get(pick.dataUrl) : undefined
+  if (texture) {
+    rt.brushTipTexture = texture
+  }
+}
+
+/**
  * Lays one brush/stamp/eraser/effect dab during a drag, unless it falls
  * within the spacing distance of the previous one.
  */
@@ -1102,6 +1120,10 @@ function applyDabAt(rt: ViewportRuntime, hit: SurfaceHit, e: PointerEvent): void
   const minDist = applyPressure(brush.radius(), e, brush.pressureRadius()) * brush.spacing()
   if (rt.lastStampPos && hit.point.distanceTo(rt.lastStampPos) < minDist) {
     return
+  }
+  // Per-stroke swaps happen once on press (see onPointerDown).
+  if (brush.jitterScope() === 'dab') {
+    rollBrushGroupTip(rt)
   }
   applyToolAt(rt, hit, e.shiftKey, e)
 }
@@ -1193,6 +1215,7 @@ export function onPointerDown(rt: ViewportRuntime, e: PointerEvent): void {
 
     if (rt.props.tool() === 'line') {
       brush.beginStrokeJitter()
+      rollBrushGroupTip(rt)
       rt.layerStack?.history.record()
       rt.painting = true
       rt.lineStartHit = hit
@@ -1212,6 +1235,7 @@ export function onPointerDown(rt: ViewportRuntime, e: PointerEvent): void {
     const tool = rt.props.tool()
     // Per-stroke jitter (see brush.jitterScope) re-rolls once per press.
     brush.beginStrokeJitter()
+    rollBrushGroupTip(rt)
     if (tool === 'fill' && brush.fillMode() === 'face') {
       // The first face goes down via applyToolAt below; the set tracks it so
       // the same triangle isn't refilled on every pointer sample after it.

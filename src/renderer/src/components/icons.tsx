@@ -21,6 +21,7 @@ export {
   Keyboard as KeyboardIcon,
   HelpCircle as HelpCircleIcon,
   Settings as SettingsIcon,
+  SquareTerminal as DevConsoleIcon,
   Copy as CopyIcon,
   Eye as EyeIcon,
   EyeOff as EyeOffIcon,

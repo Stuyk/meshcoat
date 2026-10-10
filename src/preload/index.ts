@@ -116,7 +116,9 @@ const api = {
     ipcRenderer.on('app:before-close', listener)
     return () => ipcRenderer.removeListener('app:before-close', listener)
   },
-  confirmClose: (): void => ipcRenderer.send('app:close-confirmed')
+  confirmClose: (): void => ipcRenderer.send('app:close-confirmed'),
+  toggleDevTools: (): void => ipcRenderer.send('devtools:toggle'),
+  reportGpuContextLost: (): void => ipcRenderer.send('app:gpu-context-lost')
 }
 
 contextBridge.exposeInMainWorld('electron', electronAPI)

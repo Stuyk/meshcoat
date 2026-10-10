@@ -8,6 +8,7 @@ import {
   SymmetryIcon,
   FocusIcon,
   SettingsIcon,
+  DevConsoleIcon,
   HelpCircleIcon,
   ChevronDownIcon,
   CheckIcon
@@ -378,6 +379,15 @@ export default function WorkstationHeader(props: WorkstationHeaderProps): JSX.El
         </IconButton>
 
         <div class="w-px h-4 bg-[var(--border-color)]" />
+
+        <IconButton
+          size="xs"
+          variant="ghost"
+          onClick={() => window.api.toggleDevTools()}
+          tooltip="Developer Console (Ctrl+Shift+I)"
+        >
+          <DevConsoleIcon size={15} />
+        </IconButton>
 
         <IconButton
           size="xs"

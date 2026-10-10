@@ -12,6 +12,7 @@ export type { AbrBrushPreset, AbrFileResult }
 
 const STORAGE_KEY = 'slip_custom_brush_packs_v1'
 const ACTIVE_PRESET_KEY = 'slip_active_brush_preset_id'
+const BRUSH_GROUP_KEY = 'slip_brush_group_v1'
 
 const standardPack: AbrFileResult = {
   fileName: 'Standard Tips',
@@ -22,6 +23,18 @@ const standardPack: AbrFileResult = {
 const [brushPacks, setBrushPacks] = createSignal<AbrFileResult[]>([standardPack])
 const [activeBrushPreset, setActiveBrushPresetRaw] = createSignal<AbrBrushPreset | null>(null)
 const [isBrushManagerOpen, setIsBrushManagerOpen] = createSignal(false)
+
+/**
+ * Brush group: several tips the viewport swaps between on its own, so one
+ * pass of grunge lays down a mix of different stamps instead of the same tip
+ * at different angles. When it swaps follows brush.jitterScope — once per
+ * stroke (each click) or on every dab of a drag.
+ */
+export type BrushGroupOrder = 'random' | 'cycle'
+const [brushGroup, setBrushGroupRaw] = createSignal<AbrBrushPreset[]>([])
+const [brushGroupOrder, setBrushGroupOrderRaw] = createSignal<BrushGroupOrder>('random')
+let cycleIndex = -1
+let lastPickId: string | null = null
 
 /** Load persisted custom packs from Electron disk storage or IndexedDB on initialization */
 export async function initBrushPresets(): Promise<void> {
@@ -61,6 +74,7 @@ export async function initBrushPresets(): Promise<void> {
   setBrushPacks(allPacks)
 
   restoreActiveBrushPreset(allPacks)
+  restoreBrushGroup(allPacks)
 }
 
 /** Reads the legacy localStorage pack list and migrates it into IndexedDB/disk storage. Returns null on any failure or empty result. */
@@ -104,6 +118,104 @@ function restoreActiveBrushPreset(allPacks: AbrFileResult[]): void {
   }
 }
 
+/** Re-creates last session's brush group from whichever of its tips still exist. */
+function restoreBrushGroup(allPacks: AbrFileResult[]): void {
+  let saved: { ids?: string[]; order?: BrushGroupOrder } | null = null
+  try {
+    const raw = localStorage.getItem(BRUSH_GROUP_KEY)
+    saved = raw ? JSON.parse(raw) : null
+  } catch {
+    // A corrupt entry just means no group this session.
+  }
+  if (!saved) {
+    return
+  }
+  if (saved.order === 'random' || saved.order === 'cycle') {
+    setBrushGroupOrderRaw(saved.order)
+  }
+  const byId = new Map(allPacks.flatMap((p) => p.brushes.map((b) => [b.id, b] as const)))
+  const members = (saved.ids ?? []).map((id) => byId.get(id)).filter((b) => !!b)
+  setBrushGroupRaw(members)
+}
+
+function persistBrushGroup(): void {
+  try {
+    localStorage.setItem(
+      BRUSH_GROUP_KEY,
+      JSON.stringify({ ids: brushGroup().map((b) => b.id), order: brushGroupOrder() })
+    )
+  } catch {
+    // Storage unavailable — the group just won't survive a restart.
+  }
+}
+
+function setBrushGroup(next: AbrBrushPreset[]): void {
+  setBrushGroupRaw(next)
+  cycleIndex = -1
+  lastPickId = null
+  persistBrushGroup()
+}
+
+/**
+ * Ctrl+click in the library: adds or removes a tip from the group. Starting a
+ * group pulls in the tip already selected, since that is almost always the
+ * first one the artist meant to include.
+ */
+export function toggleBrushGroupMember(preset: AbrBrushPreset): void {
+  const current = brushGroup()
+  if (current.some((b) => b.id === preset.id)) {
+    const remaining = current.filter((b) => b.id !== preset.id)
+    setBrushGroup(remaining)
+    if (activeBrushPreset()?.id === preset.id && remaining.length > 0) {
+      selectBrushPreset(remaining[0], { keepGroup: true })
+    }
+    return
+  }
+  const active = activeBrushPreset()
+  const seed = current.length === 0 && active && active.id !== preset.id ? [active] : []
+  setBrushGroup([...current, ...seed, preset])
+  // The tip readout shows the active preset; keep it pointing into the group.
+  if (!active || !brushGroup().some((b) => b.id === active.id)) {
+    selectBrushPreset(preset, { keepGroup: true })
+  }
+}
+
+export function clearBrushGroup(): void {
+  setBrushGroup([])
+}
+
+export function setBrushGroupOrder(order: BrushGroupOrder): void {
+  setBrushGroupOrderRaw(order)
+  cycleIndex = -1
+  persistBrushGroup()
+}
+
+/** True when the viewport should be swapping tips — a group of one is just a brush. */
+export function brushGroupActive(): boolean {
+  return brushGroup().length > 1
+}
+
+/**
+ * Picks the group's next tip. Random never repeats the previous pick back to
+ * back, so a short group still visibly changes on every click.
+ */
+export function nextBrushGroupTip(): AbrBrushPreset | null {
+  const group = brushGroup()
+  if (group.length < 2) {
+    return null
+  }
+  let pick: AbrBrushPreset
+  if (brushGroupOrder() === 'cycle') {
+    cycleIndex = (cycleIndex + 1) % group.length
+    pick = group[cycleIndex]
+  } else {
+    const pool = group.filter((b) => b.id !== lastPickId)
+    pick = pool[Math.floor(Math.random() * pool.length)]
+  }
+  lastPickId = pick.id
+  return pick
+}
+
 /** Persist custom packs to Electron disk storage, IndexedDB, and localStorage */
 export async function persistPacks(packs: AbrFileResult[]): Promise<void> {
   // Only persist user-imported packs (exclude Standard Tips)
@@ -145,7 +257,15 @@ export function closeBrushManager(): void {
 }
 
 /** Selects an active brush preset and configures brush spacing, texture, and mapping mode. */
-export function selectBrushPreset(preset: AbrBrushPreset | null): void {
+export function selectBrushPreset(
+  preset: AbrBrushPreset | null,
+  options: { keepGroup?: boolean } = {}
+): void {
+  // Picking a single tip (plain click, reset) means "this brush", not "this
+  // brush plus whatever group was running".
+  if (!options.keepGroup && brushGroup().length > 0) {
+    setBrushGroup([])
+  }
   if (!preset) {
     setActiveBrushPresetRaw(null)
     setTipTexturePath(null)
@@ -189,9 +309,12 @@ export function removeBrushPack(packName: string): void {
   setBrushPacks(next)
   void persistPacks(next)
 
+  if (brushGroup().some((b) => b.packName === packName)) {
+    setBrushGroup(brushGroup().filter((b) => b.packName !== packName))
+  }
   // If active brush was in this pack, clear it
   if (activeBrushPreset()?.packName === packName) {
-    clearBrushPreset()
+    selectBrushPreset(null, { keepGroup: true })
   }
 }
 
@@ -249,6 +372,13 @@ export const brushPresets = {
   closeManager: closeBrushManager,
   select: selectBrushPreset,
   clear: clearBrushPreset,
+  group: brushGroup,
+  groupOrder: brushGroupOrder,
+  groupActive: brushGroupActive,
+  toggleGroupMember: toggleBrushGroupMember,
+  clearGroup: clearBrushGroup,
+  setGroupOrder: setBrushGroupOrder,
+  nextGroupTip: nextBrushGroupTip,
   addPack: addBrushPack,
   removePack: removeBrushPack,
   loadAbrFile,

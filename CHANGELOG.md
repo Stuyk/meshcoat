@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.1.0
+
+### Added
+- **Brush Groups**: Pick several brushes in the Brush Library (Build Group, or Ctrl+click) and painting swaps between them — once per stroke or on every dab, following the Randomness setting. Random or Cycle order; random never repeats the same tip twice in a row. The group shows as a thumbnail strip in brush settings (click one to remove it) and is remembered between sessions.
+- **Opacity Jitter**: Randomly fades each dab or stroke, up to the slider amount below the opacity setting — never heavier than asked for. Chaos now includes it.
+- **Developer Console**: A button in the top bar (or Ctrl+Shift+I / F12) opens the console and inspector, including in release builds.
+- **Crash Recovery Prompts**: If the app runs out of memory, crashes, stops responding, or loses its graphics context, a dialog now offers to reload — landing on the start screen with the latest autosave ready to restore — or quit.
+
+### Fixed
+- **Window Couldn't Close After a Crash or Freeze**: The unsaved-changes check waited on a renderer that could no longer answer, leaving the close button dead. A crashed window now closes straight away, and a frozen one asks whether to keep waiting.
+- **Brush Tip Textures Leaked GPU Memory**: Every brush selection uploaded a new tip texture and never released the old one. Tips are now cached and freed once no longer in use.
+
 ## v3.0.3
 
 ### Fixed

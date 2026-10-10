@@ -80,6 +80,9 @@ export class ViewportRuntime {
    * alongside brushTexture so a stroke can feed each channel its own source. */
   channelMaps: ChannelMaps = {}
   brushTipTexture: THREE.Texture | null = null
+  /** Decoded brush tips by data URL. Brush group members are preloaded here so
+   * swapping tips mid-stroke never waits on an image decode. */
+  tipTextures = new Map<string, THREE.Texture>()
   textureLoader = new THREE.TextureLoader()
   wireframeMeshes: THREE.LineSegments[] = []
   wireframeVisible = false

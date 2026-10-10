@@ -69,6 +69,56 @@ app.commandLine.appendSwitch('enable-zero-copy')
 
 let mainWindow: BrowserWindow | null = null
 let forceClose = false
+/** The renderer can't answer 'app:before-close' while it's dead or hung, so
+ * the close guard has to stand aside or the window can never be closed. */
+let rendererGone = false
+let rendererHung = false
+/** One recovery dialog at a time — a hang that turns into a crash would otherwise stack two. */
+let recoveryDialogOpen = false
+
+/**
+ * Offers a way out when the renderer can no longer be trusted (crashed, hung,
+ * or lost its WebGL context). Work since the last autosave is gone either way;
+ * reloading lands on the start wizard, which offers that autosave back.
+ */
+async function showRecoveryDialog(
+  win: BrowserWindow,
+  message: string,
+  detail: string,
+  allowWait: boolean
+): Promise<void> {
+  if (recoveryDialogOpen || win.isDestroyed()) {
+    return
+  }
+  recoveryDialogOpen = true
+  const buttons = allowWait ? ['Wait', 'Reload', 'Quit'] : ['Reload', 'Quit']
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'error',
+    title: 'MeshCoat',
+    message,
+    detail,
+    buttons,
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true
+  })
+  recoveryDialogOpen = false
+  if (win.isDestroyed()) {
+    return
+  }
+  const choice = buttons[response]
+  if (choice === 'Reload') {
+    rendererGone = false
+    rendererHung = false
+    win.webContents.reload()
+  } else if (choice === 'Quit') {
+    forceClose = true
+    win.close()
+  }
+}
+
+const RECOVERY_DETAIL =
+  'Changes since the last autosave (every 60 seconds) may be lost. Reload to get back to the start screen, where the autosave can be restored.'
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -94,11 +144,72 @@ function createWindow(): void {
   // unsaved work — the renderer decides (via its own dirty state) whether to
   // prompt, and tells us back through 'app:close-confirmed' when it's safe.
   mainWindow.on('close', (event) => {
-    if (forceClose) {
+    if (forceClose || rendererGone) {
+      return
+    }
+    if (rendererHung) {
+      // No answer is coming from a frozen renderer; ask here instead of
+      // leaving the close button dead.
+      const choice = dialog.showMessageBoxSync(mainWindow!, {
+        type: 'warning',
+        title: 'MeshCoat',
+        message: 'MeshCoat is not responding.',
+        detail: RECOVERY_DETAIL,
+        buttons: ['Wait', 'Close Anyway'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true
+      })
+      if (choice !== 1) {
+        event.preventDefault()
+      }
       return
     }
     event.preventDefault()
     mainWindow?.webContents.send('app:before-close')
+  })
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('Renderer process gone:', details)
+    if (details.reason === 'clean-exit') {
+      return
+    }
+    rendererGone = true
+    rendererHung = false
+    const reason = details.reason === 'oom' ? 'ran out of memory' : `stopped (${details.reason})`
+    void showRecoveryDialog(mainWindow!, `MeshCoat ${reason}.`, RECOVERY_DETAIL, false)
+  })
+
+  mainWindow.on('unresponsive', () => {
+    rendererHung = true
+    void showRecoveryDialog(
+      mainWindow!,
+      'MeshCoat is not responding.',
+      `It may still be working on something heavy. ${RECOVERY_DETAIL}`,
+      true
+    )
+  })
+
+  mainWindow.on('responsive', () => {
+    rendererHung = false
+  })
+
+  // Handled here rather than in the page so the shortcut still works while
+  // the renderer is busy — which is exactly when you want the console.
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') {
+      return
+    }
+    const ctrlOrCmd = process.platform === 'darwin' ? input.meta : input.control
+    // In dev, the toolkit's watchWindowShortcuts already toggles on F12;
+    // handling it here too would open and immediately close the panel.
+    const isToggle =
+      (input.key === 'F12' && !is.dev) ||
+      (ctrlOrCmd && input.shift && input.key.toLowerCase() === 'i')
+    if (isToggle) {
+      event.preventDefault()
+      mainWindow?.webContents.toggleDevTools()
+    }
   })
 
   // The Text tool asks Chromium for the installed fonts (queryLocalFonts),
@@ -478,6 +589,27 @@ app.whenReady().then(() => {
   ipcMain.on('app:close-confirmed', () => {
     forceClose = true
     mainWindow?.close()
+  })
+
+  ipcMain.on('devtools:toggle', (event) => {
+    event.sender.toggleDevTools()
+  })
+
+  // A lost WebGL context takes every layer's pixels with it (they live only
+  // in GPU render targets), so there's nothing to restore in place.
+  ipcMain.on('app:gpu-context-lost', () => {
+    if (mainWindow) {
+      void showRecoveryDialog(
+        mainWindow,
+        'The graphics context was lost.',
+        `The GPU driver reset or ran out of memory, and the painted textures went with it. ${RECOVERY_DETAIL}`,
+        false
+      )
+    }
+  })
+
+  app.on('child-process-gone', (_event, details) => {
+    console.error('Child process gone:', details)
   })
 
   ipcMain.on('shell:reveal', (_e, filePath: string) => {

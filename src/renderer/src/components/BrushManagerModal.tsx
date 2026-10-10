@@ -1,4 +1,4 @@
-import { createSignal, createMemo, Show, For } from 'solid-js'
+import { createSignal, createMemo, Show, For, onMount, onCleanup } from 'solid-js'
 import { Modal, Button, SearchInput, Label } from './ui'
 import { brushPresets, type AbrBrushPreset } from '../paint/brushPresets'
 import { TrashIcon, UploadIcon, FolderOpenIcon, LibraryIcon, LayersPlusIcon } from './icons'
@@ -12,6 +12,28 @@ export default function BrushManagerModal(props: { isOpen: boolean; onClose: () 
   const [importStatus, setImportStatus] = createSignal<string | null>(null)
 
   const packs = () => brushPresets.packs()
+
+  // Group picking: a sticky toggle, or Ctrl/Cmd held. The held state is
+  // tracked from the keyboard rather than read off the click alone, because
+  // pen/tablet taps on some drivers arrive with no modifier flags at all.
+  const [groupPicking, setGroupPicking] = createSignal(false)
+  const [modifierHeld, setModifierHeld] = createSignal(false)
+  const trackModifier = (e: KeyboardEvent): void => {
+    setModifierHeld(e.ctrlKey || e.metaKey)
+  }
+  const releaseModifier = (): void => {
+    setModifierHeld(false)
+  }
+  onMount(() => {
+    window.addEventListener('keydown', trackModifier)
+    window.addEventListener('keyup', trackModifier)
+    window.addEventListener('blur', releaseModifier)
+  })
+  onCleanup(() => {
+    window.removeEventListener('keydown', trackModifier)
+    window.removeEventListener('keyup', trackModifier)
+    window.removeEventListener('blur', releaseModifier)
+  })
 
   // All brushes combined
   const allBrushes = createMemo(() => {
@@ -245,6 +267,35 @@ export default function BrushManagerModal(props: { isOpen: boolean; onClose: () 
             placeholder="Search brushes by name..."
           />
 
+          <div class="flex items-center justify-between gap-2 min-h-6 px-1 text-[11px] text-zinc-400">
+            <Show
+              when={brushPresets.group().length > 0}
+              fallback={<span>Build Group or Ctrl+click to pick several brushes.</span>}
+            >
+              <span>
+                <span class="font-semibold text-amber-400">
+                  Group: {brushPresets.group().length}
+                </span>
+                <Show when={brushPresets.group().length < 2}> — pick one more</Show>
+              </span>
+            </Show>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <Show when={brushPresets.group().length > 0}>
+                <Button variant="ghost" size="xs" onClick={() => brushPresets.clearGroup()}>
+                  Clear Group
+                </Button>
+              </Show>
+              <Button
+                variant={groupPicking() ? 'primary' : 'secondary'}
+                size="xs"
+                onClick={() => setGroupPicking((v) => !v)}
+                title="Click brushes to add/remove them from the group"
+              >
+                {groupPicking() ? 'Done Grouping' : 'Build Group'}
+              </Button>
+            </div>
+          </div>
+
           <div class="flex-1 overflow-y-auto p-1 border border-zinc-800/80 rounded-xl bg-zinc-950/40">
             <Show
               when={visibleBrushes().length > 0}
@@ -266,16 +317,26 @@ export default function BrushManagerModal(props: { isOpen: boolean; onClose: () 
                 <For each={visibleBrushes()}>
                   {(brushItem) => {
                     const isSelected = () => brushPresets.active()?.id === brushItem.id
+                    const groupSlot = () =>
+                      brushPresets.group().findIndex((b) => b.id === brushItem.id) + 1
                     return (
                       <div
-                        onClick={() => {
+                        onClick={(e) => {
+                          // Group picking keeps the library open so several
+                          // tips can be picked in a row.
+                          if (groupPicking() || modifierHeld() || e.ctrlKey || e.metaKey) {
+                            brushPresets.toggleGroupMember(brushItem)
+                            return
+                          }
                           brushPresets.select(brushItem)
                           props.onClose()
                         }}
                         class={`flex flex-col p-2 rounded-xl border transition-all cursor-pointer group ${
-                          isSelected()
-                            ? 'bg-blue-600/15 border-blue-500/70 shadow-xs'
-                            : 'bg-zinc-900/60 border-zinc-800/80 hover:border-zinc-700 hover:bg-zinc-850/60'
+                          groupSlot() > 0
+                            ? 'bg-amber-500/10 border-amber-500/70 shadow-xs'
+                            : isSelected()
+                              ? 'bg-blue-600/15 border-blue-500/70 shadow-xs'
+                              : 'bg-zinc-900/60 border-zinc-800/80 hover:border-zinc-700 hover:bg-zinc-850/60'
                         }`}
                         title={`${brushItem.name} (${Math.round(brushItem.diameter)}px)`}
                       >
@@ -285,9 +346,14 @@ export default function BrushManagerModal(props: { isOpen: boolean; onClose: () 
                             alt={brushItem.name}
                             class="max-w-full max-h-full object-contain filter drop-shadow group-hover:scale-105 transition-transform"
                           />
-                          <Show when={isSelected()}>
+                          <Show when={isSelected() && groupSlot() === 0}>
                             <span class="absolute top-1 right-1 px-1 py-0.2 bg-blue-600 text-white rounded font-mono text-[9px] font-bold">
                               ACTIVE
+                            </span>
+                          </Show>
+                          <Show when={groupSlot() > 0}>
+                            <span class="absolute top-1 right-1 px-1 py-0.2 bg-amber-500 text-zinc-950 rounded font-mono text-[9px] font-bold">
+                              GROUP {groupSlot()}
                             </span>
                           </Show>
                         </div>

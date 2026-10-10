@@ -411,6 +411,8 @@ const [angleFollowStroke, setAngleFollowStrokeRaw] = createSignal(false)
 const [angleJitter, setAngleJitterRaw] = createSignal(0)
 /** Random size jitter fraction (0 - 1). */
 const [sizeJitter, setSizeJitterRaw] = createSignal(0)
+/** Random transparency: each dab/stroke loses up to this fraction of its opacity (0 - 1). */
+const [opacityJitter, setOpacityJitterRaw] = createSignal(0)
 /** Random hue shift, as a fraction of ±60° (0 - 1). */
 const [hueJitter, setHueJitterRaw] = createSignal(0)
 /** Random saturation shift, as a fraction of ±0.5 (0 - 1). */
@@ -425,10 +427,11 @@ const [valueJitter, setValueJitterRaw] = createSignal(0)
 export type JitterScope = 'dab' | 'stroke'
 const [jitterScope, setJitterScopeRaw] = createSignal<JitterScope>('dab')
 
-type JitterChannel = 'angle' | 'size' | 'hue' | 'saturation' | 'value'
+type JitterChannel = 'angle' | 'size' | 'opacity' | 'hue' | 'saturation' | 'value'
 const rollAll = (): Record<JitterChannel, number> => ({
   angle: Math.random(),
   size: Math.random(),
+  opacity: Math.random(),
   hue: Math.random(),
   saturation: Math.random(),
   value: Math.random()
@@ -505,6 +508,22 @@ export function setSizeJitter(v: number): void {
   setSizeJitterRaw(clamp(v, 0, 1))
 }
 
+export function setOpacityJitter(v: number): void {
+  setOpacityJitterRaw(clamp(v, 0, 1))
+}
+
+/**
+ * `opacity` with transparency jitter applied. Only ever fades — the opacity
+ * slider stays the ceiling, so jitter never paints heavier than asked for.
+ */
+export function jitteredOpacity(opacity: number): number {
+  if (opacityJitter() <= 0) {
+    return opacity
+  }
+  const fade = (jitterSample('opacity') + 1) / 2
+  return opacity * (1 - fade * opacityJitter())
+}
+
 export function setHueJitter(v: number): void {
   setHueJitterRaw(clamp(v, 0, 1))
 }
@@ -522,7 +541,7 @@ export function setJitterScope(v: JitterScope): void {
 }
 
 /**
- * "Chaos mode": every stroke lands with its own rotation, size and a little
+ * "Chaos mode": every stroke lands with its own rotation, size, transparency and a little
  * color drift — for grunge and organic breakup without touching the sliders
  * between strokes. Calling it again with false zeroes the jitters.
  */
@@ -530,6 +549,7 @@ export function setChaos(enabled: boolean): void {
   if (enabled) {
     setAngleJitterRaw(1)
     setSizeJitterRaw(0.4)
+    setOpacityJitterRaw(0.5)
     setHueJitterRaw(0.1)
     setSaturationJitterRaw(0.2)
     setValueJitterRaw(0.2)
@@ -537,6 +557,7 @@ export function setChaos(enabled: boolean): void {
   } else {
     setAngleJitterRaw(0)
     setSizeJitterRaw(0)
+    setOpacityJitterRaw(0)
     setHueJitterRaw(0)
     setSaturationJitterRaw(0)
     setValueJitterRaw(0)
@@ -547,6 +568,7 @@ export function chaosActive(): boolean {
   return (
     angleJitter() > 0 ||
     sizeJitter() > 0 ||
+    opacityJitter() > 0 ||
     hueJitter() > 0 ||
     saturationJitter() > 0 ||
     valueJitter() > 0
@@ -953,6 +975,9 @@ export const brush = {
   setAngleJitter,
   sizeJitter,
   setSizeJitter,
+  opacityJitter,
+  setOpacityJitter,
+  jitteredOpacity,
   hueJitter,
   setHueJitter,
   saturationJitter,

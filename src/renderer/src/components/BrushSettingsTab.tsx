@@ -284,7 +284,11 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
           </div>
           <div class="flex flex-col min-w-0">
             <span class="text-xs font-semibold text-[var(--text-main)] truncate">
-              {brushPresets.active() ? brushPresets.active()!.name : 'Standard Round Tip'}
+              {brushPresets.groupActive()
+                ? `Brush Group · ${brushPresets.group().length} tips`
+                : brushPresets.active()
+                  ? brushPresets.active()!.name
+                  : 'Standard Round Tip'}
             </span>
             <div class="flex items-center gap-1.5 font-mono text-[11px] text-[var(--text-muted)] mt-0.5">
               <span>R: {brush.radius().toFixed(2)}</span>
@@ -318,6 +322,57 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
           </Button>
         </div>
       </div>
+
+      <Show when={brushPresets.groupActive()}>
+        <div class="px-3 pb-3 flex flex-col gap-2 bg-[var(--bg-panel-header)]">
+          <div class="flex items-center gap-1 overflow-x-auto">
+            <For each={brushPresets.group()}>
+              {(member) => (
+                <button
+                  type="button"
+                  class="w-7 h-7 shrink-0 rounded-[var(--ui-radius)] checkerboard-bg border border-[var(--border-color)] hover:border-red-400/70 flex items-center justify-center overflow-hidden cursor-pointer"
+                  title={`${member.name} — click to remove from group`}
+                  onClick={() => brushPresets.toggleGroupMember(member)}
+                >
+                  <img
+                    src={member.dataUrl}
+                    alt={member.name}
+                    class="w-full h-full object-contain p-0.5"
+                  />
+                </button>
+              )}
+            </For>
+          </div>
+          <div class="flex items-center gap-2">
+            <SegmentedControl
+              size="xs"
+              options={[
+                {
+                  value: 'random',
+                  label: 'Random',
+                  title: 'Pick a different tip at random each time'
+                },
+                { value: 'cycle', label: 'Cycle', title: 'Step through the tips in order' }
+              ]}
+              value={brushPresets.groupOrder()}
+              onChange={(v) => brushPresets.setGroupOrder(v)}
+              class="flex-1 justify-between"
+            />
+            <IconButton
+              size="xs"
+              variant="ghost"
+              onClick={() => brushPresets.clearGroup()}
+              tooltip="Clear brush group"
+            >
+              <XIcon size={14} />
+            </IconButton>
+          </div>
+          <p class="text-[11px] text-[var(--text-muted)] leading-tight">
+            Swaps tip every {brush.jitterScope() === 'dab' ? 'dab' : 'stroke'} — change under
+            Randomness.
+          </p>
+        </div>
+      </Show>
 
       <Show
         when={
@@ -910,7 +965,7 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
                   title={
                     brush.chaosActive()
                       ? 'Turn every jitter off'
-                      : 'Chaos: new rotation, size and slight color drift on every stroke'
+                      : 'Chaos: new rotation, size, transparency and slight color drift on every stroke'
                   }
                   class={`flex items-center gap-1 px-2 py-0.5 rounded-[var(--ui-radius)] border text-[11px] font-medium cursor-pointer transition-colors ${
                     brush.chaosActive()
@@ -926,11 +981,16 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
               <SegmentedControl
                 size="xs"
                 options={[
-                  { value: 'dab', label: 'Every dab', title: 'Re-roll the variation on every dab' },
+                  {
+                    value: 'dab',
+                    label: 'Every dab',
+                    title: 'Re-roll the variation (and brush group tip) on every dab'
+                  },
                   {
                     value: 'stroke',
                     label: 'Every stroke',
-                    title: 'Re-roll once per stroke — each click gets its own variation'
+                    title:
+                      'Re-roll once per stroke — each click gets its own variation (and brush group tip)'
                   }
                 ]}
                 value={brush.jitterScope()}
@@ -957,6 +1017,17 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
                 max={1}
                 step={0.05}
                 onChange={(v) => brush.setSizeJitter(v)}
+                displayValue={(v) => `${Math.round(v * 100)}%`}
+              />
+
+              <Slider
+                label="Opacity Jitter"
+                title="Randomly fades each dab, up to this much below the opacity setting"
+                value={brush.opacityJitter()}
+                min={0}
+                max={1}
+                step={0.05}
+                onChange={(v) => brush.setOpacityJitter(v)}
                 displayValue={(v) => `${Math.round(v * 100)}%`}
               />
 

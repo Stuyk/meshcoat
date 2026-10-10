@@ -5,6 +5,7 @@ import { createScene } from './scene'
 import { createDefaultTestModel } from './modelLoader'
 import { brush, selectAllFaces, invertFaceSelection, setTextureScale } from '../paint/brush'
 import { stencil, setStencilTransforming } from '../paint/stencil'
+import { brushPresets } from '../paint/brushPresets'
 import { PBR_CHANNELS, type PaintChannel } from '../paint/channels'
 import { renderTargetToPngDataUrl, packOrmDataUrl } from '../paint/exportTexture'
 import { OcclusionDepthPass } from '../paint/occlusionDepth'
@@ -597,6 +598,7 @@ export default function Viewport(props: ViewportProps): JSX.Element {
     rt.canvasRef.addEventListener('dblclick', boundDblClick)
     rt.canvasRef.addEventListener('wheel', boundWheel, { passive: false })
     rt.canvasRef.addEventListener('pointerleave', onPointerLeave)
+    rt.canvasRef.addEventListener('webglcontextlost', onContextLost)
 
     const handle: ViewportHandle = {
       loadFromUrl: (url, extension, textureSize, initialTextures, options) =>
@@ -793,6 +795,10 @@ export default function Viewport(props: ViewportProps): JSX.Element {
   const boundPointerDownCapture = (e: PointerEvent): void => onPointerDown(rt, e)
   const boundDblClick = (e: MouseEvent): void => onDblClick(rt, e)
   const boundWheel = (e: WheelEvent): void => onWheel(rt, e)
+  const onContextLost = (): void => {
+    console.error('WebGL context lost')
+    window.api.reportGpuContextLost()
+  }
   const onPointerLeave = (): void => {
     updateGizmo(gizmoCtx, null)
     updatePieceOutlines(rt, null)
@@ -1037,7 +1043,22 @@ export default function Viewport(props: ViewportProps): JSX.Element {
     })
   })
 
-  createEffect(() => {
+  const loadTipTexture = (path: string, onReady: (texture: THREE.Texture) => void): void => {
+    const cached = rt.tipTextures.get(path)
+    if (cached) {
+      onReady(cached)
+      return
+    }
+    rt.textureLoader.load(toAssetUrl(path), (texture) => {
+      texture.colorSpace = THREE.SRGBColorSpace
+      texture.wrapS = THREE.ClampToEdgeWrapping
+      texture.wrapT = THREE.ClampToEdgeWrapping
+      rt.tipTextures.set(path, texture)
+      onReady(texture)
+    })
+  }
+
+  const showActiveTip = (): void => {
     const path = brush.tipTexturePath()
     if (!path) {
       rt.brushTipTexture = null
@@ -1046,15 +1067,46 @@ export default function Viewport(props: ViewportProps): JSX.Element {
       }
       return
     }
-    rt.textureLoader.load(toAssetUrl(path), (texture) => {
-      texture.colorSpace = THREE.SRGBColorSpace
-      texture.wrapS = THREE.ClampToEdgeWrapping
-      texture.wrapT = THREE.ClampToEdgeWrapping
+    loadTipTexture(path, (texture) => {
+      // A slower decode for an older selection must not land over a newer one.
+      if (brush.tipTexturePath() !== path) {
+        return
+      }
       rt.brushTipTexture = texture
       if (rt.currentHit) {
         updateGizmo(gizmoCtx, rt.currentHit)
       }
     })
+  }
+
+  createEffect(() => {
+    brush.tipTexturePath()
+    showActiveTip()
+  })
+
+  // Keeps the tip cache to exactly the active tip plus the brush group, so a
+  // group decodes up front and a dropped group frees its textures.
+  createEffect(() => {
+    const group = brushPresets.group()
+    const active = brush.tipTexturePath()
+    const keep = new Set(group.map((b) => b.dataUrl))
+    if (active) {
+      keep.add(active)
+    }
+    for (const member of group) {
+      loadTipTexture(member.dataUrl, () => {})
+    }
+    for (const [path, texture] of rt.tipTextures) {
+      if (!keep.has(path)) {
+        texture.dispose()
+        rt.tipTextures.delete(path)
+      }
+    }
+    // The last group pick stays on the cursor until something replaces it;
+    // with the group gone, that's the plain active tip again.
+    if (!brushPresets.groupActive()) {
+      untrack(showActiveTip)
+    }
   })
 
   onCleanup(() => {
@@ -1069,6 +1121,11 @@ export default function Viewport(props: ViewportProps): JSX.Element {
     rt.canvasRef?.removeEventListener('pointerdown', boundPointerDownCapture, { capture: true })
     rt.canvasRef?.removeEventListener('dblclick', boundDblClick)
     rt.canvasRef?.removeEventListener('wheel', boundWheel)
+    rt.canvasRef?.removeEventListener('webglcontextlost', onContextLost)
+    for (const texture of rt.tipTextures.values()) {
+      texture.dispose()
+    }
+    rt.tipTextures.clear()
     if (rt.lineGuideMesh) {
       rt.sceneHandle?.scene.remove(rt.lineGuideMesh)
       rt.lineGuideMesh.geometry.dispose()
