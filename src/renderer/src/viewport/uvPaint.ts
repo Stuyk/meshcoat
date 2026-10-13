@@ -122,6 +122,16 @@ export function uvPointerDown(
     dabAt(rt, u, v, radiusPx, e)
     return
   }
+  if (tool === 'eyedropper') {
+    // The sheet is the texture itself, so any texel is fair game — including
+    // the dilated gutter between islands that no face covers.
+    if (u >= 0 && u < 1 && v >= 0 && v < 1) {
+      const hex = `#${rt.layerStack.sampleAt(new THREE.Vector2(u, v)).getHexString()}`
+      brush.setColor(hex)
+      rt.setEyedropperPreview((prev) => ({ ...prev, color: hex.toUpperCase() }))
+    }
+    return
+  }
 
   const hit = uvHitAt(rt, u, v)
   if (!hit) {
@@ -242,7 +252,17 @@ export function uvHover(
     return
   }
   const scale = worldPerUv(rt, hit.faceIndex)
-  console.log('UVHOVER', uv.u.toFixed(2), uv.v.toFixed(2), hit.point.toArray().map((n) => n.toFixed(2)).join(','), scale, rt.gizmoHandle?.group.visible)
+  console.log(
+    'UVHOVER',
+    uv.u.toFixed(2),
+    uv.v.toFixed(2),
+    hit.point
+      .toArray()
+      .map((n) => n.toFixed(2))
+      .join(','),
+    scale,
+    rt.gizmoHandle?.group.visible
+  )
   const radius = scale ? uvRadius(rt, uv.radiusPx) * scale : undefined
   updateGizmo({ ...ctx, radius, noMirror: true }, hit)
 }

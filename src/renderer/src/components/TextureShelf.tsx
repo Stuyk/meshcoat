@@ -15,7 +15,9 @@ import {
   setMaterialSet,
   addPastedTexture,
   removePastedTexture,
-  clearPastedTextures
+  clearPastedTextures,
+  removeRecentTexture,
+  clearRecentTextures
 } from '../paint/brush'
 import { groupMaterialSets, paintableChannels, type MaterialSet } from '../paint/materialSets'
 import { CHANNEL_SPECS } from '../paint/channels'
@@ -402,6 +404,21 @@ export default function TextureShelf(props: {
             </div>
           </Show>
 
+          <Show when={activeShelf() === 'used' && brush.recentTextures().length > 0}>
+            <IconButton
+              size="xs"
+              variant="ghost"
+              onClick={() => {
+                if (confirm('Clear every texture from the Used shelf?')) {
+                  clearRecentTextures()
+                }
+              }}
+              title="Clear the Used shelf (hover a card to remove just one)"
+            >
+              <Trash2Icon size={12} class="text-[var(--text-muted)] hover:text-red-400" />
+            </IconButton>
+          </Show>
+
           <Show when={activeShelf() === 'pasted'}>
             <div class="flex items-center gap-1.5 shrink-0">
               <Button
@@ -655,7 +672,7 @@ export default function TextureShelf(props: {
                     const filename = (): string => pasted()?.name ?? fileName(path, '')
 
                     return (
-                      <div style={style} class="relative">
+                      <div style={style} class="relative group/card">
                         <button
                           type="button"
                           onClick={() => {
@@ -702,6 +719,16 @@ export default function TextureShelf(props: {
                             {filename()}
                           </span>
                         </button>
+                        <Show when={activeShelf() === 'used'}>
+                          <button
+                            type="button"
+                            onClick={() => removeRecentTexture(path)}
+                            title={`Remove ${filename()} from Used`}
+                            class="absolute top-2.5 left-2.5 w-4 h-4 rounded-[2px] bg-black/80 border border-white/10 text-[var(--text-muted)] hover:text-red-400 flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity cursor-pointer"
+                          >
+                            <XIcon size={10} />
+                          </button>
+                        </Show>
                       </div>
                     )
                   }}

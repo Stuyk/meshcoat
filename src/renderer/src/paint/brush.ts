@@ -297,17 +297,37 @@ export function setSymmetryX(enabled: boolean): void {
 export const symmetryX = (): boolean => symmetryAxis() === 'x'
 export const symmetryEnabled = (): boolean => symmetryAxis() !== 'off'
 
-/** Recent textures chosen by the user (persisted in localStorage). */
+/**
+ * Recent textures chosen by the user (persisted in localStorage). Capped so a
+ * long-running install doesn't grow the Used shelf without bound.
+ */
+const MAX_RECENT_TEXTURES = 100
+const RECENT_TEXTURES_KEY = 'slip_recent_textures'
+
 const [recentTextures, setRecentTextures] = createSignal<string[]>(
   (() => {
     try {
-      const raw = localStorage.getItem('slip_recent_textures')
-      return raw ? JSON.parse(raw) : []
+      const raw = localStorage.getItem(RECENT_TEXTURES_KEY)
+      const list = raw ? JSON.parse(raw) : []
+      return Array.isArray(list) ? list.slice(0, MAX_RECENT_TEXTURES) : []
     } catch {
       return []
     }
   })()
 )
+
+function updateRecentTextures(update: (prev: string[]) => string[]): void {
+  setRecentTextures((prev) => {
+    const next = update(prev).slice(0, MAX_RECENT_TEXTURES)
+    try {
+      localStorage.setItem(RECENT_TEXTURES_KEY, JSON.stringify(next))
+    } catch {
+      // Recent-textures list is a convenience — a full/blocked localStorage
+      // just means it won't persist across sessions this time.
+    }
+    return next
+  })
+}
 
 export function recordRecentTexture(path: string): void {
   // Pasted textures are data URLs — a handful of them is megabytes of base64,
@@ -316,16 +336,16 @@ export function recordRecentTexture(path: string): void {
   if (path.startsWith('data:') || path.startsWith('blob:')) {
     return
   }
-  setRecentTextures((prev) => {
-    const next = [path, ...prev.filter((p) => p !== path)]
-    try {
-      localStorage.setItem('slip_recent_textures', JSON.stringify(next))
-    } catch {
-      // Recent-textures list is a convenience — a full/blocked localStorage
-      // just means it won't persist across sessions this time.
-    }
-    return next
-  })
+  updateRecentTextures((prev) => [path, ...prev.filter((p) => p !== path)])
+}
+
+/** Drops one texture from the Used shelf; the file itself is untouched. */
+export function removeRecentTexture(path: string): void {
+  updateRecentTextures((prev) => prev.filter((p) => p !== path))
+}
+
+export function clearRecentTextures(): void {
+  updateRecentTextures(() => [])
 }
 
 /**
@@ -965,6 +985,8 @@ export const brush = {
   setSymmetryX,
   recentTextures,
   recordRecentTexture,
+  removeRecentTexture,
+  clearRecentTextures,
   pastedTextures,
   pastedTextureName,
   brushRotation,

@@ -1452,13 +1452,20 @@ export class PaintEngine {
     const x = Math.floor(uv.x * this.textureSize)
     const y = Math.floor(uv.y * this.textureSize)
     const buffer = new Uint8Array(4)
-    this.renderer.readRenderTargetPixels(this.buf('baseColor').read, x, y, 1, 1, buffer)
+    const target = this.buf('baseColor').read
+    this.renderer.readRenderTargetPixels(target, x, y, 1, 1, buffer)
     // Stored premultiplied (see paintShader.ts) — undo it to get the true color.
     const a = buffer[3]
     if (a === 0) {
       return new THREE.Color(0, 0, 0)
     }
-    return new THREE.Color(buffer[0] / a, buffer[1] / a, buffer[2] / a)
+    // Bytes are in the target's own color space (sRGB for base color).
+    return new THREE.Color().setRGB(
+      buffer[0] / a,
+      buffer[1] / a,
+      buffer[2] / a,
+      target.texture.colorSpace
+    )
   }
 
   /** Inverts the RGB color of the current target (useful for inverting layer masks). */
@@ -1496,8 +1503,14 @@ export class PaintEngine {
 
   private edgeWearMaterial?: THREE.ShaderMaterial
 
-  /** Generates procedural edge wear across detected sharp ridges. */
-  applyEdgeWear(options: EdgeWearParams): void {
+  /**
+   * Generates procedural edge wear across detected sharp ridges. With
+   * `options.erase`, the wear mask removes paint instead; `eraseChannels` then
+   * also takes back roughness/metalness/normal coverage under it, the way the
+   * eraser brush does. (Off for live previews — their snapshot only covers base
+   * color, so a channel erased there couldn't be reverted.)
+   */
+  applyEdgeWear(options: EdgeWearParams, eraseChannels = false): void {
     if (!this.edgeWearMaterial) {
       this.edgeWearMaterial = createEdgeWearMaterial()
     }
@@ -1505,9 +1518,7 @@ export class PaintEngine {
     // Edge wear lays down a color (chipped paint, settled grime), so it is a
     // base-color operation; roughness/metalness/normal are left to the brush
     // rather than being invented from a curvature pass.
-    const buffers = this.buf('baseColor')
     const u = this.edgeWearMaterial.uniforms
-    u.tSource.value = buffers.read.texture
     if (typeof options.color === 'string') {
       u.uColor.value.set(options.color)
     } else {
@@ -1528,19 +1539,39 @@ export class PaintEngine {
     const mode: EdgeWearMode = options.mode ?? 'wear'
     u.uCurvatureMode.value = mode === 'cavity' ? 1 : 0
     u.uSmoothness.value = options.smoothness ?? (mode === 'cavity' ? 0.6 : 0)
+    u.uErase.value = options.erase ? 1 : 0
+
+    const channels: PaintChannel[] =
+      options.erase && eraseChannels ? this.allocatedChannels : ['baseColor']
 
     const prevMaterial = this.uvMesh.material
     this.uvMesh.material = this.edgeWearMaterial
-
     const prevTarget = this.renderer.getRenderTarget()
-    this.renderer.setRenderTarget(buffers.write)
-    this.renderer.render(this.orthoScene, this.orthoCamera)
+
+    for (const channel of channels) {
+      const buffers = this.buf(channel)
+      u.tSource.value = buffers.read.texture
+      // Base color reverts to what the eraser reveals on this layer; every
+      // other channel loses its coverage so the one below shows through.
+      if (channel === 'baseColor') {
+        const a = this.baseAlpha
+        u.uEraseTarget.value.set(
+          this.baseColor.r * a,
+          this.baseColor.g * a,
+          this.baseColor.b * a,
+          a
+        )
+      } else {
+        u.uEraseTarget.value.set(0, 0, 0, 0)
+      }
+      this.renderer.setRenderTarget(buffers.write)
+      this.renderer.render(this.orthoScene, this.orthoCamera)
+      this.dilate(buffers.write)
+      this.swap(channel)
+    }
+
     this.renderer.setRenderTarget(prevTarget)
-    this.dilate(buffers.write)
-
     this.uvMesh.material = prevMaterial
-
-    this.swap('baseColor')
     this._contentVersion++
   }
 
@@ -1766,6 +1797,8 @@ export interface EdgeWearParams {
    * cavity leans smooth.
    */
   smoothness?: number
+  /** Remove paint along the wear mask instead of adding `color`. */
+  erase?: boolean
 }
 
 export type EdgeWearMode = 'wear' | 'cavity'

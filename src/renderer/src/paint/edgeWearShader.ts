@@ -19,6 +19,10 @@ export interface EdgeWearUniforms {
   uCurvatureMode: { value: number }
   /** 0 = noisy/chipped break-up, 1 = smooth uniform gradient (ambient-occlusion look). */
   uSmoothness: { value: number }
+  /** 1 = the wear mask takes paint away instead of laying color down. */
+  uErase: { value: number }
+  /** Premultiplied texel an erased spot reverts to (the layer's eraser color, or nothing). */
+  uEraseTarget: { value: THREE.Vector4 }
 }
 
 export function createEdgeWearMaterial(): THREE.ShaderMaterial {
@@ -39,7 +43,9 @@ export function createEdgeWearMaterial(): THREE.ShaderMaterial {
       uTextureScale: { value: 1.0 },
       uTextureMapping: { value: 0 },
       uCurvatureMode: { value: 0 },
-      uSmoothness: { value: 0 }
+      uSmoothness: { value: 0 },
+      uErase: { value: 0 },
+      uEraseTarget: { value: new THREE.Vector4(0, 0, 0, 0) }
     },
     vertexShader: /* glsl */ `
       attribute vec3 aWorldPosition;
@@ -69,6 +75,8 @@ export function createEdgeWearMaterial(): THREE.ShaderMaterial {
       uniform sampler2D tSource;
       uniform vec3 uColor;
       uniform float uOpacity;
+      uniform float uErase;
+      uniform vec4 uEraseTarget;
       uniform float uWearWidth;
       uniform float uThreshold;
       uniform float uNoiseScale;
@@ -227,6 +235,13 @@ export function createEdgeWearMaterial(): THREE.ShaderMaterial {
         float finalAlpha = wearMask * uOpacity * wearTexAlpha;
         if (finalAlpha <= 0.001) {
           gl_FragColor = baseColor;
+          return;
+        }
+
+        // Erase: the same ragged mask, but it eats into the existing paint —
+        // fill a face, then grunge its edges away.
+        if (uErase > 0.5) {
+          gl_FragColor = mix(baseColor, uEraseTarget, finalAlpha);
           return;
         }
 

@@ -2,6 +2,9 @@ import type { LightingMode } from '../viewport/scene'
 import type { ChannelViewMode } from '../viewport/Viewport'
 import type { ToolMode } from '../paint/brush'
 
+/** Which color list the Paint Color panel shows under the picker. */
+export type PaletteMode = 'swatches' | 'used' | 'presets'
+
 export interface LayoutProfile {
   // Sidebar (Brush settings & Layers)
   sidebarWidth: number
@@ -32,7 +35,7 @@ export interface LayoutProfile {
   activeTool: ToolMode
 
   // Color & Palette tab
-  paletteMode: 'swatches' | 'presets'
+  paletteMode: PaletteMode
   activePresetId: string
 }
 
@@ -87,7 +90,9 @@ const VALID_TOOLS: Set<string> = new Set([
 
 let cachedProfile: LayoutProfile | null = null
 
-export function sanitizeProfile(parsed: Record<string, unknown> | Partial<LayoutProfile>): LayoutProfile {
+export function sanitizeProfile(
+  parsed: Record<string, unknown> | Partial<LayoutProfile>
+): LayoutProfile {
   const winW = typeof window !== 'undefined' ? window.innerWidth : 1920
   const winH = typeof window !== 'undefined' ? window.innerHeight : 1080
 
@@ -155,11 +160,12 @@ export function sanitizeProfile(parsed: Record<string, unknown> | Partial<Layout
       ? (parsed.activeTool as ToolMode)
       : DEFAULT_PROFILE.activeTool
 
-  const lowerTab =
-    parsed.lowerTab === 'selections' ? 'selections' : DEFAULT_PROFILE.lowerTab
+  const lowerTab = parsed.lowerTab === 'selections' ? 'selections' : DEFAULT_PROFILE.lowerTab
 
-  const paletteMode =
-    parsed.paletteMode === 'presets' ? 'presets' : DEFAULT_PROFILE.paletteMode
+  const paletteMode: PaletteMode =
+    parsed.paletteMode === 'presets' || parsed.paletteMode === 'used'
+      ? parsed.paletteMode
+      : DEFAULT_PROFILE.paletteMode
 
   const activePresetId =
     typeof parsed.activePresetId === 'string' && parsed.activePresetId.trim().length > 0
@@ -205,7 +211,8 @@ export function loadLayoutProfile(): LayoutProfile {
 
   let parsed: Record<string, unknown> = {}
   try {
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(PROFILE_STORAGE_KEY) : null
+    const raw =
+      typeof localStorage !== 'undefined' ? localStorage.getItem(PROFILE_STORAGE_KEY) : null
     if (raw) {
       parsed = JSON.parse(raw)
     } else if (typeof localStorage !== 'undefined') {

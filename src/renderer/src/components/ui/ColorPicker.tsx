@@ -1,4 +1,4 @@
-import { createSignal, createEffect, createMemo, For, Show } from 'solid-js'
+import { createSignal, createEffect, createMemo, on, untrack, For, Show } from 'solid-js'
 import {
   hexToHsv,
   hsvToHex,
@@ -37,19 +37,36 @@ export default function ColorPicker(props: ColorPickerProps) {
   // Track initial color for comparison
   const [initialColor] = createSignal(props.color)
 
-  // Synchronize when external props.color updates, but ONLY when not actively dragging
-  createEffect(() => {
-    const ext = props.color
-    if (!isDraggingSV() && !isDraggingHue()) {
-      const currentHex = hsvToHex(hsv().h, hsv().s, hsv().v)
-      if (normalizeHex(ext) !== normalizeHex(currentHex)) {
-        setHsv(hexToHsv(ext))
-        if (!editingText()) {
-          setHexInput(ext.toUpperCase())
+  // The last hex this picker emitted or accepted. External changes (a swatch,
+  // the eyedropper) are detected against it, not against an HSV round trip:
+  // hue is stored in whole degrees, so many hexes don't survive hex -> HSV ->
+  // hex, and an effect that re-derived HSV until they matched never settled —
+  // Solid aborted it and the text field stopped driving the color.
+  let lastHex = normalizeHex(props.color)
+  const emit = (hex: string): void => {
+    lastHex = normalizeHex(hex)
+    props.onChange(hex)
+  }
+
+  // Synchronize when external props.color updates; our own edits are skipped
+  // so the HSV the artist is dragging (hue at zero saturation, etc.) is kept.
+  createEffect(
+    on(
+      () => props.color,
+      (ext) => {
+        const normalized = normalizeHex(ext)
+        if (normalized === lastHex) {
+          return
         }
-      }
-    }
-  })
+        lastHex = normalized
+        setHsv(hexToHsv(normalized))
+        if (!untrack(editingText)) {
+          setHexInput(normalized.toUpperCase())
+        }
+      },
+      { defer: true }
+    )
+  )
 
   // Compute RGB channels for display
   const rgb = createMemo(() => hexToRgb(props.color))
@@ -71,7 +88,7 @@ export default function ColorPicker(props: ColorPickerProps) {
     setHsv(newHsv)
     const newHex = hsvToHex(newHsv.h, newHsv.s, newHsv.v)
     setHexInput(newHex.toUpperCase())
-    props.onChange(newHex)
+    emit(newHex)
   }
 
   // Update Hue from pointer coordinates
@@ -88,7 +105,7 @@ export default function ColorPicker(props: ColorPickerProps) {
     setHsv(newHsv)
     const newHex = hsvToHex(newHsv.h, newHsv.s, newHsv.v)
     setHexInput(newHex.toUpperCase())
-    props.onChange(newHex)
+    emit(newHex)
   }
 
   const handleSvPointerDown = (e: PointerEvent) => {
@@ -143,7 +160,7 @@ export default function ColorPicker(props: ColorPickerProps) {
     const parsed = parseCssColor(val)
     if (parsed) {
       setHsv(hexToHsv(parsed))
-      props.onChange(parsed)
+      emit(parsed)
     }
   }
 
@@ -173,14 +190,14 @@ export default function ColorPicker(props: ColorPickerProps) {
     setHsv(next)
     const hex = hsvToHex(next.h, next.s, next.v)
     setHexInput(hex.toUpperCase())
-    props.onChange(hex)
+    emit(hex)
   }
 
   const applyHex = (hex: string): void => {
     const normalized = normalizeHex(hex)
     setHsv(hexToHsv(normalized))
     setHexInput(normalized.toUpperCase())
-    props.onChange(normalized)
+    emit(normalized)
   }
 
   const copyHex = (): void => {

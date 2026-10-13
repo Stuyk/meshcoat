@@ -18,6 +18,7 @@ import {
   applyPressure,
   hasPressure
 } from '../paint/brush'
+import { recordUsedColor } from '../paint/colorLibrary'
 import {
   stencil,
   setStencilCenter,
@@ -544,6 +545,9 @@ export function applyToolAt(
   } else if (tool === 'brush' || tool === 'stamp' || tool === 'eraser') {
     const isMask = !!layer.isMask
     const engine = layer.engine
+    if (tool !== 'eraser' && !isMask) {
+      recordUsedColor(brush.color())
+    }
 
     // Depth map covers only the model meshes — the cursor gizmo sits right on
     // the hit point and the highlight/wireframe overlays are children of the
@@ -850,6 +854,9 @@ export function applyToolAt(
     if (!isMask && rt.brushTexture && brush.texturePath()) {
       recordRecentTexture(brush.texturePath()!)
     }
+    if (!isMask) {
+      recordUsedColor(brush.color())
+    }
     if (brush.fillMode() === 'face') {
       // One history entry for a whole drag: the first face records, the rest
       // of the faces the cursor crosses join that same undo step.
@@ -919,6 +926,9 @@ export function fillActive(rt: ViewportRuntime): void {
   // one-off junk.
   if (!isMask && rt.brushTexture && brush.texturePath() && rt.props.tool() !== 'text') {
     recordRecentTexture(brush.texturePath()!)
+  }
+  if (!isMask) {
+    recordUsedColor(brush.color())
   }
   if (selection.size > 0) {
     rt.layerStack.fillActiveFaces(selection, fillOpts)
@@ -1352,6 +1362,9 @@ function commitLineStroke(rt: ViewportRuntime, endHit: SurfaceHit): void {
   const strokeTip = rt.brushTipTexture
   if (strokeTexture && brush.texturePath()) {
     recordRecentTexture(brush.texturePath()!)
+  }
+  if (!isMask) {
+    recordUsedColor(brush.color())
   }
   const selection = brush.selectedFaces()
   const options: StrokeParams = {

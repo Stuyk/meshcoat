@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.2.0
+
+### Added
+- **Used Colors** ([Closes #43](https://github.com/Stuyk/slip-texture-paint/issues/43)): A new Used tab in the color panel, between Saved and Presets, remembers the last 24 colors you actually painted, stamped, filled or drew a line with. Click one to select it, Shift+click to save it to your swatches, right-click or × to remove it, or clear the whole list.
+- **Edge Wear Eraser** ([Closes #40](https://github.com/Stuyk/slip-texture-paint/issues/40)): The Edge Wear wizard has an Add Paint / Erase Paint switch. Erase uses the same ragged edge mask to remove paint from the active layer, so you can fill a face and then wear its edges away. Committing also removes roughness, metalness and normal paint under the mask, like the eraser brush.
+- **Eyedropper Anywhere on the 2D Paint Panel** ([#42](https://github.com/Stuyk/slip-texture-paint/issues/42)): The eyedropper samples any pixel on the flat texture sheet, including the gaps between UV islands.
+
+### Changed
+- **Brush Manager Import Button** ([Closes #46](https://github.com/Stuyk/slip-texture-paint/issues/46)): Import .ABR now lives in the drop zone (click to browse, or drop a file on it), and Done is the highlighted button in the footer, so it's no longer easy to hit Import by mistake.
+- **Used Textures Limit** ([Closes #44](https://github.com/Stuyk/slip-texture-paint/issues/44)): The Used texture tab keeps at most 100 textures. Hover a card to remove that texture, or clear the whole tab with the trash button.
+
+### Fixed
+- **Eyedropper Picked Lighter Colors** ([Closes #42](https://github.com/Stuyk/slip-texture-paint/issues/42)): Sampled colors were converted to sRGB twice, so a dark blue like `#1A2A6C` came back as `#5A71AE`. The eyedropper now returns exactly the color that was painted.
+- **Typed Colors Ignored After Picking a Swatch** ([Closes #45](https://github.com/Stuyk/slip-texture-paint/issues/45)): Picking certain swatch colors caused the color picker to stop updating, so typing a hex, `rgb()` or other value did nothing until you dragged in the color field.
+- **Reopened Projects Lost Their Resolution** ([Closes #41](https://github.com/Stuyk/slip-texture-paint/issues/41)): Pieces saved at 2048 could reopen at 1024 because the GPU memory limit was applied again on load. Saved projects now reopen at the exact resolution each piece was saved at.
+
 ## v3.1.0
 
 ### Added

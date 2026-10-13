@@ -858,7 +858,15 @@ export class LayerStack {
     if (a === 0) {
       return new THREE.Color(0, 0, 0)
     }
-    return new THREE.Color(buffer[0] / a, buffer[1] / a, buffer[2] / a)
+    // The composite is sRGB, so these bytes are already gamma-encoded. Read
+    // them as linear and getHexString() encodes them a second time — every
+    // sample comes back lighter than what was painted.
+    return new THREE.Color().setRGB(
+      buffer[0] / a,
+      buffer[1] / a,
+      buffer[2] / a,
+      this.compositeTarget.texture.colorSpace
+    )
   }
 
   private previewSnapshot: THREE.WebGLRenderTarget | null = null
@@ -876,7 +884,8 @@ export class LayerStack {
     asNewLayer = false,
     newLayerBackground: 'transparent' | 'black' = 'transparent'
   ): void {
-    if (asNewLayer) {
+    // Erasing only means something against paint that is already there.
+    if (asNewLayer && !options.erase) {
       // If a "merge into active layer" preview was in progress, revert it first.
       if (this.previewSnapshot && this.previewLayerId !== null) {
         const layer = this.layers.find((l) => l.id === this.previewLayerId)
@@ -948,7 +957,7 @@ export class LayerStack {
     asNewLayer = false,
     newLayerBackground: 'transparent' | 'black' = 'transparent'
   ): void {
-    if (asNewLayer) {
+    if (asNewLayer && !options.erase) {
       // Revert active layer to snapshot / drop the preview ghost if either was active
       this.cancelEdgeWearPreview()
       // Create new layer — transparent by default, or opaque black if requested
@@ -965,13 +974,13 @@ export class LayerStack {
         const layer = this.layers.find((l) => l.id === this.previewLayerId)
         if (layer) {
           layer.engine.copyFrom(this.previewSnapshot)
-          layer.engine.applyEdgeWear(options)
+          layer.engine.applyEdgeWear(options, true)
         }
         this.previewSnapshot.dispose()
         this.previewSnapshot = null
         this.previewLayerId = null
       } else {
-        this.active?.engine.applyEdgeWear(options)
+        this.active?.engine.applyEdgeWear(options, true)
       }
       this.recomposite()
     }

@@ -285,7 +285,10 @@ export async function loadProject(
       sizeByName[saved.name] = saved.textureSize
     }
   }
-  setupLayers(rt, model, project.textureSize, sizeByName)
+  // Saved sizes are what the pieces were actually painted at — already fitted
+  // to the GPU budget at import, or forced there by the artist — so restore
+  // them exactly instead of letting the budget halve them a second time.
+  setupLayers(rt, model, project.textureSize, sizeByName, true)
   setupWireframe(rt, model)
   if (!rt.symmetryGuide) {
     rt.symmetryGuide = createSymmetryGuide()

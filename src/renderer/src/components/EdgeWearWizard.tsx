@@ -196,6 +196,9 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
   const [color, setColor] = createSignal(props.initialColor ?? '#f3f4f6')
   const [opacity, setOpacity] = createSignal(1.0)
   const [asNewLayer, setAsNewLayer] = createSignal(true)
+  /** Grunge paint away along the wear mask instead of adding color — always on the active layer. */
+  const [erase, setErase] = createSignal(false)
+  const bakesNewLayer = (): boolean => asNewLayer() && !erase()
   const [newLayerBackground, setNewLayerBackground] = createSignal<'transparent' | 'black'>(
     'transparent'
   )
@@ -232,7 +235,8 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
       textureScale: textureScale(),
       textureMapping: textureMapping(),
       mode: mode(),
-      smoothness: smoothness()
+      smoothness: smoothness(),
+      erase: erase()
     }
   }
 
@@ -259,7 +263,7 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
       return
     }
     if (livePreview()) {
-      props.onPreview(getParams(), asNewLayer(), newLayerBackground())
+      props.onPreview(getParams(), bakesNewLayer(), newLayerBackground())
     } else {
       props.onCancel()
     }
@@ -317,7 +321,7 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
   function toggleLivePreview(enabled: boolean): void {
     setLivePreview(enabled)
     if (enabled) {
-      props.onPreview(getParams(), asNewLayer(), newLayerBackground())
+      props.onPreview(getParams(), bakesNewLayer(), newLayerBackground())
     } else {
       props.onCancel()
     }
@@ -329,7 +333,7 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
   }
 
   function handleCommit(): void {
-    props.onCommit(getParams(), asNewLayer(), newLayerBackground())
+    props.onCommit(getParams(), bakesNewLayer(), newLayerBackground())
     props.onClose()
   }
 
@@ -442,6 +446,28 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
           onChange={(v) => switchMode(v as EdgeWearMode)}
           class="w-full"
         />
+        <SegmentedControl
+          size="xs"
+          options={[
+            {
+              value: 'add',
+              label: 'Add Paint',
+              title: 'Lay the wear color or texture down along the detected edges'
+            },
+            {
+              value: 'erase',
+              label: 'Erase Paint',
+              title:
+                'Eat into the active layer along the same ragged mask — fill, then grunge the edges away'
+            }
+          ]}
+          value={erase() ? 'erase' : 'add'}
+          onChange={(v) => {
+            setErase(v === 'erase')
+            triggerPreview()
+          }}
+          class="w-full"
+        />
       </div>
 
       {/* Wizard Scrollable Body */}
@@ -450,315 +476,337 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
         {/* TAB 1: WEAR MATERIAL & STYLE                                 */}
         {/* ============================================================ */}
         <Show when={activeTab() === 'material'}>
-          {/* Active Material Hero Card */}
-          <div class="p-3 bg-zinc-950/60 border border-zinc-800/80 rounded-xl flex items-center gap-3">
-            <div class="w-12 h-12 rounded-xl checkerboard-bg border border-zinc-750 flex items-center justify-center overflow-hidden flex-shrink-0">
-              <Show
-                when={materialMode() === 'texture' && selectedTexturePath()}
-                fallback={
-                  <div
-                    class="w-full h-full"
-                    style={{
-                      background: color(),
-                      opacity: opacity()
-                    }}
-                  />
-                }
-              >
-                <img
-                  src={window.api.assetUrl(selectedTexturePath()!)}
-                  alt="Wear pattern"
-                  class="w-full h-full object-cover"
-                  style={{ opacity: opacity() }}
-                />
-              </Show>
-            </div>
-
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center justify-between gap-1 mb-1">
-                <span class="text-[10px] font-mono uppercase text-zinc-500">
-                  {materialMode() === 'color' ? 'Solid Color' : 'Texture Pattern'}
+          <Show
+            when={!erase()}
+            fallback={
+              <div class="p-3 bg-zinc-950/60 border border-zinc-800/80 rounded-xl text-[11px] text-zinc-400 leading-relaxed">
+                <span class="block text-xs font-semibold text-zinc-200 mb-1">
+                  Erasing the active layer
                 </span>
-                <span class="font-mono text-[10px] text-zinc-400 tabular-nums">
-                  {Math.round(opacity() * 100)}%
-                </span>
+                The wear pattern removes paint from the active layer instead of adding color, so
+                color and texture don't apply. Shape it with the presets below and the Ridge &amp;
+                Noise tab.
               </div>
-              <span class="text-xs font-semibold text-zinc-200 truncate block mb-1.5">
-                {materialMode() === 'color'
-                  ? color().toUpperCase()
-                  : fileName(selectedTexturePath(), 'No Texture Selected')}
-              </span>
-              <SegmentedControl
-                size="xs"
-                options={[
-                  {
-                    value: 'color',
-                    label: 'Solid Color',
-                    icon: (p) => <PaletteIcon size={p.size} />
-                  },
-                  { value: 'texture', label: 'Texture', icon: (p) => <ImagesIcon size={p.size} /> }
-                ]}
-                value={materialMode()}
-                onChange={(m) => {
-                  setMaterialMode(m)
-                  if (m === 'texture' && !selectedTexturePath() && allTextures().length > 0) {
-                    setSelectedTexturePath(allTextures()[0])
+            }
+          >
+            {/* Active Material Hero Card */}
+            <div class="p-3 bg-zinc-950/60 border border-zinc-800/80 rounded-xl flex items-center gap-3">
+              <div class="w-12 h-12 rounded-xl checkerboard-bg border border-zinc-750 flex items-center justify-center overflow-hidden flex-shrink-0">
+                <Show
+                  when={materialMode() === 'texture' && selectedTexturePath()}
+                  fallback={
+                    <div
+                      class="w-full h-full"
+                      style={{
+                        background: color(),
+                        opacity: opacity()
+                      }}
+                    />
                   }
-                  triggerPreview()
-                }}
-                class="w-full"
-              />
-            </div>
-          </div>
-
-          {/* New Layer Background (only relevant when baking to a new layer) */}
-          <Show when={asNewLayer()}>
-            <div class="flex items-center justify-between gap-2">
-              <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
-                Background
-              </span>
-              <SegmentedControl
-                size="xs"
-                options={[
-                  { value: 'transparent', label: 'Transparent' },
-                  { value: 'black', label: 'Black' }
-                ]}
-                value={newLayerBackground()}
-                onChange={(v) => {
-                  setNewLayerBackground(v)
-                  triggerPreview()
-                }}
-              />
-            </div>
-          </Show>
-
-          {/* Solid Color Mode Controls */}
-          <Show when={materialMode() === 'color'}>
-            <div class="space-y-3">
-              <div class="space-y-1.5">
-                <Label uppercase>Metallic Presets</Label>
-                <div class="grid grid-cols-3 gap-1.5">
-                  <For each={METAL_COLORS}>
-                    {(item) => {
-                      const isActive = () => color().toLowerCase() === item.hex.toLowerCase()
-                      return (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setColor(item.hex)
-                            setActivePreset('')
-                            triggerPreview()
-                          }}
-                          class={`flex items-center gap-2 p-1.5 rounded-lg border text-left transition-colors cursor-pointer ${
-                            isActive()
-                              ? 'bg-zinc-800 text-zinc-100 border-zinc-600'
-                              : 'bg-zinc-950/40 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 border-zinc-800'
-                          }`}
-                        >
-                          <span
-                            class="w-3.5 h-3.5 rounded-full border border-white/20 flex-shrink-0"
-                            style={{ background: item.hex }}
-                          />
-                          <span class="text-[11px] font-medium truncate">{item.name}</span>
-                        </button>
-                      )
-                    }}
-                  </For>
-                </div>
-              </div>
-
-              <div class="space-y-1.5">
-                <Label uppercase>Corrosion & Weathering</Label>
-                <div class="grid grid-cols-3 gap-1.5">
-                  <For each={WEATHER_COLORS}>
-                    {(item) => {
-                      const isActive = () => color().toLowerCase() === item.hex.toLowerCase()
-                      return (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setColor(item.hex)
-                            setActivePreset('')
-                            triggerPreview()
-                          }}
-                          class={`flex items-center gap-2 p-1.5 rounded-lg border text-left transition-colors cursor-pointer ${
-                            isActive()
-                              ? 'bg-zinc-800 text-zinc-100 border-zinc-600'
-                              : 'bg-zinc-950/40 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 border-zinc-800'
-                          }`}
-                        >
-                          <span
-                            class="w-3.5 h-3.5 rounded-full border border-white/20 flex-shrink-0"
-                            style={{ background: item.hex }}
-                          />
-                          <span class="text-[11px] font-medium truncate">{item.name}</span>
-                        </button>
-                      )
-                    }}
-                  </For>
-                </div>
-              </div>
-
-              {/* Custom Color & Opacity Row */}
-              <div class="flex items-center gap-2 p-2 bg-zinc-950/40 border border-zinc-800 rounded-lg">
-                <button
-                  type="button"
-                  onClick={() => colorPickerRef?.click()}
-                  class="flex items-center gap-2 flex-1 cursor-pointer"
                 >
-                  <span
-                    class="w-5 h-5 rounded-md border border-white/20"
-                    style={{ background: color() }}
+                  <img
+                    src={window.api.assetUrl(selectedTexturePath()!)}
+                    alt="Wear pattern"
+                    class="w-full h-full object-cover"
+                    style={{ opacity: opacity() }}
                   />
-                  <span class="font-mono text-xs text-zinc-200">{color().toUpperCase()}</span>
-                </button>
-                <input
-                  ref={colorPickerRef}
-                  type="color"
-                  class="sr-only"
-                  value={color()}
-                  onInput={(e) => {
-                    setColor(e.currentTarget.value)
-                    setActivePreset('')
+                </Show>
+              </div>
+
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between gap-1 mb-1">
+                  <span class="text-[10px] font-mono uppercase text-zinc-500">
+                    {materialMode() === 'color' ? 'Solid Color' : 'Texture Pattern'}
+                  </span>
+                  <span class="font-mono text-[10px] text-zinc-400 tabular-nums">
+                    {Math.round(opacity() * 100)}%
+                  </span>
+                </div>
+                <span class="text-xs font-semibold text-zinc-200 truncate block mb-1.5">
+                  {materialMode() === 'color'
+                    ? color().toUpperCase()
+                    : fileName(selectedTexturePath(), 'No Texture Selected')}
+                </span>
+                <SegmentedControl
+                  size="xs"
+                  options={[
+                    {
+                      value: 'color',
+                      label: 'Solid Color',
+                      icon: (p) => <PaletteIcon size={p.size} />
+                    },
+                    {
+                      value: 'texture',
+                      label: 'Texture',
+                      icon: (p) => <ImagesIcon size={p.size} />
+                    }
+                  ]}
+                  value={materialMode()}
+                  onChange={(m) => {
+                    setMaterialMode(m)
+                    if (m === 'texture' && !selectedTexturePath() && allTextures().length > 0) {
+                      setSelectedTexturePath(allTextures()[0])
+                    }
+                    triggerPreview()
+                  }}
+                  class="w-full"
+                />
+              </div>
+            </div>
+
+            {/* New Layer Background (only relevant when baking to a new layer) */}
+            <Show when={bakesNewLayer()}>
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
+                  Background
+                </span>
+                <SegmentedControl
+                  size="xs"
+                  options={[
+                    { value: 'transparent', label: 'Transparent' },
+                    { value: 'black', label: 'Black' }
+                  ]}
+                  value={newLayerBackground()}
+                  onChange={(v) => {
+                    setNewLayerBackground(v)
                     triggerPreview()
                   }}
                 />
               </div>
+            </Show>
 
-              <Slider
-                label="Wear Opacity"
-                value={opacity()}
-                min={0.05}
-                max={1.0}
-                step={0.05}
-                onChange={(v) => {
-                  setOpacity(v)
-                  handleSliderChange()
-                }}
-                displayValue={(v) => `${Math.round(v * 100)}%`}
-              />
-            </div>
-          </Show>
-
-          {/* Texture Pattern Mode Controls */}
-          <Show when={materialMode() === 'texture'}>
-            <div class="space-y-3">
-              <Label
-                uppercase
-                actions={
-                  <Button variant="ghost" size="xs" onClick={browseForTexture}>
-                    <FolderOpenIcon size={12} />
-                    <span>Browse...</span>
-                  </Button>
-                }
-              >
-                Available Textures
-              </Label>
-
-              <Show
-                when={allTextures().length > 0}
-                fallback={
-                  <div
-                    onClick={browseForTexture}
-                    class="p-4 border border-dashed border-zinc-800 hover:border-zinc-700 rounded-xl text-center bg-zinc-950/40 cursor-pointer"
-                  >
-                    <FolderOpenIcon size={20} class="mx-auto text-blue-400 mb-1" />
-                    <span class="text-xs font-medium text-zinc-300 block">No Textures Loaded</span>
-                    <span class="text-[10px] text-zinc-500 block">Click to import image files</span>
-                  </div>
-                }
-              >
-                <div class="grid grid-cols-2 gap-2 max-h-44 overflow-y-auto p-1 border border-zinc-800 rounded-xl bg-zinc-950/30">
-                  <For each={allTextures()}>
-                    {(path) => {
-                      const isSelected = () => selectedTexturePath() === path
-                      const filename = fileName(path, '')
-                      return (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedTexturePath(path)
-                            triggerPreview()
-                          }}
-                          class={`flex items-center gap-2 p-1.5 rounded-lg border text-left transition-all cursor-pointer ${
-                            isSelected()
-                              ? 'bg-blue-600/20 border-blue-500/70 shadow-xs'
-                              : 'bg-zinc-900/60 border-zinc-800 hover:border-zinc-700'
-                          }`}
-                        >
-                          <div class="w-8 h-8 rounded checkerboard-bg overflow-hidden flex-shrink-0">
-                            <img
-                              src={window.api.assetUrl(path)}
-                              alt=""
-                              class="w-full h-full object-cover"
-                            />
-                          </div>
-                          <span
-                            class="text-[11px] font-medium text-zinc-300 truncate"
-                            title={filename}
+            {/* Solid Color Mode Controls */}
+            <Show when={materialMode() === 'color'}>
+              <div class="space-y-3">
+                <div class="space-y-1.5">
+                  <Label uppercase>Metallic Presets</Label>
+                  <div class="grid grid-cols-3 gap-1.5">
+                    <For each={METAL_COLORS}>
+                      {(item) => {
+                        const isActive = () => color().toLowerCase() === item.hex.toLowerCase()
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setColor(item.hex)
+                              setActivePreset('')
+                              triggerPreview()
+                            }}
+                            class={`flex items-center gap-2 p-1.5 rounded-lg border text-left transition-colors cursor-pointer ${
+                              isActive()
+                                ? 'bg-zinc-800 text-zinc-100 border-zinc-600'
+                                : 'bg-zinc-950/40 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 border-zinc-800'
+                            }`}
                           >
-                            {filename}
-                          </span>
-                        </button>
-                      )
-                    }}
-                  </For>
+                            <span
+                              class="w-3.5 h-3.5 rounded-full border border-white/20 flex-shrink-0"
+                              style={{ background: item.hex }}
+                            />
+                            <span class="text-[11px] font-medium truncate">{item.name}</span>
+                          </button>
+                        )
+                      }}
+                    </For>
+                  </div>
                 </div>
-              </Show>
 
-              {/* Texture Projection & Tiling */}
-              <div class="space-y-2 p-3 bg-zinc-950/40 border border-zinc-800 rounded-xl">
-                <div class="flex items-center justify-between">
-                  <span class="text-[11px] font-medium text-zinc-400">Projection</span>
-                  <SegmentedControl
-                    size="xs"
-                    options={[
-                      { value: 'triplanar', label: 'Triplanar' },
-                      { value: 'uv', label: 'UV' }
-                    ]}
-                    value={textureMapping()}
-                    onChange={(m) => {
-                      setTextureMapping(m as any)
+                <div class="space-y-1.5">
+                  <Label uppercase>Corrosion & Weathering</Label>
+                  <div class="grid grid-cols-3 gap-1.5">
+                    <For each={WEATHER_COLORS}>
+                      {(item) => {
+                        const isActive = () => color().toLowerCase() === item.hex.toLowerCase()
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setColor(item.hex)
+                              setActivePreset('')
+                              triggerPreview()
+                            }}
+                            class={`flex items-center gap-2 p-1.5 rounded-lg border text-left transition-colors cursor-pointer ${
+                              isActive()
+                                ? 'bg-zinc-800 text-zinc-100 border-zinc-600'
+                                : 'bg-zinc-950/40 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 border-zinc-800'
+                            }`}
+                          >
+                            <span
+                              class="w-3.5 h-3.5 rounded-full border border-white/20 flex-shrink-0"
+                              style={{ background: item.hex }}
+                            />
+                            <span class="text-[11px] font-medium truncate">{item.name}</span>
+                          </button>
+                        )
+                      }}
+                    </For>
+                  </div>
+                </div>
+
+                {/* Custom Color & Opacity Row */}
+                <div class="flex items-center gap-2 p-2 bg-zinc-950/40 border border-zinc-800 rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => colorPickerRef?.click()}
+                    class="flex items-center gap-2 flex-1 cursor-pointer"
+                  >
+                    <span
+                      class="w-5 h-5 rounded-md border border-white/20"
+                      style={{ background: color() }}
+                    />
+                    <span class="font-mono text-xs text-zinc-200">{color().toUpperCase()}</span>
+                  </button>
+                  <input
+                    ref={colorPickerRef}
+                    type="color"
+                    class="sr-only"
+                    value={color()}
+                    onInput={(e) => {
+                      setColor(e.currentTarget.value)
+                      setActivePreset('')
                       triggerPreview()
                     }}
                   />
                 </div>
 
                 <Slider
-                  label="Pattern Scale"
-                  value={textureScale()}
-                  min={0.0}
-                  max={16.0}
-                  step={0.1}
-                  onChange={(v) => {
-                    setTextureScale(v)
-                    triggerPreview()
-                  }}
-                  displayValue={(v) => `${v.toFixed(1)}×`}
-                  presets={[
-                    { label: '0×', value: 0 },
-                    { label: '1×', value: 1 },
-                    { label: '2×', value: 2 },
-                    { label: '4×', value: 4 },
-                    { label: '8×', value: 8 },
-                    { label: '16×', value: 16 }
-                  ]}
-                />
-
-                <Slider
-                  label="Texture Opacity"
+                  label="Wear Opacity"
                   value={opacity()}
                   min={0.05}
                   max={1.0}
                   step={0.05}
                   onChange={(v) => {
                     setOpacity(v)
-                    triggerPreview()
+                    handleSliderChange()
                   }}
                   displayValue={(v) => `${Math.round(v * 100)}%`}
                 />
               </div>
-            </div>
+            </Show>
+
+            {/* Texture Pattern Mode Controls */}
+            <Show when={materialMode() === 'texture'}>
+              <div class="space-y-3">
+                <Label
+                  uppercase
+                  actions={
+                    <Button variant="ghost" size="xs" onClick={browseForTexture}>
+                      <FolderOpenIcon size={12} />
+                      <span>Browse...</span>
+                    </Button>
+                  }
+                >
+                  Available Textures
+                </Label>
+
+                <Show
+                  when={allTextures().length > 0}
+                  fallback={
+                    <div
+                      onClick={browseForTexture}
+                      class="p-4 border border-dashed border-zinc-800 hover:border-zinc-700 rounded-xl text-center bg-zinc-950/40 cursor-pointer"
+                    >
+                      <FolderOpenIcon size={20} class="mx-auto text-blue-400 mb-1" />
+                      <span class="text-xs font-medium text-zinc-300 block">
+                        No Textures Loaded
+                      </span>
+                      <span class="text-[10px] text-zinc-500 block">
+                        Click to import image files
+                      </span>
+                    </div>
+                  }
+                >
+                  <div class="grid grid-cols-2 gap-2 max-h-44 overflow-y-auto p-1 border border-zinc-800 rounded-xl bg-zinc-950/30">
+                    <For each={allTextures()}>
+                      {(path) => {
+                        const isSelected = () => selectedTexturePath() === path
+                        const filename = fileName(path, '')
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedTexturePath(path)
+                              triggerPreview()
+                            }}
+                            class={`flex items-center gap-2 p-1.5 rounded-lg border text-left transition-all cursor-pointer ${
+                              isSelected()
+                                ? 'bg-blue-600/20 border-blue-500/70 shadow-xs'
+                                : 'bg-zinc-900/60 border-zinc-800 hover:border-zinc-700'
+                            }`}
+                          >
+                            <div class="w-8 h-8 rounded checkerboard-bg overflow-hidden flex-shrink-0">
+                              <img
+                                src={window.api.assetUrl(path)}
+                                alt=""
+                                class="w-full h-full object-cover"
+                              />
+                            </div>
+                            <span
+                              class="text-[11px] font-medium text-zinc-300 truncate"
+                              title={filename}
+                            >
+                              {filename}
+                            </span>
+                          </button>
+                        )
+                      }}
+                    </For>
+                  </div>
+                </Show>
+
+                {/* Texture Projection & Tiling */}
+                <div class="space-y-2 p-3 bg-zinc-950/40 border border-zinc-800 rounded-xl">
+                  <div class="flex items-center justify-between">
+                    <span class="text-[11px] font-medium text-zinc-400">Projection</span>
+                    <SegmentedControl
+                      size="xs"
+                      options={[
+                        { value: 'triplanar', label: 'Triplanar' },
+                        { value: 'uv', label: 'UV' }
+                      ]}
+                      value={textureMapping()}
+                      onChange={(m) => {
+                        setTextureMapping(m as any)
+                        triggerPreview()
+                      }}
+                    />
+                  </div>
+
+                  <Slider
+                    label="Pattern Scale"
+                    value={textureScale()}
+                    min={0.0}
+                    max={16.0}
+                    step={0.1}
+                    onChange={(v) => {
+                      setTextureScale(v)
+                      triggerPreview()
+                    }}
+                    displayValue={(v) => `${v.toFixed(1)}×`}
+                    presets={[
+                      { label: '0×', value: 0 },
+                      { label: '1×', value: 1 },
+                      { label: '2×', value: 2 },
+                      { label: '4×', value: 4 },
+                      { label: '8×', value: 8 },
+                      { label: '16×', value: 16 }
+                    ]}
+                  />
+
+                  <Slider
+                    label="Texture Opacity"
+                    value={opacity()}
+                    min={0.05}
+                    max={1.0}
+                    step={0.05}
+                    onChange={(v) => {
+                      setOpacity(v)
+                      triggerPreview()
+                    }}
+                    displayValue={(v) => `${Math.round(v * 100)}%`}
+                  />
+                </div>
+              </div>
+            </Show>
           </Show>
 
           {/* Style Presets */}
@@ -909,63 +957,65 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
             />
           </div>
 
-          {/* Bake Destination */}
-          <div class="space-y-2 pt-2">
-            <Label uppercase>Bake Destination</Label>
-            <div class="space-y-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  setAsNewLayer(true)
-                  triggerPreview()
-                }}
-                class={`flex items-start gap-2.5 p-2.5 rounded-xl border text-left w-full transition-colors cursor-pointer ${
-                  asNewLayer()
-                    ? 'bg-blue-600/15 border-blue-500/70'
-                    : 'bg-zinc-950/40 border-zinc-800 hover:border-zinc-700'
-                }`}
-              >
-                <div class="w-4 h-4 rounded-full border border-blue-500 mt-0.5 flex items-center justify-center">
-                  <Show when={asNewLayer()}>
-                    <div class="w-2 h-2 rounded-full bg-blue-500" />
-                  </Show>
-                </div>
-                <div class="flex flex-col min-w-0">
-                  <span class="text-xs font-semibold text-zinc-200">
-                    New "Edge Wear" Layer (Recommended)
-                  </span>
-                  <span class="text-[10px] text-zinc-500">
-                    Creates an editable layer you can toggle, erase, or blend later.
-                  </span>
-                </div>
-              </button>
+          {/* Bake Destination — erasing always works on the active layer */}
+          <Show when={!erase()}>
+            <div class="space-y-2 pt-2">
+              <Label uppercase>Bake Destination</Label>
+              <div class="space-y-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAsNewLayer(true)
+                    triggerPreview()
+                  }}
+                  class={`flex items-start gap-2.5 p-2.5 rounded-xl border text-left w-full transition-colors cursor-pointer ${
+                    asNewLayer()
+                      ? 'bg-blue-600/15 border-blue-500/70'
+                      : 'bg-zinc-950/40 border-zinc-800 hover:border-zinc-700'
+                  }`}
+                >
+                  <div class="w-4 h-4 rounded-full border border-blue-500 mt-0.5 flex items-center justify-center">
+                    <Show when={asNewLayer()}>
+                      <div class="w-2 h-2 rounded-full bg-blue-500" />
+                    </Show>
+                  </div>
+                  <div class="flex flex-col min-w-0">
+                    <span class="text-xs font-semibold text-zinc-200">
+                      New "Edge Wear" Layer (Recommended)
+                    </span>
+                    <span class="text-[10px] text-zinc-500">
+                      Creates an editable layer you can toggle, erase, or blend later.
+                    </span>
+                  </div>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setAsNewLayer(false)
-                  triggerPreview()
-                }}
-                class={`flex items-start gap-2.5 p-2.5 rounded-xl border text-left w-full transition-colors cursor-pointer ${
-                  !asNewLayer()
-                    ? 'bg-blue-600/15 border-blue-500/70'
-                    : 'bg-zinc-950/40 border-zinc-800 hover:border-zinc-700'
-                }`}
-              >
-                <div class="w-4 h-4 rounded-full border border-blue-500 mt-0.5 flex items-center justify-center">
-                  <Show when={!asNewLayer()}>
-                    <div class="w-2 h-2 rounded-full bg-blue-500" />
-                  </Show>
-                </div>
-                <div class="flex flex-col min-w-0">
-                  <span class="text-xs font-semibold text-zinc-200">Merge into Active Layer</span>
-                  <span class="text-[10px] text-zinc-500">
-                    Permanently bakes the wear into the currently active layer.
-                  </span>
-                </div>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAsNewLayer(false)
+                    triggerPreview()
+                  }}
+                  class={`flex items-start gap-2.5 p-2.5 rounded-xl border text-left w-full transition-colors cursor-pointer ${
+                    !asNewLayer()
+                      ? 'bg-blue-600/15 border-blue-500/70'
+                      : 'bg-zinc-950/40 border-zinc-800 hover:border-zinc-700'
+                  }`}
+                >
+                  <div class="w-4 h-4 rounded-full border border-blue-500 mt-0.5 flex items-center justify-center">
+                    <Show when={!asNewLayer()}>
+                      <div class="w-2 h-2 rounded-full bg-blue-500" />
+                    </Show>
+                  </div>
+                  <div class="flex flex-col min-w-0">
+                    <span class="text-xs font-semibold text-zinc-200">Merge into Active Layer</span>
+                    <span class="text-[10px] text-zinc-500">
+                      Permanently bakes the wear into the currently active layer.
+                    </span>
+                  </div>
+                </button>
+              </div>
             </div>
-          </div>
+          </Show>
         </Show>
       </div>
 
@@ -979,7 +1029,7 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
           </Button>
           <Button variant="primary" size="sm" onClick={handleCommit}>
             <CheckIcon size={14} />
-            <span>{asNewLayer() ? 'Apply' : 'Merge'}</span>
+            <span>{erase() ? 'Erase' : asNewLayer() ? 'Apply' : 'Merge'}</span>
           </Button>
         </div>
       </footer>

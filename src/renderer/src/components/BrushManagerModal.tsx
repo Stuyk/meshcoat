@@ -1,10 +1,9 @@
 import { createSignal, createMemo, Show, For, onMount, onCleanup } from 'solid-js'
 import { Modal, Button, SearchInput, Label } from './ui'
 import { brushPresets, type AbrBrushPreset } from '../paint/brushPresets'
-import { TrashIcon, UploadIcon, FolderOpenIcon, LibraryIcon, LayersPlusIcon } from './icons'
+import { TrashIcon, UploadIcon, LibraryIcon, LayersPlusIcon } from './icons'
 
 export default function BrushManagerModal(props: { isOpen: boolean; onClose: () => void }) {
-  let fileInputRef: HTMLInputElement | undefined
   const [selectedPackName, setSelectedPackName] = createSignal<string>('All')
   const [searchQuery, setSearchQuery] = createSignal<string>('')
   const [isDraggingOver, setIsDraggingOver] = createSignal(false)
@@ -81,9 +80,6 @@ export default function BrushManagerModal(props: { isOpen: boolean; onClose: () 
       setTimeout(() => setImportStatus(null), 3000)
     } finally {
       setIsImporting(false)
-      if (fileInputRef) {
-        fileInputRef.value = ''
-      }
     }
   }
 
@@ -139,28 +135,12 @@ export default function BrushManagerModal(props: { isOpen: boolean; onClose: () 
           >
             Reset Round Tip
           </Button>
-          <div class="flex items-center gap-2">
-            <Button variant="primary" onClick={handleNativePick} disabled={isImporting()}>
-              <UploadIcon size={14} />
-              <span>Import .ABR</span>
-            </Button>
-            <Button variant="secondary" onClick={props.onClose}>
-              Done
-            </Button>
-          </div>
+          <Button variant="primary" onClick={props.onClose}>
+            Done
+          </Button>
         </div>
       }
     >
-      {/* Hidden file input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".abr"
-        multiple
-        class="sr-only"
-        onChange={(e) => handleFileInput(e.currentTarget.files)}
-      />
-
       {/* Import Status Alert */}
       <Show when={importStatus()}>
         <div class="p-2.5 bg-blue-950/60 border border-blue-800/80 rounded-lg text-xs text-blue-300 animate-in fade-in">
@@ -248,15 +228,17 @@ export default function BrushManagerModal(props: { isOpen: boolean; onClose: () 
             </For>
           </div>
 
-          {/* Quick Dropzone Footer in Sidebar */}
-          <div
-            class="p-3 m-2 border border-dashed border-zinc-800 hover:border-zinc-700 rounded-lg text-center bg-zinc-900/30 hover:bg-zinc-900/60 transition-colors cursor-pointer"
-            onClick={() => fileInputRef?.click()}
+          {/* Import / Dropzone Footer in Sidebar */}
+          <button
+            type="button"
+            class="p-3 m-2 border border-dashed border-zinc-800 hover:border-blue-500/60 rounded-lg text-center bg-zinc-900/30 hover:bg-blue-950/30 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={handleNativePick}
+            disabled={isImporting()}
           >
-            <FolderOpenIcon size={16} class="mx-auto text-zinc-500 mb-1" />
-            <span class="text-[10px] text-zinc-400 block font-medium">Drop .ABR file here</span>
-            <span class="text-[9px] text-zinc-600 block">or click to browse</span>
-          </div>
+            <UploadIcon size={16} class="mx-auto text-zinc-400 mb-1" />
+            <span class="text-[11px] text-zinc-200 block font-semibold">Import .ABR</span>
+            <span class="text-[9px] text-zinc-500 block">or drop file here</span>
+          </button>
         </div>
 
         {/* Right Main Area: Search + Brushes Grid */}

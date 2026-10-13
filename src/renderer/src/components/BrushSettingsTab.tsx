@@ -55,7 +55,7 @@ import {
 import { normalizeHex } from '../utils/colorUtils'
 import { colorLibrary } from '../paint/colorLibrary'
 import MaterialChannelsPanel from './MaterialChannelsPanel'
-import { loadLayoutProfile, saveLayoutProfile } from '../utils/layoutProfile'
+import { loadLayoutProfile, saveLayoutProfile, type PaletteMode } from '../utils/layoutProfile'
 
 const RADIUS_PRESET_FRACTIONS = [
   { label: 'Fine', fraction: 0.025 },
@@ -105,13 +105,13 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
 
   const profile = loadLayoutProfile()
   const [showStylus, setShowStylus] = createSignal(false)
-  const [paletteMode, setPaletteModeRaw] = createSignal<'swatches' | 'presets'>(profile.paletteMode)
-  function setPaletteMode(mode: 'swatches' | 'presets'): void {
+  const [paletteMode, setPaletteModeRaw] = createSignal<PaletteMode>(profile.paletteMode)
+  function setPaletteMode(mode: PaletteMode): void {
     setPaletteModeRaw(mode)
     saveLayoutProfile({ paletteMode: mode })
   }
 
-  const { savedSwatches, setSavedSwatches, customPalettes } = colorLibrary
+  const { savedSwatches, setSavedSwatches, customPalettes, usedColors } = colorLibrary
   const [activePresetId, setActivePresetIdRaw] = createSignal<string>(profile.activePresetId)
   function setActivePresetId(id: string): void {
     setActivePresetIdRaw(id)
@@ -442,10 +442,11 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
               size="xs"
               options={[
                 { value: 'swatches', label: `Saved (${savedSwatches().length})` },
-                { value: 'presets', label: 'Preset Palettes' }
+                { value: 'used', label: `Used (${usedColors().length})` },
+                { value: 'presets', label: 'Presets' }
               ]}
               value={paletteMode()}
-              onChange={(val) => setPaletteMode(val as 'swatches' | 'presets')}
+              onChange={(val) => setPaletteMode(val as PaletteMode)}
             />
 
             {/* TAB 1: Saved Swatches */}
@@ -485,7 +486,11 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
                       type="button"
                       onClick={(e) => {
                         if (e.shiftKey) {
-                          exportPaletteAsJson(savedSwatches(), 'Saved Swatches', 'saved-swatches.json')
+                          exportPaletteAsJson(
+                            savedSwatches(),
+                            'Saved Swatches',
+                            'saved-swatches.json'
+                          )
                         } else {
                           exportPaletteAsHex(savedSwatches(), 'saved-swatches.hex')
                         }
@@ -520,7 +525,9 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
                     fallback={
                       <div class="col-span-8 py-3 flex flex-col items-center justify-center gap-1 text-center text-xs text-[var(--text-muted)] italic">
                         <span>No saved colors yet</span>
-                        <span class="text-[10px] text-zinc-500">Click Add or the + in the color bar</span>
+                        <span class="text-[10px] text-zinc-500">
+                          Click Add or the + in the color bar
+                        </span>
                       </div>
                     }
                   >
@@ -547,7 +554,71 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
               </div>
             </Show>
 
-            {/* TAB 2: Preset Palettes */}
+            {/* TAB 2: Colors recently painted onto the model */}
+            <Show when={paletteMode() === 'used'}>
+              <div class="flex flex-col gap-2">
+                <div class="flex items-center justify-between">
+                  <span class="text-[11px] font-medium text-[var(--text-muted)]">
+                    Recently Painted
+                  </span>
+                  <Show when={usedColors().length > 0}>
+                    <button
+                      type="button"
+                      onClick={() => colorLibrary.clearUsedColors()}
+                      title="Clear recently painted colors"
+                      class="p-1 rounded-[var(--ui-radius)] text-[var(--text-muted)] hover:text-red-400 hover:bg-red-950/30 transition-colors cursor-pointer"
+                    >
+                      <TrashIcon size={12} />
+                    </button>
+                  </Show>
+                </div>
+
+                <div class="grid grid-cols-8 gap-1.5 min-h-[56px] p-2 rounded-[var(--ui-radius)] bg-[var(--bg-input)] border border-[var(--border-color)]">
+                  <Show
+                    when={usedColors().length > 0}
+                    fallback={
+                      <div class="col-span-8 py-3 flex flex-col items-center justify-center gap-1 text-center text-xs text-[var(--text-muted)] italic">
+                        <span>No colors painted yet</span>
+                        <span class="text-[10px] text-zinc-500">
+                          Colors you paint, stamp or fill with show up here
+                        </span>
+                      </div>
+                    }
+                  >
+                    <For each={usedColors()}>
+                      {(hex) => {
+                        const isActive = (): boolean =>
+                          brush.color().toLowerCase() === hex.toLowerCase()
+                        return (
+                          <ColorSwatch
+                            color={hex}
+                            active={isActive()}
+                            onClick={(e) => {
+                              if (e.shiftKey) {
+                                handleSaveActiveColor(hex)
+                              } else {
+                                brush.setColor(hex)
+                              }
+                            }}
+                            onContextMenu={(e) => {
+                              e.preventDefault()
+                              colorLibrary.removeUsedColor(hex)
+                            }}
+                            onRemove={(e) => {
+                              e.stopPropagation()
+                              colorLibrary.removeUsedColor(hex)
+                            }}
+                            title={`${hex.toUpperCase()} (Click to select, Shift+click to save, right-click to remove)`}
+                          />
+                        )
+                      }}
+                    </For>
+                  </Show>
+                </div>
+              </div>
+            </Show>
+
+            {/* TAB 3: Preset Palettes */}
             <Show when={paletteMode() === 'presets'}>
               <div class="flex flex-col gap-2">
                 <div class="flex items-center justify-between gap-1.5">
@@ -625,7 +696,11 @@ export default function BrushSettingsTab(props: BrushSettingsTabProps) {
                       onChange={(name) => colorLibrary.renameCustomPalette(activePresetId(), name)}
                       placeholder="Palette name"
                     />
-                    <IconButton size="xs" onClick={handleDeletePalette} tooltip="Delete this custom palette">
+                    <IconButton
+                      size="xs"
+                      onClick={handleDeletePalette}
+                      tooltip="Delete this custom palette"
+                    >
                       <TrashIcon size={13} />
                     </IconButton>
                   </div>

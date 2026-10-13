@@ -11,7 +11,9 @@ import { loadSavedSwatches, saveSavedSwatches, type PalettePreset } from './pale
  */
 
 const CUSTOM_PALETTES_KEY = 'meshcoat:custom_palettes'
+const USED_COLORS_KEY = 'meshcoat:used_colors'
 const MAX_SWATCHES = 48
+const MAX_USED_COLORS = 24
 
 function cleanColors(colors: unknown): string[] {
   if (!Array.isArray(colors)) {
@@ -37,7 +39,24 @@ function loadCachedPalettes(): PalettePreset[] {
   }
 }
 
+function loadUsedColors(): string[] {
+  try {
+    return cleanColors(JSON.parse(localStorage.getItem(USED_COLORS_KEY) ?? '[]')).slice(
+      0,
+      MAX_USED_COLORS
+    )
+  } catch {
+    return []
+  }
+}
+
 const [savedSwatches, setSavedSwatchesRaw] = createSignal<string[]>(loadSavedSwatches())
+/**
+ * Colors actually laid down on the model, most recent first. Recorded
+ * automatically, so it is a per-machine convenience in localStorage rather
+ * than part of the curated library synced to prefs.
+ */
+const [usedColors, setUsedColorsRaw] = createSignal<string[]>(loadUsedColors())
 const [customPalettes, setCustomPalettesRaw] = createSignal<PalettePreset[]>(loadCachedPalettes())
 
 function persist(): void {
@@ -126,8 +145,46 @@ export function addCustomPalette(name: string, colors: string[]): PalettePreset 
   return palette
 }
 
+function setUsedColors(next: string[]): void {
+  setUsedColorsRaw(next)
+  try {
+    localStorage.setItem(USED_COLORS_KEY, JSON.stringify(next))
+  } catch {
+    // Convenience only — it just won't survive a restart this time.
+  }
+}
+
+/**
+ * Notes a color that was just painted, stamped or filled. Called per dab, so
+ * repeating the newest color is a no-op that doesn't touch storage.
+ */
+export function recordUsedColor(hex: string): void {
+  if (!isValidHex(hex)) {
+    return
+  }
+  const color = normalizeHex(hex)
+  const prev = usedColors()
+  if (prev[0] === color) {
+    return
+  }
+  setUsedColors([color, ...prev.filter((c) => c !== color)].slice(0, MAX_USED_COLORS))
+}
+
+export function removeUsedColor(hex: string): void {
+  const color = normalizeHex(hex)
+  setUsedColors(usedColors().filter((c) => c !== color))
+}
+
+export function clearUsedColors(): void {
+  setUsedColors([])
+}
+
 export const colorLibrary = {
   savedSwatches,
+  usedColors,
+  recordUsedColor,
+  removeUsedColor,
+  clearUsedColors,
   customPalettes,
   setSavedSwatches,
   saveSwatchesAsPalette,
