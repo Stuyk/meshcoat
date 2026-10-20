@@ -189,40 +189,6 @@ export function updateProjectorPreview(rt: ViewportRuntime): void {
 }
 
 /**
- * A selected face is often tiny on screen relative to the whole texture, so
- * the GPU's own minification picks a heavily-downsampled mip level for it —
- * averaged down to a single dark-ish blob on a busy/dark source texture,
- * which is what read as "the preview is nearly pitch black" even after
- * fixing the alpha/tone-mapping/z-fight issues above. A cloned, mipmap-less
- * copy of the same image forces full-resolution sampling instead, so the
- * preview always reads at the texture's real color regardless of how small
- * the selection is on screen. Cloned (not mutated in place) because
- * `brushTexture` is shared with every other paint tool, which still wants
- * normal mipmapping.
- */
-export function getPreviewTexture(
-  rt: ViewportRuntime,
-  source: THREE.Texture | null
-): THREE.Texture | null {
-  if (!source) {
-    rt.previewTextureClone?.dispose()
-    rt.previewTextureSource = null
-    rt.previewTextureClone = null
-    return null
-  }
-  if (rt.previewTextureSource === source && rt.previewTextureClone) {
-    return rt.previewTextureClone
-  }
-  rt.previewTextureClone?.dispose()
-  rt.previewTextureSource = source
-  rt.previewTextureClone = source.clone()
-  rt.previewTextureClone.generateMipmaps = false
-  rt.previewTextureClone.minFilter = THREE.LinearFilter
-  rt.previewTextureClone.needsUpdate = true
-  return rt.previewTextureClone
-}
-
-/**
  * UV-space bounding box of a face selection — the box the projector's "Fit
  * to selection" mode stretches one copy of the crop across. Returns null
  * when the selection has no area in UV (a degenerate unwrap), which the
@@ -320,7 +286,7 @@ export function updateProjectorPreviewUniforms(rt: ViewportRuntime): void {
   }
   const material = projectorPreviewMesh.material as ReturnType<typeof createFacePreviewMaterial>
   const u = material.uniforms
-  material.setPreviewTexture(getPreviewTexture(rt, rt.brushTexture))
+  material.setPreviewTexture(rt.brushTexture)
   u.uFillScale.value = brush.textureScale()
 
   // The preview sits directly on top of the model's own faces, so it has to

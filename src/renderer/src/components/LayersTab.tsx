@@ -105,13 +105,29 @@ export default function LayersTab(props: {
 
   function startEditing(layer: Layer, e: MouseEvent): void {
     e.stopPropagation()
+    // Starting a rename elsewhere keeps what was typed for the previous one.
+    const pending = editingId()
+    if (pending !== null && pending !== layer.id) {
+      commitEditing(pending)
+    }
     setEditingId(layer.id)
     setEditName(layer.name)
   }
 
+  /**
+   * Commits to the layer the edit was started on — never to whichever layer
+   * happens to be selected by then. Runs on Enter, the check button, and on
+   * blur, so clicking away saves the name like Enter would.
+   */
   function commitEditing(id: number): void {
-    if (editName().trim()) {
-      run((s) => s.renameLayer(id, editName().trim()))
+    if (editingId() !== id) {
+      return
+    }
+    const name = editName().trim()
+    const current = props.getStack()?.layers.find((l) => l.id === id)?.name
+    // Blur commits too, so an untouched edit must not count as a change.
+    if (name && name !== current) {
+      run((s) => s.renameLayer(id, name))
     }
     setEditingId(null)
   }
@@ -333,6 +349,7 @@ export default function LayersTab(props: {
                                 setEditingId(null)
                               }
                             }}
+                            onBlur={() => commitEditing(layer.id)}
                             autofocus
                             class="w-full"
                           />

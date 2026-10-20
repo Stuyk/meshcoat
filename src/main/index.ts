@@ -32,7 +32,7 @@ import {
   setColorLibrary,
   type ColorLibrary
 } from './prefs'
-import { saveAutosave, loadAutosave, clearAutosave } from './recovery'
+import { saveAutosave, loadAutosave, clearAutosave, writeFileAtomic } from './recovery'
 import { existsSync } from 'fs'
 import { getEffectiveBlender, convertBlendToGlb, testBlenderExecutable } from './blenderBridge'
 
@@ -313,16 +313,23 @@ app.whenReady().then(() => {
         filters?: { name: string; extensions: string[] }[]
         /** Dialog purpose, e.g. 'project' or 'export' — remembers the folder per key. */
         key?: string
+        /**
+         * A file to save next to — the model being painted. Its folder wins
+         * over the remembered one: project files and exports belong beside the
+         * model they were made from, not wherever the last save happened to go.
+         */
+        nearPath?: string | null
       }
     ) => {
       if (!mainWindow) {
         return null
       }
+      const nearFolder =
+        options?.nearPath && existsSync(options.nearPath) ? dirname(options.nearPath) : undefined
       const lastFolder = options?.key ? getLastPath(options.key) : undefined
+      const folder = nearFolder ?? (lastFolder && existsSync(lastFolder) ? lastFolder : undefined)
       const defaultPath =
-        lastFolder && existsSync(lastFolder) && options?.defaultPath
-          ? join(lastFolder, options.defaultPath)
-          : options?.defaultPath
+        folder && options?.defaultPath ? join(folder, options.defaultPath) : options?.defaultPath
       const result = await dialog.showSaveDialog(mainWindow, {
         defaultPath,
         filters: options?.filters
@@ -443,7 +450,9 @@ app.whenReady().then(() => {
 
   ipcMain.handle('project:save-file', async (_e, filePath: string, content: string) => {
     try {
-      await writeFile(filePath, content, 'utf-8')
+      // Atomic: the project file is often the only copy of the work, and a
+      // crash mid-write must not leave it truncated.
+      await writeFileAtomic(filePath, content)
       return true
     } catch (err) {
       console.error('Failed to save project file:', filePath, err)

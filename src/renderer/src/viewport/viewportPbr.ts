@@ -159,4 +159,10 @@ export async function applyPbrTexturesToPiece(
   }
 
   fillPieceFromTextures(rt, piece, channelTextures)
+  // The maps are baked into the base layer now. Nothing else references
+  // them, and each one (with its mip chain) would otherwise stay resident in
+  // VRAM for the rest of the session.
+  for (const texture of Object.values(channelTextures)) {
+    texture?.dispose()
+  }
 }

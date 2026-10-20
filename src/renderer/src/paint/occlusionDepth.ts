@@ -69,8 +69,10 @@ export class OcclusionDepthPass {
   private cacheKey = ''
 
   constructor() {
+    // Single-channel: the map is one linear distance per texel, so RGBA16F
+    // spent three quarters of its color buffer on constant zeros.
     this.target = new THREE.WebGLRenderTarget(1, 1, {
-      format: THREE.RGBAFormat,
+      format: THREE.RedFormat,
       type: THREE.HalfFloatType,
       depthBuffer: true,
       colorSpace: THREE.NoColorSpace,
@@ -205,16 +207,21 @@ export class OcclusionDepthPass {
     maxDist: number
   } {
     const { width, height } = this.target
-    const buf = new Uint16Array(width * height * 4)
+    // RGBA/FLOAT is the one readPixels combination every float color buffer
+    // is guaranteed to support; three's own readback insists on the target's
+    // format, which for this single-channel map is implementation-defined.
+    const buf = new Float32Array(width * height * 4)
     const prevTarget = renderer.getRenderTarget()
-    renderer.readRenderTargetPixels(this.target, 0, 0, width, height, buf)
+    renderer.setRenderTarget(this.target)
+    const gl = renderer.getContext()
+    gl.readPixels(0, 0, width, height, gl.RGBA, gl.FLOAT, buf)
     renderer.setRenderTarget(prevTarget)
 
     let covered = 0
     let min = Infinity
     let max = -Infinity
     for (let i = 0; i < buf.length; i += 4) {
-      const v = THREE.DataUtils.fromHalfFloat(buf[i])
+      const v = buf[i]
       if (v >= 0.999) {
         continue
       }

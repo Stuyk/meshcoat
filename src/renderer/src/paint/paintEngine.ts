@@ -1,13 +1,18 @@
 import { applyUvDab, type UvDab } from './brushMask'
 import * as THREE from 'three'
-import { buildUvMesh } from './uvMesh'
+import {
+  PaintSurface,
+  assertGpuReadable,
+  createPaintTarget,
+  exchangeSpare,
+  poolTarget
+} from './gpuResources'
 import { createPaintMaterial } from './paintShader'
 import { createEdgeWearMaterial } from './edgeWearShader'
 import { createEffectMaterial, EFFECT_MODE_INDEX, type EffectMode } from './effectShader'
 import {
   CHANNEL_SPECS,
   PAINT_CHANNELS,
-  createChannelRenderTarget,
   payloadChannels,
   type ChannelPayload,
   type PaintChannel
@@ -44,13 +49,17 @@ function createRenderTarget(
   size: number,
   channel: PaintChannel = 'baseColor'
 ): THREE.WebGLRenderTarget {
-  return createChannelRenderTarget(size, channel)
+  return createPaintTarget(size, CHANNEL_SPECS[channel].colorSpace)
 }
 
-/** One channel's ping-pong pair. */
+/**
+ * One channel's buffer. The other half of the classic ping-pong pair is not
+ * owned per layer: every pass renders into the pool's shared spare (see
+ * gpuResources.ts) and swap() trades it for `read`, since only one layer is
+ * ever being written at a time.
+ */
 interface ChannelBuffers {
   read: THREE.WebGLRenderTarget
-  write: THREE.WebGLRenderTarget
 }
 
 const dilateVertexShader = /* glsl */ `
@@ -229,25 +238,26 @@ export type ChannelMaps = Partial<Record<PaintChannel, THREE.Texture | null>>
  * Owns the ping-pong render targets for one mesh and paints strokes onto them
  * via the UV-flattened mesh + custom shader (spec section 4.3-4.4).
  *
- * Base color is always allocated. The roughness / metalness / normal pairs are
- * allocated lazily, the first time a stroke or fill actually writes to them
- * (ensureChannel) — so a flat-texture project costs exactly what it always
- * did, in VRAM and in undo snapshots alike, and only a genuinely PBR layer
- * pays for four buffers. Every channel uses the same premultiplied RGBA8
+ * Base color is always allocated. The roughness / metalness / normal buffers
+ * are allocated lazily, the first time a stroke or fill actually writes to
+ * them (ensureChannel) — so a flat-texture project costs exactly what it
+ * always did, in VRAM and in undo snapshots alike, and only a genuinely PBR
+ * layer pays for four buffers. Every channel uses the same premultiplied RGBA8
  * storage, so all the machinery below (dilation, blit, snapshots, merging)
  * treats them identically; see channels.ts for what does differ.
+ *
+ * The UV mesh geometry and coverage mask belong to the stack's PaintSurface,
+ * shared by every layer of the mesh.
  */
 export class PaintEngine {
   private renderer: THREE.WebGLRenderer
+  private surface: PaintSurface
   private uvMesh: THREE.Mesh
   private material: ReturnType<typeof createPaintMaterial>
   private orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
   private orthoScene = new THREE.Scene()
   /** Allocated channels, keyed by name. baseColor is always present. */
   private buffers = new Map<PaintChannel, ChannelBuffers>()
-  /** Lazily built on first dilate() call — every layer pays for this render
-   * pass at construction otherwise, even ones nobody ever paints on. */
-  private coverageMask: THREE.WebGLRenderTarget | null = null
   private dilateMaterial: THREE.ShaderMaterial
   private dilateQuad: THREE.Mesh
   private dilateScene = new THREE.Scene()
@@ -274,17 +284,18 @@ export class PaintEngine {
 
   constructor(
     renderer: THREE.WebGLRenderer,
-    mesh: THREE.Mesh,
-    baseColor: THREE.Color | null = new THREE.Color(0x999999),
-    textureSize: number = DEFAULT_TEXTURE_SIZE
+    surface: PaintSurface,
+    baseColor: THREE.Color | null = new THREE.Color(0x999999)
   ) {
     this.renderer = renderer
+    this.surface = surface
     this.baseColor = baseColor ?? new THREE.Color(0x000000)
     this.baseAlpha = baseColor ? 1 : 0
+    const textureSize = surface.textureSize
     this.textureSize = textureSize
-    this.uvMesh = buildUvMesh(mesh)
     this.material = createPaintMaterial()
-    this.uvMesh.material = this.material
+    this.uvMesh = new THREE.Mesh(surface.geometry, this.material)
+    this.uvMesh.frustumCulled = false
     this.orthoScene.add(this.uvMesh)
 
     this.ensureChannel('baseColor')
@@ -302,12 +313,13 @@ export class PaintEngine {
     })
     this.dilateQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.dilateMaterial)
     this.dilateScene.add(this.dilateQuad)
-    // Coverage mask (and its render pass) is built lazily — see ensureCoverageMask().
+    // The coverage mask (and its render pass) is built lazily by the surface,
+    // the first time anything dilates or clips.
   }
 
   /**
-   * Allocates a channel's ping-pong pair if it doesn't exist yet, cleared to
-   * its starting state: base color to the layer's own base color/alpha (an
+   * Allocates a channel's buffer if it doesn't exist yet, cleared to its
+   * starting state: base color to the layer's own base color/alpha (an
    * opaque background layer, a transparent stacked one), every PBR channel to
    * zero coverage — an unpainted PBR texel resolves to that channel's neutral
    * default at flatten time (see LayerStack), never to black.
@@ -319,7 +331,6 @@ export class PaintEngine {
     }
 
     const read = createRenderTarget(this.textureSize, channel)
-    const write = createRenderTarget(this.textureSize, channel)
 
     // A hardware clear (not a blended quad) so the target's alpha channel ends
     // up exactly right regardless of the renderer's own default clear
@@ -333,13 +344,11 @@ export class PaintEngine {
     const prevClearAlpha = this.renderer.getClearAlpha()
     this.renderer.setClearColor(clearColor, clearAlpha)
     this.renderer.setRenderTarget(read)
-    this.renderer.clear(true, true, true)
-    this.renderer.setRenderTarget(write)
-    this.renderer.clear(true, true, true)
+    this.renderer.clear(true, false, false)
     this.renderer.setRenderTarget(prevTarget)
     this.renderer.setClearColor(prevClearColor, prevClearAlpha)
 
-    const buffers: ChannelBuffers = { read, write }
+    const buffers: ChannelBuffers = { read }
     this.buffers.set(channel, buffers)
     this._channelsVersion++
     return buffers
@@ -369,7 +378,7 @@ export class PaintEngine {
   /**
    * The render target behind textureFor — what a readback needs. Deliberately
    * does NOT allocate: asking to inspect a channel this layer never painted
-   * answers "nothing here" instead of quietly costing three render targets.
+   * answers "nothing here" instead of quietly costing a render target.
    */
   targetFor(channel: PaintChannel): THREE.WebGLRenderTarget | null {
     return this.buffers.get(channel)?.read ?? null
@@ -379,15 +388,24 @@ export class PaintEngine {
     return this.ensureChannel(channel)
   }
 
-  /** Promotes the just-rendered write buffer to be the readable one. */
+  /**
+   * Where the next pass on `channel` renders: the pool's shared spare for this
+   * size and color space. Its contents are undefined — every pass either
+   * clears it (autoClear, or an explicit clear) or covers it with a full quad.
+   */
+  private writeTarget(channel: PaintChannel): THREE.WebGLRenderTarget {
+    return poolTarget(this.renderer, this.textureSize, CHANNEL_SPECS[channel].colorSpace, 'spare')
+  }
+
+  /** Promotes the just-rendered spare to be this channel's buffer, retiring the old one to the pool. */
   private swap(channel: PaintChannel): void {
     const b = this.buffers.get(channel)
     if (!b) {
       return
     }
-    const tmp = b.read
-    b.read = b.write
-    b.write = tmp
+    const written = this.writeTarget(channel)
+    exchangeSpare(this.renderer, this.textureSize, b.read)
+    b.read = written
   }
 
   /**
@@ -395,129 +413,10 @@ export class PaintEngine {
    * black elsewhere. Exporting several pieces onto one atlas needs it — a
    * piece's maps are opaque across the whole square (a flat fill covers every
    * texel, painted or not), so without a mask the last piece drawn erases
-   * every piece under it.
+   * every piece under it. Shared by every layer of the mesh (PaintSurface).
    */
   coverageTarget(): THREE.WebGLRenderTarget {
-    this.ensureCoverageMask()
-    return this.coverageMask!
-  }
-
-  /**
-   * Whether the coverage mask actually came out with anything in it. A mask
-   * that rasterized empty is indistinguishable from "this mesh covers no
-   * texels", and anything that trusts it then erases the layer it was meant to
-   * protect — so it is measured once and the destructive paths opt out.
-   */
-  private coverageUsable = true
-
-  /** Allocates and rasterizes the coverage mask the first time it's actually needed. */
-  private ensureCoverageMask(): void {
-    if (this.coverageMask) {
-      return
-    }
-    this.coverageMask = createRenderTarget(this.textureSize)
-    this.dilateMaterial.uniforms.uMask.value = this.coverageMask.texture
-    this.buildCoverageMask()
-    this.coverageUsable = this.measureCoverage()
-    if (!this.coverageUsable) {
-      console.warn(
-        '[slip] UV coverage mask rasterized empty — masking and dilation are disabled for this ' +
-          'mesh. Either its UVs are degenerate, or the mask pass is broken.'
-      )
-    }
-  }
-
-  /**
-   * Re-rasterizes the coverage at a small fixed size purely to answer "did
-   * anything land?". Reading the full-size mask back would mean pulling up to
-   * 256 MB across the bus at 8192; a 64x64 copy costs 16 KB and only misses UV
-   * islands too small to matter.
-   */
-  private measureCoverage(): boolean {
-    const probe = new THREE.WebGLRenderTarget(64, 64, {
-      format: THREE.RGBAFormat,
-      type: THREE.UnsignedByteType,
-      colorSpace: THREE.NoColorSpace,
-      minFilter: THREE.NearestFilter,
-      magFilter: THREE.NearestFilter
-    })
-    const material = new THREE.ShaderMaterial({
-      vertexShader: 'void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }',
-      fragmentShader: 'void main() { gl_FragColor = vec4(1.0); }',
-      side: THREE.DoubleSide,
-      blending: THREE.NoBlending,
-      depthTest: false,
-      depthWrite: false
-    })
-    const prevMaterial = this.uvMesh.material
-    const prevTarget = this.renderer.getRenderTarget()
-    const prevClear = new THREE.Color()
-    this.renderer.getClearColor(prevClear)
-    const prevClearAlpha = this.renderer.getClearAlpha()
-
-    this.uvMesh.material = material
-    this.renderer.setClearColor(0x000000, 1)
-    this.renderer.setRenderTarget(probe)
-    this.renderer.clear(true, true, true)
-    this.renderer.render(this.orthoScene, this.orthoCamera)
-
-    const pixels = new Uint8Array(64 * 64 * 4)
-    this.renderer.readRenderTargetPixels(probe, 0, 0, 64, 64, pixels)
-
-    this.renderer.setRenderTarget(prevTarget)
-    this.renderer.setClearColor(prevClear, prevClearAlpha)
-    this.uvMesh.material = prevMaterial
-    material.dispose()
-    probe.dispose()
-
-    for (let i = 0; i < pixels.length; i += 4) {
-      if (pixels[i] > 0) {
-        return true
-      }
-    }
-    return false
-  }
-
-  /** Rasterizes the UV mesh as flat white once — used to guide edge dilation (see dilateFragmentShader). */
-  private buildCoverageMask(): void {
-    /**
-     * Must use the same NDC passthrough vertex shader the paint material uses.
-     * The UV mesh's positions ARE clip coordinates already (uv * 2 - 1, z = 0),
-     * so a stock material — which multiplies them by the view/projection of an
-     * ortho camera sitting at the origin with near = 0 — puts every triangle
-     * exactly on the near plane and clips the lot. That silently produced a
-     * fully black mask: dilation became a no-op, and anything that treats the
-     * mask as coverage (atlas export, clipToCoverage) saw the mesh as covering
-     * nothing at all.
-     */
-    const maskMaterial = new THREE.ShaderMaterial({
-      vertexShader: /* glsl */ `
-        void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }
-      `,
-      fragmentShader: /* glsl */ `
-        void main() { gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0); }
-      `,
-      // See the paint material: a glTF model's UV winding is reversed, so
-      // FrontSide culls the whole flattened mesh and the mask comes out empty.
-      side: THREE.DoubleSide,
-      blending: THREE.NoBlending,
-      depthTest: false,
-      depthWrite: false
-    })
-    const prevMaterial = this.uvMesh.material
-    this.uvMesh.material = maskMaterial
-    const prevTarget = this.renderer.getRenderTarget()
-    const prevClearColor = new THREE.Color()
-    this.renderer.getClearColor(prevClearColor)
-    const prevClearAlpha = this.renderer.getClearAlpha()
-    this.renderer.setClearColor(0x000000, 1)
-    this.renderer.setRenderTarget(this.coverageMask)
-    this.renderer.clear(true, true, true)
-    this.renderer.render(this.orthoScene, this.orthoCamera)
-    this.renderer.setRenderTarget(prevTarget)
-    this.renderer.setClearColor(prevClearColor, prevClearAlpha)
-    this.uvMesh.material = prevMaterial
-    maskMaterial.dispose()
+    return this.surface.coverageMask
   }
 
   /**
@@ -540,7 +439,8 @@ export class PaintEngine {
       type: THREE.UnsignedByteType,
       colorSpace: THREE.NoColorSpace,
       minFilter: THREE.NearestFilter,
-      magFilter: THREE.NearestFilter
+      magFilter: THREE.NearestFilter,
+      depthBuffer: false
     })
     const countMaterial = new THREE.ShaderMaterial({
       vertexShader: 'void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }',
@@ -593,11 +493,15 @@ export class PaintEngine {
 
   /** Bleeds `target`'s island-edge colors outward into gutter texels by a couple texels (see dilateFragmentShader). */
   private dilate(target: THREE.WebGLRenderTarget, iterations = 4): void {
-    this.ensureCoverageMask()
-    if (!this.scratchDilateTarget) {
-      this.scratchDilateTarget = createRenderTarget(this.textureSize)
-    }
-    const scratch = this.scratchDilateTarget
+    this.dilateMaterial.uniforms.uMask.value = this.surface.coverageMask.texture
+    // Scratch in the target's own color space: bouncing a linear data channel
+    // through an sRGB buffer re-quantizes every value on each pass.
+    const scratch = poolTarget(
+      this.renderer,
+      this.textureSize,
+      target.texture.colorSpace as THREE.ColorSpace,
+      'scratch'
+    )
 
     const prevTarget = this.renderer.getRenderTarget()
     const prevAutoClear = this.renderer.autoClear
@@ -625,7 +529,6 @@ export class PaintEngine {
     this.renderer.autoClear = prevAutoClear
   }
 
-  private scratchDilateTarget: THREE.WebGLRenderTarget | null = null
   private coverageClipMaterial: THREE.ShaderMaterial | null = null
   private coverageClipQuad: THREE.Mesh | null = null
   private coverageClipScene: THREE.Scene | null = null
@@ -645,14 +548,10 @@ export class PaintEngine {
    * puts the bilinear bleed margin back around the kept islands.
    */
   clipToCoverage(): void {
-    this.ensureCoverageMask()
-    const mask = this.coverageMask
-    if (!mask) {
-      return
-    }
+    const mask = this.surface.coverageMask
     // Never clip against a mask that came out empty: that multiplies the whole
     // layer by zero and throws away artwork this was supposed to be separating.
-    if (!this.coverageUsable) {
+    if (!this.surface.coverageUsable) {
       return
     }
 
@@ -668,10 +567,10 @@ export class PaintEngine {
           uniform sampler2D uMask;
           varying vec2 vUv;
           void main() {
-            // The mask is rendered white-on-black and opaque, so coverage is in
-            // red. Hard threshold rather than a multiply: an antialiased edge
-            // texel is still this piece's texel, and halving its alpha would
-            // show as a seam once the dilation spreads it.
+            // The mask is single-channel (R8), so coverage is in red. Hard
+            // threshold rather than a multiply: an antialiased edge texel is
+            // still this piece's texel, and halving its alpha would show as a
+            // seam once the dilation spreads it.
             float covered = step(0.004, texture2D(uMask, vUv).r);
             gl_FragColor = texture2D(uColor, vUv) * covered;
           }
@@ -692,10 +591,11 @@ export class PaintEngine {
     const prevTarget = this.renderer.getRenderTarget()
     for (const channel of this.allocatedChannels) {
       const buffers = this.buf(channel)
+      const write = this.writeTarget(channel)
       this.coverageClipMaterial.uniforms.uColor.value = buffers.read.texture
-      this.renderer.setRenderTarget(buffers.write)
+      this.renderer.setRenderTarget(write)
       this.renderer.render(this.coverageClipScene!, this.orthoCamera)
-      this.dilate(buffers.write)
+      this.dilate(write)
       this.swap(channel)
     }
     this.renderer.setRenderTarget(prevTarget)
@@ -875,12 +775,13 @@ export class PaintEngine {
     const prevTarget = this.renderer.getRenderTarget()
     for (const channel of channels) {
       const buffers = this.buf(channel)
+      const write = this.writeTarget(channel)
       this.applyChannelPayload(channel, payload, params.erase ?? false, params.channelMaps)
       u.uPrevTexture.value = buffers.read.texture
-      this.renderer.setRenderTarget(buffers.write)
+      this.renderer.setRenderTarget(write)
       this.renderer.render(this.orthoScene, this.orthoCamera)
       this.renderer.setRenderTarget(prevTarget)
-      this.dilate(buffers.write)
+      this.dilate(write)
       this.swap(channel)
     }
     u.uChannelMode.value = 0
@@ -962,11 +863,12 @@ export class PaintEngine {
     const prevTarget = this.renderer.getRenderTarget()
     for (const channel of this.allocatedChannels) {
       const buffers = this.buf(channel)
+      const write = this.writeTarget(channel)
       u.uPrevTexture.value = buffers.read.texture
-      this.renderer.setRenderTarget(buffers.write)
+      this.renderer.setRenderTarget(write)
       this.renderer.render(this.orthoScene, this.orthoCamera)
       this.renderer.setRenderTarget(prevTarget)
-      this.dilate(buffers.write)
+      this.dilate(write)
       this.swap(channel)
     }
 
@@ -1052,12 +954,13 @@ export class PaintEngine {
     const prevTarget = this.renderer.getRenderTarget()
     for (const channel of channels) {
       const buffers = this.buf(channel)
+      const write = this.writeTarget(channel)
       this.applyChannelPayload(channel, payload, false)
       u.uPrevTexture.value = buffers.read.texture
-      this.renderer.setRenderTarget(buffers.write)
+      this.renderer.setRenderTarget(write)
       this.renderer.render(this.orthoScene, this.orthoCamera)
       this.renderer.setRenderTarget(prevTarget)
-      this.dilate(buffers.write)
+      this.dilate(write)
       this.swap(channel)
     }
     this._contentVersion++
@@ -1131,7 +1034,8 @@ export class PaintEngine {
 
   /** Flat (untextured) fill of one channel — replaces the channel outright. */
   private fillChannelFlat(channel: PaintChannel, payload: ChannelPayload, alpha: number): void {
-    const buffers = this.buf(channel)
+    this.buf(channel)
+    const write = this.writeTarget(channel)
     const { color, quadAlpha } = this.flatFillValue(channel, payload, alpha)
     const fillScene = new THREE.Scene()
     const mat = new THREE.MeshBasicMaterial({
@@ -1143,7 +1047,7 @@ export class PaintEngine {
     const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat)
     fillScene.add(quad)
     const prevTarget = this.renderer.getRenderTarget()
-    this.renderer.setRenderTarget(buffers.write)
+    this.renderer.setRenderTarget(write)
     this.renderer.render(fillScene, this.orthoCamera)
     this.renderer.setRenderTarget(prevTarget)
     mat.dispose()
@@ -1239,6 +1143,7 @@ export class PaintEngine {
     projection?: FaceProjectionOptions
   ): void {
     const buffers = this.buf(channel)
+    const write = this.writeTarget(channel)
     const u = this.material.uniforms
     this.applyChannelPayload(channel, payload, false, maps)
     if (channel === 'baseColor') {
@@ -1260,10 +1165,10 @@ export class PaintEngine {
     this.applyProjection(projection)
 
     const prevTarget = this.renderer.getRenderTarget()
-    this.renderer.setRenderTarget(buffers.write)
+    this.renderer.setRenderTarget(write)
     this.renderer.render(this.orthoScene, this.orthoCamera)
     this.renderer.setRenderTarget(prevTarget)
-    this.dilate(buffers.write)
+    this.dilate(write)
 
     u.uFillMode.value = 0
     u.uRestrictFace.value = 0
@@ -1369,7 +1274,7 @@ export class PaintEngine {
     for (const channel of channels) {
       const mine = this.buf(channel)
       const theirs = other.buf(channel)
-      this.renderer.setRenderTarget(theirs.write)
+      this.renderer.setRenderTarget(other.writeTarget(channel))
       this.renderer.clear(true, true, true)
       drawQuad(theirs.read.texture, 1)
       drawQuad(mine.read.texture, opacity)
@@ -1413,7 +1318,8 @@ export class PaintEngine {
       }
       const scene = new THREE.Scene()
       scene.add(quad)
-      this.renderer.setRenderTarget(other.buf(channel).write)
+      other.buf(channel)
+      this.renderer.setRenderTarget(other.writeTarget(channel))
       this.renderer.clear(true, true, true)
       this.renderer.render(scene, this.orthoCamera)
       mat.dispose()
@@ -1438,9 +1344,7 @@ export class PaintEngine {
       const alpha = channel === 'baseColor' ? this.baseAlpha : 0
       this.renderer.setClearColor(color, alpha)
       this.renderer.setRenderTarget(buffers.read)
-      this.renderer.clear(true, true, true)
-      this.renderer.setRenderTarget(buffers.write)
-      this.renderer.clear(true, true, true)
+      this.renderer.clear(true, false, false)
     }
     this.renderer.setClearColor(prevClearColor, prevClearAlpha)
     this.renderer.setRenderTarget(prevTarget)
@@ -1488,7 +1392,7 @@ export class PaintEngine {
       depthWrite: false
     })
     const prevTarget = this.renderer.getRenderTarget()
-    this.renderer.setRenderTarget(this.buf('baseColor').write)
+    this.renderer.setRenderTarget(this.writeTarget('baseColor'))
     const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), invertMat)
     const scene = new THREE.Scene()
     scene.add(quad)
@@ -1564,9 +1468,10 @@ export class PaintEngine {
       } else {
         u.uEraseTarget.value.set(0, 0, 0, 0)
       }
-      this.renderer.setRenderTarget(buffers.write)
+      const write = this.writeTarget(channel)
+      this.renderer.setRenderTarget(write)
       this.renderer.render(this.orthoScene, this.orthoCamera)
-      this.dilate(buffers.write)
+      this.dilate(write)
       this.swap(channel)
     }
 
@@ -1654,6 +1559,15 @@ export class PaintEngine {
    * with several layers would otherwise hit almost immediately.
    */
   createCpuSnapshot(): CpuPixelSnapshot {
+    // Nothing changed since the last capture (or restore): hand back the same
+    // immutable buffers. History records the whole stack on every edit, so
+    // this turns an N-layer readback stall into a single-layer one and lets
+    // successive undo entries share memory for every layer that didn't move.
+    if (this.lastSnapshot && this.lastSnapshot.version === this._contentVersion) {
+      return this.lastSnapshot.snapshot
+    }
+    // Anything else needs a readback, which a lost context answers with zeros.
+    assertGpuReadable(this.renderer)
     const size = this.textureSize
     const readChannel = (channel: PaintChannel): Uint8Array => {
       const data = new Uint8Array(size * size * 4)
@@ -1671,12 +1585,29 @@ export class PaintEngine {
       snapshot.channels ??= {}
       snapshot.channels[channel] = readChannel(channel)
     }
+    this.lastSnapshot = { version: this._contentVersion, snapshot }
     return snapshot
   }
 
+  /** The snapshot that matches this layer's current content, if one was taken (see createCpuSnapshot). */
+  private lastSnapshot: { version: number; snapshot: CpuPixelSnapshot } | null = null
+
   /** Restores this layer's content from a createCpuSnapshot() buffer. */
   restoreFromCpuSnapshot(snapshot: CpuPixelSnapshot): void {
+    // Already showing exactly this snapshot (an undo that didn't touch this
+    // layer): skip the full-resolution upload entirely.
+    if (
+      this.lastSnapshot &&
+      this.lastSnapshot.snapshot === snapshot &&
+      this.lastSnapshot.version === this._contentVersion
+    ) {
+      return
+    }
     const restoreChannel = (channel: PaintChannel, data: Uint8Array): void => {
+      // Uploaded straight into the layer's own texture (texSubImage2D) — no
+      // intermediate full-size GPU texture and no blit pass. The bytes are the
+      // raw ones readRenderTargetPixels returned, and an sRGB texture stores
+      // uploaded bytes as-is, so this round-trips exactly for every channel.
       const tex = new THREE.DataTexture(
         data,
         snapshot.size,
@@ -1684,11 +1615,13 @@ export class PaintEngine {
         THREE.RGBAFormat,
         THREE.UnsignedByteType
       )
-      // Must match the render target's color space: with both the same, the
-      // hardware's decode-on-read cancels its encode-on-write and the bytes
-      // land back exactly as readRenderTargetPixels saw them. Getting this
-      // wrong on a linear data channel would gamma-shift every roughness and
-      // normal value on every undo.
+      if (snapshot.size === this.textureSize) {
+        this.renderer.copyTextureToTexture(tex, this.buf(channel).read.texture)
+        return
+      }
+      // A snapshot from a different resolution has to be resampled, which
+      // takes a real texture and a draw. Its color space must match the
+      // target's so decode-on-read cancels encode-on-write exactly.
       tex.colorSpace = CHANNEL_SPECS[channel].colorSpace
       tex.needsUpdate = true
       this.blit(tex, this.buf(channel).read)
@@ -1711,6 +1644,7 @@ export class PaintEngine {
       }
     }
     this._contentVersion++
+    this.lastSnapshot = { version: this._contentVersion, snapshot }
   }
 
   /** Resets one channel to zero coverage (PBR) / the layer base (base color). */
@@ -1727,9 +1661,7 @@ export class PaintEngine {
     const prevClearAlpha = this.renderer.getClearAlpha()
     this.renderer.setClearColor(color, alpha)
     this.renderer.setRenderTarget(buffers.read)
-    this.renderer.clear(true, true, true)
-    this.renderer.setRenderTarget(buffers.write)
-    this.renderer.clear(true, true, true)
+    this.renderer.clear(true, false, false)
     this.renderer.setClearColor(prevClearColor, prevClearAlpha)
     this.renderer.setRenderTarget(prevTarget)
   }
@@ -1737,21 +1669,18 @@ export class PaintEngine {
   dispose(): void {
     for (const buffers of this.buffers.values()) {
       buffers.read.dispose()
-      buffers.write.dispose()
     }
     this.buffers.clear()
     this.material.dispose()
     this.edgeWearMaterial?.dispose()
     this.effectMaterial?.dispose()
-    this.uvMesh.geometry.dispose()
-    this.coverageMask?.dispose()
+    // The UV geometry and coverage mask belong to the shared PaintSurface.
     this.coverageClipMaterial?.dispose()
     this.coverageClipQuad?.geometry.dispose()
     this.dilateMaterial.dispose()
     this.dilateQuad.geometry.dispose()
     this.blitMaterial?.dispose()
     this.blitQuad?.geometry.dispose()
-    this.scratchDilateTarget?.dispose()
   }
 }
 

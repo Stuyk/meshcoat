@@ -67,7 +67,13 @@ const projectorMapFragment = /* glsl */ `
   }
   vec2 finalUv = uTextureRegion.xy + clamp(regionUv, 0.0, 1.0) * uTextureRegion.zw;
 
-  vec4 texSample = texture2D(map, finalUv);
+  // Always the full-resolution level. A selected face is often tiny on screen
+  // relative to the whole texture, so ordinary minification picks a heavily
+  // downsampled mip — averaged into a dark blob on a busy source, which read
+  // as "the preview is nearly pitch black". Sampling level 0 explicitly does
+  // what a mipmap-less clone of the brush texture used to, without keeping a
+  // second full copy of it in VRAM.
+  vec4 texSample = textureLod(map, finalUv, 0.0);
   texSample = mix(vec4(1.0), texSample, uUseTexture);
   diffuseColor.rgb *= mix(uColor.rgb, texSample.rgb * uColor.rgb, uUseTexture);
   diffuseColor.a *= uColor.a * texSample.a * insideOnce;

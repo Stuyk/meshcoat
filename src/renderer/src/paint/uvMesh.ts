@@ -2,6 +2,21 @@ import * as THREE from 'three'
 import { computeEdgeCurvature } from './edgeCurvature'
 
 /**
+ * Unit vectors and [0, 1] curvature scalars don't need 32-bit floats: half
+ * precision (~3 decimal digits) is far finer than anything they steer, and the
+ * flattened mesh is non-indexed, so every attribute byte is paid three times
+ * per triangle. World position stays full precision — it is compared against
+ * the brush in world units, where a large model would visibly lose accuracy.
+ */
+function toHalfAttribute(values: Float32Array, itemSize: number): THREE.Float16BufferAttribute {
+  const halves = new Uint16Array(values.length)
+  for (let i = 0; i < values.length; i++) {
+    halves[i] = THREE.DataUtils.toHalfFloat(values[i])
+  }
+  return new THREE.Float16BufferAttribute(halves, itemSize)
+}
+
+/**
  * Builds the UV-flattened representation of a mesh (spec section 4.1): a
  * clone whose vertex positions are replaced by their UV0 coordinates
  * (x=uv.x*2-1, y=uv.y*2-1, z=0), unwrapping the mesh flat into NDC space so
@@ -139,18 +154,8 @@ export function buildUvMesh(mesh: THREE.Mesh): THREE.Mesh {
       }
     }
   }
-  geometry.setAttribute('aSurfaceTangent', new THREE.BufferAttribute(faceTangent, 3))
-  geometry.setAttribute('aSurfaceBitangent', new THREE.BufferAttribute(faceBitangent, 3))
-
-  // One id per triangle (repeated across its 3 corners), matching the raycast
-  // hit's faceIndex against the same (post-toNonIndexed) mesh — lets the paint
-  // shader restrict a stroke or fill to a single picked face (spec: face
-  // selection / paint-within-face).
-  const faceId = new Float32Array(vertexCount)
-  for (let i = 0; i < vertexCount; i++) {
-    faceId[i] = Math.floor(i / 3)
-  }
-  geometry.setAttribute('aFaceId', new THREE.BufferAttribute(faceId, 1))
+  geometry.setAttribute('aSurfaceTangent', toHalfAttribute(faceTangent, 3))
+  geometry.setAttribute('aSurfaceBitangent', toHalfAttribute(faceBitangent, 3))
 
   // 1.0 on every vertex of a selected triangle, 0.0 elsewhere — PaintEngine
   // rewrites this per stroke/fill from the current face selection so the
@@ -159,7 +164,7 @@ export function buildUvMesh(mesh: THREE.Mesh): THREE.Mesh {
   geometry.setAttribute('aSelected', new THREE.BufferAttribute(new Float32Array(vertexCount), 1))
 
   geometry.setAttribute('aWorldPosition', new THREE.BufferAttribute(worldPos, 3))
-  geometry.setAttribute('aWorldNormal', new THREE.BufferAttribute(worldNormal, 3))
+  geometry.setAttribute('aWorldNormal', toHalfAttribute(worldNormal, 3))
 
   const triangleCount = Math.floor(vertexCount / 3)
   const { edgeDistances, edgeCurvatures, edgeConcavities } = computeEdgeCurvature(
@@ -167,8 +172,8 @@ export function buildUvMesh(mesh: THREE.Mesh): THREE.Mesh {
     triangleCount
   )
   geometry.setAttribute('aEdgeDist', new THREE.BufferAttribute(edgeDistances, 3))
-  geometry.setAttribute('aEdgeCurvature', new THREE.BufferAttribute(edgeCurvatures, 3))
-  geometry.setAttribute('aEdgeConcavity', new THREE.BufferAttribute(edgeConcavities, 3))
+  geometry.setAttribute('aEdgeCurvature', toHalfAttribute(edgeCurvatures, 3))
+  geometry.setAttribute('aEdgeConcavity', toHalfAttribute(edgeConcavities, 3))
 
   const flatMesh = new THREE.Mesh(geometry)
   flatMesh.frustumCulled = false

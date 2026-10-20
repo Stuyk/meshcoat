@@ -12,7 +12,7 @@ import * as THREE from 'three'
  *     since MeshStandardMaterial samples a map with no notion of coverage.
  *
  * Flat-texture projects stay exactly as cheap as before: a layer allocates a
- * channel's ping-pong pair only when a stroke actually writes to that channel
+ * channel's buffer only when a stroke actually writes to that channel
  * (see PaintEngine.ensureChannel), so a base-color-only project allocates
  * base-color-only buffers and its undo snapshots carry base color only.
  */
@@ -110,6 +110,9 @@ export function createChannelRenderTarget(
     type: THREE.UnsignedByteType,
     colorSpace: CHANNEL_SPECS[channel].colorSpace,
     minFilter: THREE.LinearFilter,
-    magFilter: THREE.LinearFilter
+    magFilter: THREE.LinearFilter,
+    // Nothing that draws into a channel depth-tests; three's default depth
+    // renderbuffer would double the target's VRAM for nothing.
+    depthBuffer: false
   })
 }

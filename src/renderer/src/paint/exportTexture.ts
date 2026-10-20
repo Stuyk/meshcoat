@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { assertGpuReadable, readTargetRgba } from './gpuResources'
 
 /**
  * Reads a render target back to a PNG data URL. WebGL render targets store
@@ -8,12 +9,14 @@ import * as THREE from 'three'
  */
 export function renderTargetToPngDataUrl(
   renderer: THREE.WebGLRenderer,
-  target: THREE.WebGLRenderTarget
+  target: THREE.WebGLRenderTarget,
+  /** Export only this component (0-3) as opaque grayscale — one half of a packed ORM target. */
+  component: number | null = null
 ): string {
   const width = target.width
   const height = target.height
-  const pixels = new Uint8Array(width * height * 4)
-  renderer.readRenderTargetPixels(target, 0, 0, width, height, pixels)
+  // Expands single-channel targets (the R8 coverage mask) to RGBA first.
+  const pixels = readTargetRgba(renderer, target)
 
   const canvas = document.createElement('canvas')
   canvas.width = width
@@ -33,6 +36,14 @@ export function renderTargetToPngDataUrl(
     for (let x = 0; x < width; x++) {
       const src = srcStart + x * 4
       const dst = y * rowBytes + x * 4
+      if (component !== null) {
+        const v = pixels[src + component]
+        imageData.data[dst] = v
+        imageData.data[dst + 1] = v
+        imageData.data[dst + 2] = v
+        imageData.data[dst + 3] = 255
+        continue
+      }
       const a = pixels[src + 3]
       if (a > 0) {
         imageData.data[dst] = Math.min(255, Math.round((pixels[src] * 255) / a))
@@ -58,27 +69,27 @@ export function renderTargetToPngDataUrl(
  * left black — black would darken every surface the moment the map is plugged
  * in, which reads as a broken export rather than an absent AO pass.
  *
- * Either input may be null (that channel was never painted); it then falls back
- * to its neutral default — fully rough, fully dielectric.
+ * The layer stack already keeps roughness and metalness packed this way (see
+ * LayerStack.ormMapTarget), so this is a readback; `ormTarget` is null when
+ * neither was ever painted, and the map then falls back to the neutral
+ * default — fully rough, fully dielectric.
  */
 export function packOrmDataUrl(
   renderer: THREE.WebGLRenderer,
-  roughnessTarget: THREE.WebGLRenderTarget | null,
-  metalnessTarget: THREE.WebGLRenderTarget | null,
+  ormTarget: THREE.WebGLRenderTarget | null,
   size: number
 ): string {
-  const readChannel = (target: THREE.WebGLRenderTarget | null, fallback: number): Uint8Array => {
-    const out = new Uint8Array(size * size * 4)
-    if (!target) {
-      out.fill(fallback)
-      return out
+  assertGpuReadable(renderer)
+  let packed: Uint8Array
+  if (ormTarget) {
+    packed = new Uint8Array(size * size * 4)
+    renderer.readRenderTargetPixels(ormTarget, 0, 0, size, size, packed)
+  } else {
+    packed = new Uint8Array(size * size * 4)
+    for (let i = 0; i < packed.length; i += 4) {
+      packed[i + 1] = 255
     }
-    renderer.readRenderTargetPixels(target, 0, 0, size, size, out)
-    return out
   }
-
-  const rough = readChannel(roughnessTarget, 255)
-  const metal = readChannel(metalnessTarget, 0)
 
   const canvas = document.createElement('canvas')
   canvas.width = size
@@ -97,8 +108,8 @@ export function packOrmDataUrl(
       const src = srcStart + x * 4
       const dst = y * rowBytes + x * 4
       imageData.data[dst] = 255
-      imageData.data[dst + 1] = rough[src]
-      imageData.data[dst + 2] = metal[src]
+      imageData.data[dst + 1] = packed[src + 1]
+      imageData.data[dst + 2] = packed[src + 2]
       imageData.data[dst + 3] = 255
     }
   }

@@ -22,6 +22,7 @@ import StatusBar from './components/BottomDock'
 import { brushPresets, initBrushPresets } from './paint/brushPresets'
 import LayersTab from './components/LayersTab'
 import type { LayerStack } from './paint/layers'
+import { GpuContextLostError } from './paint/gpuResources'
 import BrushSettingsTab from './components/BrushSettingsTab'
 import type { LightingMode } from './viewport/scene'
 import {
@@ -398,10 +399,18 @@ export default function App(): JSX.Element {
   const [toast, setToast] = createSignal<ToastData | null>(null)
   const [showPieceMenu, setShowPieceMenu] = createSignal(false)
   const [pieceAliasDraft, setPieceAliasDraft] = createSignal<string | null>(null)
+  /** The piece the rename was started on — the active piece can change mid-edit. */
+  let pieceAliasTarget = 0
+  function startPieceAlias(): void {
+    pieceAliasTarget = activePiece()
+    setPieceAliasDraft(modelPieces()[pieceAliasTarget]?.alias ?? '')
+  }
   function commitPieceAlias(): void {
     const draft = pieceAliasDraft()
-    if (draft !== null) {
-      viewportHandle?.renamePiece(activePiece(), draft)
+    // Blur commits too, so an untouched edit must not mark the project dirty.
+    const current = modelPieces()[pieceAliasTarget]?.alias ?? ''
+    if (draft !== null && draft.trim() !== current) {
+      viewportHandle?.renamePiece(pieceAliasTarget, draft)
       setPiecesVersion((v) => v + 1)
       setIsDirty(true)
     }
@@ -537,6 +546,31 @@ export default function App(): JSX.Element {
     return out
   }
 
+  /**
+   * The project file's contents, or null (with a toast) when the layers can't
+   * be read — after a GPU context loss every layer reads back blank, and
+   * writing that would overwrite the last good save.
+   */
+  function serializeForSave(savePieces: ReturnType<typeof projectPieces>): string | null {
+    try {
+      return serializeProject({
+        modelPath: currentModelPath(),
+        modelName: modelName(),
+        pieces: savePieces,
+        activePieceIndex: viewportHandle?.activePieceIndex() ?? 0
+      })
+    } catch (err) {
+      console.error('Failed to serialize project:', err)
+      showToast(
+        err instanceof GpuContextLostError
+          ? 'Not saved: the graphics context was lost, so the layers can no longer be read. Your last save and autosave are untouched — reload to restore.'
+          : 'Failed to save project',
+        'error'
+      )
+      return null
+    }
+  }
+
   async function handleSaveProject(): Promise<boolean> {
     const savePieces = projectPieces()
     if (savePieces.length === 0) {
@@ -548,7 +582,8 @@ export default function App(): JSX.Element {
       targetPath = await window.api.saveFileDialog({
         defaultPath: `${modelName().replace(/\.[^/.]+$/, '')}.meshcoat`,
         filters: [{ name: 'MeshCoat Project', extensions: ['meshcoat'] }],
-        key: 'project'
+        key: 'project',
+        nearPath: currentModelPath()
       })
       if (!targetPath) {
         return false
@@ -556,12 +591,10 @@ export default function App(): JSX.Element {
       setCurrentProjectPath(targetPath)
     }
 
-    const content = serializeProject({
-      modelPath: currentModelPath(),
-      modelName: modelName(),
-      pieces: savePieces,
-      activePieceIndex: viewportHandle?.activePieceIndex() ?? 0
-    })
+    const content = serializeForSave(savePieces)
+    if (content === null) {
+      return false
+    }
 
     const ok = await window.api.saveProjectFile(targetPath, content)
     if (ok) {
@@ -584,19 +617,18 @@ export default function App(): JSX.Element {
     const targetPath = await window.api.saveFileDialog({
       defaultPath: `${modelName().replace(/\.[^/.]+$/, '')}.meshcoat`,
       filters: [{ name: 'MeshCoat Project', extensions: ['meshcoat'] }],
-      key: 'project'
+      key: 'project',
+      nearPath: currentModelPath()
     })
     if (!targetPath) {
       return false
     }
     setCurrentProjectPath(targetPath)
 
-    const content = serializeProject({
-      modelPath: currentModelPath(),
-      modelName: modelName(),
-      pieces: savePieces,
-      activePieceIndex: viewportHandle?.activePieceIndex() ?? 0
-    })
+    const content = serializeForSave(savePieces)
+    if (content === null) {
+      return false
+    }
 
     const ok = await window.api.saveProjectFile(targetPath, content)
     if (ok) {
@@ -1882,7 +1914,8 @@ export default function App(): JSX.Element {
                           setPieceAliasDraft(null)
                         }
                       }}
-                      placeholder={modelPieces()[activePiece()]?.name}
+                      onBlur={commitPieceAlias}
+                      placeholder={modelPieces()[pieceAliasTarget]?.name}
                       autofocus
                       class="flex-1 min-w-0"
                     />
@@ -1949,7 +1982,7 @@ export default function App(): JSX.Element {
                       variant="ghost"
                       onClick={() => {
                         setShowPieceMenu(false)
-                        setPieceAliasDraft(modelPieces()[activePiece()]?.alias ?? '')
+                        startPieceAlias()
                       }}
                       tooltip="Rename piece"
                     >
@@ -2032,6 +2065,7 @@ export default function App(): JSX.Element {
             isOpen={showExportWizard()}
             onClose={() => setShowExportWizard(false)}
             modelName={modelName()}
+            modelPath={currentModelPath()}
             pieces={modelPieces()}
             getViewportHandle={() => viewportHandle}
             onToast={showToast}

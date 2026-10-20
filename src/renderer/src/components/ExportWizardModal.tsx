@@ -15,6 +15,8 @@ export interface ExportWizardModalProps {
   isOpen: boolean
   onClose: () => void
   modelName: string
+  /** The loaded model's file, so exports default to saving beside it. */
+  modelPath?: string | null
   pieces?: PieceInfo[]
   getViewportHandle?: () => ViewportHandle | undefined
   viewportHandle?: ViewportHandle
@@ -365,7 +367,8 @@ export default function ExportWizardModal(props: ExportWizardModalProps) {
     const filePath = await window.api.saveFileDialog({
       defaultPath: defaultFileName,
       filters: [{ name: 'PNG Image', extensions: ['png'] }],
-      key: 'export'
+      key: 'export',
+      nearPath: props.modelPath
     })
     if (!filePath) {
       return

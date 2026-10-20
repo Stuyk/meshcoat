@@ -10,6 +10,60 @@ import type { PaintPiece, EmbeddedSlot } from './viewportTypes'
 import { updateHighlight, updateProjectorPreview } from './viewportHighlight'
 import type { ViewportRuntime } from './viewportRuntime'
 
+/** Texture slots a loaded model's materials can carry. */
+const MATERIAL_MAP_KEYS = [
+  'map',
+  'normalMap',
+  'roughnessMap',
+  'metalnessMap',
+  'aoMap',
+  'emissiveMap',
+  'alphaMap',
+  'bumpMap',
+  'displacementMap',
+  'lightMap'
+] as const
+
+/**
+ * Frees a model's own GPU resources: its geometry vertex buffers, the
+ * materials it was imported with (and the pieces' clones of them) and any
+ * texture those reference. Layer-stack render targets are skipped — the
+ * stacks own and free those.
+ */
+function disposeModel(root: THREE.Object3D, extraMaterials: THREE.Material[]): void {
+  const materials = new Set<THREE.Material>(extraMaterials)
+  const geometries = new Set<THREE.BufferGeometry>()
+  root.traverse((obj) => {
+    const mesh = obj as THREE.Mesh
+    if (!mesh.isMesh) {
+      return
+    }
+    geometries.add(mesh.geometry)
+    for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+      if (material) {
+        materials.add(material)
+      }
+    }
+  })
+  const textures = new Set<THREE.Texture>()
+  for (const material of materials) {
+    const slots = material as unknown as Record<string, THREE.Texture | null | undefined>
+    for (const key of MATERIAL_MAP_KEYS) {
+      const texture = slots[key]
+      if (texture?.isTexture && !texture.isRenderTargetTexture) {
+        textures.add(texture)
+      }
+    }
+    material.dispose()
+  }
+  for (const texture of textures) {
+    texture.dispose()
+  }
+  for (const geometry of geometries) {
+    geometry.dispose()
+  }
+}
+
 export function clearCurrentModel(rt: ViewportRuntime): void {
   if (rt.currentModel && rt.sceneHandle) {
     rt.sceneHandle.scene.remove(rt.currentModel.root)
@@ -22,9 +76,16 @@ export function clearCurrentModel(rt: ViewportRuntime): void {
   rt.lastBrushDabPos = null
   rt.lastEffectUv = null
   rt.occlusionPass?.invalidate()
+  const pieceMaterials: THREE.Material[] = []
   for (const piece of rt.pieces) {
     piece.stack.dispose()
     piece.channelViewMaterial?.dispose()
+    pieceMaterials.push(piece.shadedMaterial)
+    for (const slot of piece.embedded) {
+      for (const texture of Object.values(slot.maps)) {
+        texture?.dispose()
+      }
+    }
     for (const overlay of [
       piece.highlightMesh,
       piece.hoverFaceMesh,
@@ -37,6 +98,7 @@ export function clearCurrentModel(rt: ViewportRuntime): void {
       overlay.parent?.remove(overlay)
     }
   }
+  const previousRoot = rt.currentModel?.root
   rt.pieces = []
   rt.activePieceIndex = 0
   rt.layerStack = undefined
@@ -54,6 +116,11 @@ export function clearCurrentModel(rt: ViewportRuntime): void {
     rt.symmetryGuide.group.parent.remove(rt.symmetryGuide.group)
     rt.symmetryGuide.group.visible = false
   }
+  // After the symmetry guide is detached: it outlives the model and is
+  // re-parented onto the next one.
+  if (previousRoot) {
+    disposeModel(previousRoot, pieceMaterials)
+  }
   // Both overlays belong to a piece and were disposed with it above.
   rt.highlightMesh = undefined
   rt.selectionFillMesh = undefined
@@ -63,9 +130,6 @@ export function clearCurrentModel(rt: ViewportRuntime): void {
   rt.facePositions = undefined
   rt.faceUVs = undefined
   rt.faceNormals = undefined
-  rt.previewTextureClone?.dispose()
-  rt.previewTextureClone = null
-  rt.previewTextureSource = null
   // A picked triangle index only means anything for the mesh it was picked
   // on — carrying it into a freshly loaded model could restrict painting
   // to an unrelated (or out-of-range) face.
@@ -118,6 +182,7 @@ export function applyViewModeToPiece(rt: ViewportRuntime, piece: PaintPiece): vo
   // Only the base-color composite is stored premultiplied; the data channels
   // are already resolved to straight values by the flatten pass.
   mat.uniforms.uPremultiplied.value = rt.viewMode === 'baseColor' ? 1 : 0
+  mat.uniforms.uComponent.value = piece.stack.channelComponent(rt.viewMode) ?? -1
   piece.mesh.material = mat
 }
 

@@ -351,13 +351,19 @@ export function createScene(canvas: HTMLCanvasElement): SceneHandle {
   const camera = new THREE.PerspectiveCamera(50, 1, 0.01, 1000)
   camera.position.set(2, 1.5, 2.5)
 
+  const pixelRatio = Math.min(window.devicePixelRatio, 2)
   const renderer = new THREE.WebGLRenderer({
     canvas,
-    antialias: true,
+    // At 1.5x+ the drawing buffer is already supersampled relative to CSS
+    // pixels. 4x MSAA adds four color + depth samples per device pixel (~32
+    // bytes each) on top of it — around 150 MB for a viewport on a 4K/2x
+    // display — for edges that were already fine. Standard-density displays
+    // keep MSAA.
+    antialias: pixelRatio < 1.5,
     powerPreference: 'high-performance',
     precision: 'highp'
   })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  renderer.setPixelRatio(pixelRatio)
   renderer.outputColorSpace = THREE.SRGBColorSpace
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   // PCF rather than hard edges: one directional light casting a crisp stencil

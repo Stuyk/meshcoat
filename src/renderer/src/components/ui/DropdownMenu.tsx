@@ -1,4 +1,4 @@
-import { Show, For, type JSX } from 'solid-js'
+import { Show, For, createEffect, createSignal, onCleanup, type JSX } from 'solid-js'
 import { ChevronRightIcon } from '../icons'
 import Kbd from './Kbd'
 
@@ -99,8 +99,51 @@ function MenuList(props: { items: MenuItem[]; onClose: () => void }) {
   )
 }
 
+/** Room kept free below an open menu — enough to clear the app's status bar. */
+const BOTTOM_CLEARANCE_PX = 40
+/** Room kept free above a menu that opens upward. */
+const TOP_CLEARANCE_PX = 14
+/** Below this much room, a menu opens upward instead when there's more space there. */
+const MIN_COMFORTABLE_PX = 240
+
 export default function DropdownMenu(props: DropdownMenuProps) {
   const alignClass = () => (props.align === 'right' ? 'right-0' : 'left-0')
+  let panelRef: HTMLDivElement | undefined
+  const [maxHeight, setMaxHeight] = createSignal<number | null>(null)
+  const [openUp, setOpenUp] = createSignal(false)
+
+  /**
+   * A long list (a model with dozens of pieces) would otherwise run past the
+   * bottom of the window with no way to reach the last entries, so the menu is
+   * capped to the room it has and scrolls — opening upward when the trigger
+   * sits low and there's more room above. Menus with flyout submenus are left
+   * alone: a scrolling container would clip the flyouts.
+   */
+  const scrollable = (): boolean => !props.items.some((i) => i.submenu && i.submenu.length > 0)
+  const measure = (): void => {
+    const anchor = panelRef?.parentElement
+    if (!panelRef || !anchor || !scrollable()) {
+      setMaxHeight(null)
+      setOpenUp(false)
+      return
+    }
+    const rect = anchor.getBoundingClientRect()
+    const below = window.innerHeight - rect.bottom - BOTTOM_CLEARANCE_PX
+    const above = rect.top - TOP_CLEARANCE_PX
+    const needed = panelRef.scrollHeight
+    const up = needed > below && below < MIN_COMFORTABLE_PX && above > below
+    setOpenUp(up)
+    setMaxHeight(Math.max(0, up ? above : below))
+  }
+  createEffect(() => {
+    if (!props.isOpen) {
+      return
+    }
+    void props.items
+    requestAnimationFrame(measure)
+    window.addEventListener('resize', measure)
+    onCleanup(() => window.removeEventListener('resize', measure))
+  })
 
   return (
     <Show when={props.isOpen}>
@@ -108,7 +151,13 @@ export default function DropdownMenu(props: DropdownMenuProps) {
       <div class="fixed inset-0 z-40" onClick={props.onClose} />
 
       <div
-        class={`absolute top-full mt-1.5 ${alignClass()} z-50 min-w-[240px] w-max max-w-[360px] p-1.5 bg-zinc-900/98 backdrop-blur-md border border-zinc-750/90 rounded-xl shadow-2xl shadow-black/80 select-none animate-in fade-in zoom-in-95 duration-100 ${
+        ref={panelRef}
+        style={
+          maxHeight() !== null
+            ? { 'max-height': `${maxHeight()}px`, 'overflow-y': 'auto' }
+            : undefined
+        }
+        class={`absolute ${openUp() ? 'bottom-full mb-1.5' : 'top-full mt-1.5'} ${alignClass()} z-50 min-w-[240px] w-max max-w-[360px] p-1.5 bg-zinc-900/98 backdrop-blur-md border border-zinc-750/90 rounded-xl shadow-2xl shadow-black/80 select-none animate-in fade-in zoom-in-95 duration-100 ${
           props.class ?? ''
         }`}
       >

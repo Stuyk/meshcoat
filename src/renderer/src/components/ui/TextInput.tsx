@@ -1,4 +1,4 @@
-import { Show, type JSX } from 'solid-js'
+import { Show, onMount, type JSX } from 'solid-js'
 import { XIcon } from '../icons'
 
 export interface TextInputProps {
@@ -6,6 +6,7 @@ export interface TextInputProps {
   onInput?: (value: string) => void
   onChange?: (value: string) => void
   onKeyDown?: (e: KeyboardEvent) => void
+  onBlur?: () => void
   placeholder?: string
   size?: 'xs' | 'sm' | 'md'
   mono?: boolean
@@ -31,6 +32,15 @@ const SIZE_CLASSES = {
 export default function TextInput(props: TextInputProps) {
   let inputRef: HTMLInputElement | undefined
   const size = () => props.size ?? 'sm'
+
+  // The autofocus attribute is only honoured once per document, so an input
+  // that appears later (an inline rename) would otherwise open unfocused and
+  // swallow nothing the artist types.
+  onMount(() => {
+    if (props.autoFocus ?? props.autofocus) {
+      inputRef?.focus()
+    }
+  })
 
   return (
     <div
@@ -63,6 +73,7 @@ export default function TextInput(props: TextInputProps) {
         onInput={(e) => props.onInput?.(e.currentTarget.value)}
         onChange={(e) => props.onChange?.(e.currentTarget.value)}
         onKeyDown={props.onKeyDown}
+        onBlur={() => props.onBlur?.()}
         class={`w-full bg-transparent text-[var(--text-main)] placeholder:text-[var(--text-muted)] outline-none border-none ${
           props.mono ? 'font-mono' : ''
         } ${SIZE_CLASSES[size()]}`}

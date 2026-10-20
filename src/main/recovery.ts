@@ -1,7 +1,23 @@
 import { app } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'fs'
-import { readFile, writeFile, mkdir, readdir, unlink, stat } from 'fs/promises'
+import { readFile, writeFile, mkdir, readdir, unlink, stat, rename } from 'fs/promises'
+
+/**
+ * Writes `data` to a sibling temp file and renames it over `path`, so a crash,
+ * power loss or full disk mid-write leaves the previous file intact instead of
+ * a truncated one. The rename is atomic on the same volume.
+ */
+export async function writeFileAtomic(path: string, data: string): Promise<void> {
+  const tempPath = `${path}.${process.pid}.tmp`
+  try {
+    await writeFile(tempPath, data, 'utf-8')
+    await rename(tempPath, path)
+  } catch (err) {
+    await unlink(tempPath).catch(() => {})
+    throw err
+  }
+}
 
 function getBackupsDir(): string {
   return join(app.getPath('userData'), 'backups')
@@ -28,7 +44,7 @@ export async function saveAutosave(data: string): Promise<boolean> {
   try {
     const dir = await ensureBackupsDir()
     const autosavePath = join(dir, 'autosave.json')
-    await writeFile(autosavePath, data, 'utf-8')
+    await writeFileAtomic(autosavePath, data)
 
     // Also write rolling backup file
     const rollingPath = join(dir, `backup-${Date.now()}.json`)

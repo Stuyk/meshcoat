@@ -15,7 +15,10 @@ export function createChannelViewMaterial(): THREE.ShaderMaterial {
       uIsNormal: { value: 0 },
       // 1 = the map carries premultiplied alpha (the base-color composite
       // does; the flattened data channels do not).
-      uPremultiplied: { value: 0 }
+      uPremultiplied: { value: 0 },
+      // -1 = show RGB; 1 / 2 = show only G / B as gray (a packed ORM map,
+      // which carries roughness in G and metalness in B).
+      uComponent: { value: -1 }
     },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
@@ -28,11 +31,14 @@ export function createChannelViewMaterial(): THREE.ShaderMaterial {
       uniform sampler2D tMap;
       uniform int uIsNormal;
       uniform int uPremultiplied;
+      uniform int uComponent;
       varying vec2 vUv;
       void main() {
         vec4 texel = texture2D(tMap, vUv);
         vec3 value = texel.rgb;
         if (uPremultiplied == 1 && texel.a > 0.0001) value /= texel.a;
+        if (uComponent == 1) value = vec3(texel.g);
+        else if (uComponent == 2) value = vec3(texel.b);
         gl_FragColor = vec4(value, 1.0);
         // The renderer re-encodes to the output color space on write; these are
         // raw stored values, so opt out of tone mapping only — a filmic curve

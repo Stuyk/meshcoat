@@ -12,7 +12,7 @@ export interface SurfaceHit {
   point: THREE.Vector3
   normal: THREE.Vector3
   uv: THREE.Vector2
-  /** Triangle index within the hit mesh's geometry (post-toNonIndexed numbering — see uvMesh.ts's aFaceId). */
+  /** Triangle index within the hit mesh's geometry (post-toNonIndexed numbering — see uvMesh.ts). */
   faceIndex: number
 }
 

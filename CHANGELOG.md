@@ -1,5 +1,22 @@
 # Changelog
 
+## v3.2.1
+
+### Changed
+- **Much Lower GPU Memory Use**: Painting now uses roughly a quarter of the video memory it did. A 4096 canvas with 10 layers (two with full PBR channels) went from about 7.4 GB to 1.75 GB, so larger canvases, more layers and multi-piece models fit on the same card without slowdowns or lost graphics contexts. Painted results are unchanged.
+- **Faster Undo**: Undo history only reads back layers that actually changed, and undo/redo only reloads the layers that differ, so both stay quick with many layers on a large canvas.
+- **Lighter Viewport on High-DPI Screens**: On 150%+ display scaling the viewport skips multisample anti-aliasing, which the higher pixel density already covers.
+
+### Fixed
+- **Driver Crash Could Wipe Layers** ([Closes #51](https://github.com/Stuyk/slip-texture-paint/issues/51)): Large canvases with many layers could run the GPU out of memory (now far less likely, see above). After the graphics context was lost, the 60-second autosave — and any save made afterwards — read every layer back as blank and overwrote the good copy. Saving and autosaving now refuse once the context is lost, leaving your last save and autosave intact, and project files and autosaves are written atomically so a crash mid-save can't truncate them.
+- **Layer List Dropdown Ran Off-Screen** ([Closes #48](https://github.com/Stuyk/slip-texture-paint/issues/48)): The piece picker above the layers panel (and other dropdowns) now stops above the status bar and scrolls when a model has many pieces.
+- **Renames Jumped to Another Layer or Piece** ([Closes #47](https://github.com/Stuyk/slip-texture-paint/issues/47)): Renaming a layer or piece and then clicking away — or switching to another one — now saves the name to the one you were editing, as if you'd pressed Enter.
+- **Save Dialogs Open Next to the Model** ([Closes #49](https://github.com/Stuyk/slip-texture-paint/issues/49)): Saving a project and exporting textures now start in the folder the model (.blend, .obj, .glb…) was opened from, instead of wherever the last save went. Without a model file, the last-used folder is still remembered.
+- **Roughness, Metalness and Normal Precision Loss**: Every stroke passed these channels through a color-corrected buffer, slightly shifting their values each time. Painting a metalness of 1.0 now stores exactly 1.0.
+- **GPU Memory Leaks**: Loading a model no longer leaves the previous model's geometry and textures in video memory, and imported PBR maps, previous material sets and replaced stencil images are now released.
+- **Stale Material Maps After Undo**: Undoing past the first roughness, metalness or normal stroke could leave the old map shading the model. It now returns to the neutral default.
+- **Brush Texture Could Revert to an Older Pick**: Choosing textures quickly could let a slower-loading earlier choice replace the newer one.
+
 ## v3.2.0
 
 ### Added

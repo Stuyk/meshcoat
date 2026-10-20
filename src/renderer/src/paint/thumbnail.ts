@@ -16,7 +16,8 @@ function ensureSetup(): void {
   }
   thumbTarget = new THREE.WebGLRenderTarget(THUMB_SIZE, THUMB_SIZE, {
     format: THREE.RGBAFormat,
-    type: THREE.UnsignedByteType
+    type: THREE.UnsignedByteType,
+    depthBuffer: false
   })
   thumbScene = new THREE.Scene()
   thumbCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
@@ -105,7 +106,9 @@ export function renderTextureToImageData(
       type: THREE.UnsignedByteType,
       // The composite is sRGB; without this the readback lands linear and
       // every mid-tone shows darker and more saturated than it paints.
-      colorSpace: THREE.SRGBColorSpace
+      colorSpace: THREE.SRGBColorSpace,
+      // A flat quad: nothing to depth-test.
+      depthBuffer: false
     })
     viewPixels = new Uint8Array(size * size * 4)
     viewImage = new ImageData(size, size)

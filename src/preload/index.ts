@@ -29,6 +29,8 @@ const api = {
     defaultPath?: string
     filters?: FileFilter[]
     key?: string
+    /** Open next to this file (e.g. the loaded model) when it exists on disk. */
+    nearPath?: string | null
   }): Promise<string | null> => ipcRenderer.invoke('file:save-dialog', options),
   saveProjectFile: (filePath: string, content: string): Promise<boolean> =>
     ipcRenderer.invoke('project:save-file', filePath, content),

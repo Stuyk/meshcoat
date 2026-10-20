@@ -9,6 +9,7 @@ import { brushPresets } from '../paint/brushPresets'
 import { PBR_CHANNELS, type PaintChannel } from '../paint/channels'
 import { renderTargetToPngDataUrl, packOrmDataUrl } from '../paint/exportTexture'
 import { OcclusionDepthPass } from '../paint/occlusionDepth'
+import { markContextLost } from '../paint/gpuResources'
 import { loadPaintTexture } from '../utils/textureLoad'
 import { toAssetUrl } from '../utils/assetUrl'
 import RadialPieMenu from '../components/RadialPieMenu'
@@ -79,7 +80,7 @@ export default function Viewport(props: ViewportProps): JSX.Element {
   // Total travel of the current press — under a few pixels it's a click,
   // which snaps the view to the clicked face instead of orbiting.
   let orbitGizmoTravel = 0
-  let navCubeCanvasRef: HTMLCanvasElement | undefined
+  let navCubeHostRef: HTMLDivElement | undefined
   let navCubeHandle: NavCubeHandle | undefined
 
   const onOrbitGizmoPointerMove = (e: PointerEvent): void => {
@@ -128,8 +129,8 @@ export default function Viewport(props: ViewportProps): JSX.Element {
     }
     rt.sceneHandle = createScene(rt.canvasRef)
 
-    if (navCubeCanvasRef) {
-      navCubeHandle = createNavCube(navCubeCanvasRef, 108)
+    if (navCubeHostRef) {
+      navCubeHandle = createNavCube(rt.sceneHandle.renderer, navCubeHostRef)
     }
 
     rt.gizmoHandle = createGizmo()
@@ -668,11 +669,15 @@ export default function Viewport(props: ViewportProps): JSX.Element {
         if (!rt.sceneHandle || !stack) {
           return undefined
         }
-        const target = stack.channelTarget(channel)
+        const target = stack.channelTexture(channel) ? stack.channelTarget(channel) : null
         if (!target) {
           return undefined
         }
-        return renderTargetToPngDataUrl(rt.sceneHandle.renderer, target)
+        return renderTargetToPngDataUrl(
+          rt.sceneHandle.renderer,
+          target,
+          stack.channelComponent(channel)
+        )
       },
       paintedChannels: (pieceIndex?: number) => stackFor(rt, pieceIndex)?.activeChannels() ?? [],
       exportCoverageMaskPng: (pieceIndex?: number) => {
@@ -688,12 +693,7 @@ export default function Viewport(props: ViewportProps): JSX.Element {
         if (!rt.sceneHandle || !stack) {
           return undefined
         }
-        return packOrmDataUrl(
-          rt.sceneHandle.renderer,
-          stack.channelTarget('roughness'),
-          stack.channelTarget('metalness'),
-          stack.textureSize
-        )
+        return packOrmDataUrl(rt.sceneHandle.renderer, stack.ormMapTarget(), stack.textureSize)
       },
       setViewMode: (mode) => {
         rt.viewMode = mode
@@ -797,6 +797,12 @@ export default function Viewport(props: ViewportProps): JSX.Element {
   const boundWheel = (e: WheelEvent): void => onWheel(rt, e)
   const onContextLost = (): void => {
     console.error('WebGL context lost')
+    // From here on every render target reads back as zeros (and comes back
+    // blank if the context is restored), so block anything that would save
+    // that over the artist's real work.
+    if (rt.sceneHandle) {
+      markContextLost(rt.sceneHandle.renderer)
+    }
     window.api.reportGpuContextLost()
   }
   const onPointerLeave = (): void => {
@@ -904,6 +910,12 @@ export default function Viewport(props: ViewportProps): JSX.Element {
       return
     }
     loadPaintTexture(rt.textureLoader, path, (texture) => {
+      // A slower decode for an older pick must not replace (and free) the
+      // texture of a newer one.
+      if (brush.texturePath() !== path) {
+        texture.dispose()
+        return
+      }
       texture.colorSpace = THREE.SRGBColorSpace
       texture.wrapS = THREE.RepeatWrapping
       texture.wrapT = THREE.RepeatWrapping
@@ -925,6 +937,10 @@ export default function Viewport(props: ViewportProps): JSX.Element {
   // carry numbers rather than something to look at.
   createEffect(() => {
     const set = brush.materialSet()
+    // The previous set's maps are referenced nowhere else once replaced.
+    for (const texture of Object.values(rt.channelMaps)) {
+      texture?.dispose()
+    }
     rt.channelMaps = {}
     if (!set) {
       return
@@ -969,7 +985,10 @@ export default function Viewport(props: ViewportProps): JSX.Element {
         texture.needsUpdate = true
         // The effect may have re-run for a different set while this decoded.
         if (brush.materialSet()?.id === set.id) {
+          rt.channelMaps[channel]?.dispose()
           rt.channelMaps[channel] = texture
+        } else {
+          texture.dispose()
         }
       })
     }
@@ -1015,20 +1034,31 @@ export default function Viewport(props: ViewportProps): JSX.Element {
     }
   }
 
+  const replaceStencilTexture = (next: THREE.Texture | null): void => {
+    if (rt.stencilTexture && rt.stencilTexture !== next) {
+      rt.stencilTexture.dispose()
+    }
+    rt.stencilTexture = next
+  }
+
   createEffect(() => {
     const path = stencil.texturePath()
     if (!path) {
-      rt.stencilTexture = null
+      replaceStencilTexture(null)
       return
     }
     rt.textureLoader.load(toAssetUrl(path), (texture) => {
+      if (stencil.texturePath() !== path) {
+        texture.dispose()
+        return
+      }
       texture.colorSpace = THREE.SRGBColorSpace
       // Clamped, not repeating: the shader already rejects texels outside the
       // stencil rect, and wrapping would smear the edge pixels across the
       // whole viewport if that test were ever loosened.
       texture.wrapS = THREE.ClampToEdgeWrapping
       texture.wrapT = THREE.ClampToEdgeWrapping
-      rt.stencilTexture = texture
+      replaceStencilTexture(texture)
       const img = texture.image as { width?: number; height?: number } | undefined
       if (img?.width && img?.height) {
         stencil.setStencilImageAspect(img.width / img.height)
@@ -1217,12 +1247,10 @@ export default function Viewport(props: ViewportProps): JSX.Element {
       </Show>
       {/* Orbit nav cube: drag to spin the camera around the current pivot
           (selection center, or the whole model when nothing's selected). */}
-      <canvas
+      <div
         ref={(el) => {
-          navCubeCanvasRef = el
+          navCubeHostRef = el
         }}
-        width={108}
-        height={108}
         class="absolute top-3 right-3 z-20 w-[108px] h-[108px] cursor-grab active:cursor-grabbing select-none touch-none"
         title="Drag to orbit camera, click a face to snap to that view"
         onPointerDown={onOrbitGizmoPointerDown}

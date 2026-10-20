@@ -113,10 +113,6 @@ export class ViewportRuntime {
    */
   lastMoveEvent: PointerEvent | null = null
 
-  /** Cached flipped/premultiplied copy behind getPreviewTexture, keyed by source. */
-  previewTextureSource: THREE.Texture | null = null
-  previewTextureClone: THREE.Texture | null = null
-
   /**
    * Which piece is being painted, and which one the cursor is over. Shown as a
    * viewport badge because the layers panel alone doesn't answer the question

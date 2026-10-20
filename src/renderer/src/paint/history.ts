@@ -1,10 +1,12 @@
 import { createSignal, type Accessor } from 'solid-js'
 import type { LayerStack, StackSnapshot } from './layers'
+import { GpuContextLostError } from './gpuResources'
 
 /** Long history by design (per user spec) — capped only to bound memory, not to feel short. */
 const MAX_HISTORY = 100
-/** Each snapshot copies every layer's full-res texture into system RAM (see
- * PaintEngine.createCpuSnapshot()) — cap total memory spent on undo history
+/** Each snapshot holds every layer's full-res pixels in system RAM (see
+ * PaintEngine.createCpuSnapshot(); layers that didn't change share buffers
+ * with the previous entry) — cap total memory spent on undo history
  * (per stack) rather than a fixed entry count, since a few layers at 8192px
  * would otherwise happily allocate gigabytes.
  *
@@ -15,6 +17,32 @@ const MAX_HISTORY = 100
  * context-loss risk, and the OS can page it out under pressure), which is why
  * this budget is set well above the old GPU-memory one. */
 const MAX_HISTORY_BYTES = 3 * 1024 * 1024 * 1024
+
+/**
+ * Bytes actually held by a run of snapshots. A layer that didn't change
+ * between records hands back the very same buffers (see
+ * PaintEngine.createCpuSnapshot), so those are counted once — and every PBR
+ * channel buffer is counted, not just base color.
+ */
+function historyBytes(snapshots: readonly StackSnapshot[]): number {
+  const seen = new Set<Uint8Array>()
+  let total = 0
+  const add = (data: Uint8Array | undefined): void => {
+    if (data && !seen.has(data)) {
+      seen.add(data)
+      total += data.byteLength
+    }
+  }
+  for (const snapshot of snapshots) {
+    for (const layer of snapshot.layers) {
+      add(layer.pixels.data)
+      for (const data of Object.values(layer.pixels.channels ?? {})) {
+        add(data)
+      }
+    }
+  }
+  return total
+}
 
 /**
  * Undo/redo for a LayerStack. Records every layer's pixel content to a CPU
@@ -40,18 +68,39 @@ export class HistoryManager {
     this.versionSignal[1]((v) => v + 1)
   }
 
+  /**
+   * Snapshots the stack, or returns null once the GPU context is lost: the
+   * pixels can't be read back any more, and a blank snapshot restored later
+   * would wipe the layers.
+   */
+  private capture(): StackSnapshot | null {
+    try {
+      return this.layerStack.captureState()
+    } catch (err) {
+      if (err instanceof GpuContextLostError) {
+        return null
+      }
+      throw err
+    }
+  }
+
   /** Call immediately before a mutation commits, to snapshot the pre-mutation state. */
   record(): void {
+    const snapshot = this.capture()
+    if (!snapshot) {
+      return
+    }
     for (const snap of this.redoStack) {
       this.layerStack.disposeSnapshot(snap)
     }
     this.redoStack = []
-    this.undoStack.push(this.layerStack.captureState())
+    this.undoStack.push(snapshot)
 
-    const perSnapshotBytes = this.layerStack.layers.length * this.layerStack.textureSize ** 2 * 4
-    const byteCap = Math.max(1, Math.floor(MAX_HISTORY_BYTES / Math.max(1, perSnapshotBytes)))
-    const entryCap = Math.min(MAX_HISTORY, byteCap)
-    while (this.undoStack.length > entryCap) {
+    // Never below one entry, regardless of how large a single snapshot is.
+    while (
+      this.undoStack.length > 1 &&
+      (this.undoStack.length > MAX_HISTORY || historyBytes(this.undoStack) > MAX_HISTORY_BYTES)
+    ) {
       const dropped = this.undoStack.shift()
       if (dropped) {
         this.layerStack.disposeSnapshot(dropped)
@@ -69,22 +118,30 @@ export class HistoryManager {
   }
 
   undo(): void {
-    const prev = this.undoStack.pop()
-    if (!prev) {
+    if (this.undoStack.length === 0) {
       return
     }
-    this.redoStack.push(this.layerStack.captureState())
+    const current = this.capture()
+    if (!current) {
+      return
+    }
+    const prev = this.undoStack.pop()!
+    this.redoStack.push(current)
     this.layerStack.restoreState(prev)
     this.layerStack.disposeSnapshot(prev)
     this.bump()
   }
 
   redo(): void {
-    const next = this.redoStack.pop()
-    if (!next) {
+    if (this.redoStack.length === 0) {
       return
     }
-    this.undoStack.push(this.layerStack.captureState())
+    const current = this.capture()
+    if (!current) {
+      return
+    }
+    const next = this.redoStack.pop()!
+    this.undoStack.push(current)
     this.layerStack.restoreState(next)
     this.layerStack.disposeSnapshot(next)
     this.bump()
