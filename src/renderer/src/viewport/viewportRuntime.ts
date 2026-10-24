@@ -97,6 +97,23 @@ export class ViewportRuntime {
   /** Parallel per-triangle normals (9 floats/triangle) — lets the projector preview take the scene lighting. */
   faceNormals: Float32Array | undefined
 
+  /** True while a freehand lasso is being dragged (see viewportLasso.ts). */
+  lassoDragging = false
+  /** Clone stamp source, as a surface point so it survives orbiting (see viewportClone.ts). */
+  cloneSource: THREE.Vector3 | null = null
+  /** The clone stroke in progress: its fixed screen offset and the camera it was measured with. */
+  cloneStroke: {
+    offset: THREE.Vector2
+    viewProjMatrix: THREE.Matrix4
+    canvasWidth: number
+    canvasHeight: number
+    lastCursor: { x: number; y: number }
+  } | null = null
+  /** Screen-sized UV render for the clone stroke; kept between strokes while the tool is in use. */
+  cloneUvBuffer: THREE.WebGLRenderTarget | null = null
+  /** The pixels a clone stroke copies from, frozen at stroke start. */
+  cloneSourceSnapshot: THREE.WebGLRenderTarget | null = null
+
   resizeDrag: { shift: boolean; lastX: number; lastY: number } | null = null
   ctrlFaceSelecting = false
   ctrlFaceDeselecting = false

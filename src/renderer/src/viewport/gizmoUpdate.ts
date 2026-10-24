@@ -229,7 +229,13 @@ function applyToolVisibility(
     }
   }
 
-  if (tool === 'brush' || tool === 'eraser' || tool === 'line' || tool === 'effect') {
+  if (
+    tool === 'brush' ||
+    tool === 'eraser' ||
+    tool === 'line' ||
+    tool === 'effect' ||
+    tool === 'clone'
+  ) {
     gizmoHandle.group.visible = true
     gizmoHandle.eyedropperReticle.visible = false
     gizmoHandle.bucketReticle.visible = false

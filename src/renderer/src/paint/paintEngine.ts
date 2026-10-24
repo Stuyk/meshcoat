@@ -135,6 +135,8 @@ export interface StrokeParams {
   uvDab?: UvDab | null
   /** Camera-space occlusion test (see occlusionDepth.ts) — rejects paint on faces not actually visible from the paint camera, null/undefined = unrestricted. */
   occlusion?: OcclusionParams | null
+  /** Clone stamp: paint the source pixels at a screen offset instead of a color (see viewportClone.ts). */
+  clone?: CloneParams | null
   /** Screen-space stencil to paint through (see stencil.ts); null = unrestricted. */
   stencil?: StencilParams | null
   /**
@@ -175,6 +177,19 @@ export interface StencilParams {
   canvasWidth: number
   canvasHeight: number
   /** Camera view-projection, so the shader can place each texel on screen. */
+  viewProjMatrix: THREE.Matrix4
+}
+
+export interface CloneParams {
+  /** Screen-sized UV render: rg = surface UV under each pixel, a = 1 where the painted piece is frontmost. */
+  uvBuffer: THREE.Texture
+  /** Base-color pixels to clone from, frozen at stroke start. */
+  source: THREE.Texture
+  /** Destination minus source, in canvas CSS pixels. */
+  offset: THREE.Vector2
+  canvasWidth: number
+  canvasHeight: number
+  /** The camera the UV buffer was rendered from. */
   viewProjMatrix: THREE.Matrix4
 }
 
@@ -621,6 +636,20 @@ export class PaintEngine {
     attr.needsUpdate = true
   }
 
+  /**
+   * Points a pass at the piece's lasso selection, if it has one. Set on every
+   * pass rather than once: the selection lives on the shared surface and can
+   * change between any two dabs.
+   */
+  private bindPixelSelection(u: {
+    uPixelSelection: THREE.IUniform<THREE.Texture | null>
+    uUsePixelSelection: THREE.IUniform<number>
+  }): void {
+    const selection = this.surface.pixelSelection
+    u.uPixelSelection.value = selection
+    u.uUsePixelSelection.value = selection ? 1 : 0
+  }
+
   get texture(): THREE.Texture {
     return this.buf('baseColor').read.texture
   }
@@ -717,8 +746,20 @@ export class PaintEngine {
     if (restrict) {
       this.setSelectionMask(params.restrictFaces)
     }
+    this.bindPixelSelection(u)
 
     u.uStencilStamp.value = 0
+    if (params.clone) {
+      u.uCloneMode.value = 1
+      u.uCloneUv.value = params.clone.uvBuffer
+      u.uCloneSource.value = params.clone.source
+      u.uCloneOffset.value.copy(params.clone.offset)
+      u.uCanvasSize.value.set(params.clone.canvasWidth, params.clone.canvasHeight)
+    } else {
+      u.uCloneMode.value = 0
+      u.uCloneUv.value = null
+      u.uCloneSource.value = null
+    }
     if (params.stencil) {
       u.uUseStencil.value = 1
       u.uStencilTex.value = params.stencil.texture
@@ -749,6 +790,11 @@ export class PaintEngine {
     } else {
       u.uUseOcclusion.value = 0
       u.uOcclusionDepthTex.value = null
+    }
+    if (params.clone) {
+      // Same reason as the stencil: the clone offset is measured through this
+      // camera even when the occlusion test is off.
+      u.uCameraViewProjMatrix.value.copy(params.clone.viewProjMatrix)
     }
 
     // Arbitrary but stable tangent basis for the brush's local plane, built
@@ -787,8 +833,11 @@ export class PaintEngine {
     u.uChannelMode.value = 0
     u.uUseChannelMap.value = 0
     // The material is shared with fill and the stencil stamp; a texture-space
-    // dab must not leak into them.
+    // dab — or a clone source — must not leak into them.
     u.uUvDab.value = 0
+    u.uCloneMode.value = 0
+    u.uCloneUv.value = null
+    u.uCloneSource.value = null
     this._contentVersion++
   }
 
@@ -837,6 +886,7 @@ export class PaintEngine {
     if (restrict) {
       this.setSelectionMask(params.restrictFaces)
     }
+    this.bindPixelSelection(u)
 
     if (params.occlusion) {
       u.uUseOcclusion.value = 1
@@ -927,6 +977,7 @@ export class PaintEngine {
     if (restrict) {
       this.setSelectionMask(params.restrictFaces)
     }
+    this.bindPixelSelection(u)
 
     u.uUseStencil.value = 0
     u.uStencilStamp.value = 1
@@ -1012,7 +1063,9 @@ export class PaintEngine {
       // A material-set fill goes through the textured path even when the base
       // color itself is a flat swatch, since the data channels still have maps
       // of their own to tile across the model.
-      if (texture || maps?.[channel]) {
+      // The flat path is a full-sheet quad that knows nothing about masks, so
+      // a lasso selection sends even a plain color through the shader too.
+      if (texture || maps?.[channel] || this.surface.pixelSelection) {
         this.fillChannelWithTexture(
           channel,
           payload,
@@ -1153,6 +1206,7 @@ export class PaintEngine {
     u.uBrushOpacity.value = alpha
     u.uFillMode.value = 1
     u.uRestrictFace.value = faces ? 1 : 0
+    this.bindPixelSelection(u)
     // A bucket fill is not a brush dab: clear the per-stroke gates so it can't
     // inherit the stencil or occlusion state left by the last stroke.
     u.uUseStencil.value = 0
@@ -1545,8 +1599,13 @@ export class PaintEngine {
 
   /** Creates a snapshot clone of the current base-color target so preview can be reverted. */
   createSnapshot(): THREE.WebGLRenderTarget {
+    return this.snapshotOf(this.buf('baseColor').read.texture)
+  }
+
+  /** A new base-color-format target holding a copy of `source` (any sheet of this size). */
+  snapshotOf(source: THREE.Texture): THREE.WebGLRenderTarget {
     const snapshot = createRenderTarget(this.textureSize)
-    this.blit(this.buf('baseColor').read.texture, snapshot)
+    this.blit(source, snapshot)
     return snapshot
   }
 

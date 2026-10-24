@@ -5,6 +5,8 @@ interface Spec {
   name: string
   mask?: boolean
   clip?: string
+  /** Folder name; folders are created in the order first seen. */
+  folder?: string
 }
 
 // Specs are listed top → bottom, matching the layers panel.
@@ -12,6 +14,12 @@ function makeStack(specs: Spec[]): LayerStack {
   const stack = Object.create(LayerStack.prototype) as LayerStack
   const bottomUp = [...specs].reverse()
   const ids = new Map(bottomUp.map((s, i) => [s.name, i + 1]))
+  const folderIds = new Map<string, number>()
+  for (const s of specs) {
+    if (s.folder && !folderIds.has(s.folder)) {
+      folderIds.set(s.folder, folderIds.size + 1)
+    }
+  }
   stack.layers = bottomUp.map(
     (s) =>
       ({
@@ -20,18 +28,24 @@ function makeStack(specs: Spec[]): LayerStack {
         visible: true,
         opacity: 1,
         isMask: s.mask,
-        clippedToMaskId: s.clip ? ids.get(s.clip) : undefined
+        clippedToMaskId: s.clip ? ids.get(s.clip) : undefined,
+        folderId: s.folder ? folderIds.get(s.folder) : undefined,
+        engine: { dispose: () => {} }
       }) as unknown as Layer
   )
+  stack.folders = [...folderIds].map(([name, id]) => ({ id, name, visible: true, opacity: 1 }))
+  stack.activeId = stack.layers[0].id
   ;(stack as unknown as { recomposite: () => void }).recomposite = () => {}
   return stack
 }
 
 function view(stack: LayerStack): string[] {
   const byId = new Map(stack.layers.map((l) => [l.id, l.name]))
-  return [...stack.layers]
-    .reverse()
-    .map((l) => (l.clippedToMaskId ? `${l.name}>${byId.get(l.clippedToMaskId)}` : l.name))
+  const folderName = new Map((stack.folders ?? []).map((f) => [f.id, f.name]))
+  return [...stack.layers].reverse().map((l) => {
+    const name = l.clippedToMaskId ? `${l.name}>${byId.get(l.clippedToMaskId)}` : l.name
+    return l.folderId !== undefined ? `${folderName.get(l.folderId)}/${name}` : name
+  })
 }
 
 function move(stack: LayerStack, name: string, dir: 'up' | 'down'): void {
@@ -102,5 +116,92 @@ describe('LayerStack.moveLayer', () => {
     const s = makeStack(group)
     s.setClipToMask(s.layers.find((l) => l.name === 'A')!.id, 0)
     expect(view(s)).toEqual(['Top', 'Mask', 'B>Mask', 'A', 'Base'])
+  })
+})
+
+const foldered: Spec[] = [
+  { name: 'Top' },
+  { name: 'F1', folder: 'Dirt' },
+  { name: 'Mask', mask: true, folder: 'Dirt' },
+  { name: 'A', clip: 'Mask', folder: 'Dirt' },
+  { name: 'Base' }
+]
+
+function id(stack: LayerStack, name: string): number {
+  return stack.layers.find((l) => l.name === name)!.id
+}
+
+describe('LayerStack folders', () => {
+  it('a layer at the folder edge steps out before it moves', () => {
+    const s = makeStack(foldered)
+    move(s, 'F1', 'up')
+    expect(view(s)).toEqual(['Top', 'F1', 'Dirt/Mask', 'Dirt/A>Mask', 'Base'])
+  })
+
+  it('a mask group at the folder edge steps out as a whole', () => {
+    const s = makeStack(foldered)
+    move(s, 'Mask', 'down')
+    expect(view(s)).toEqual(['Top', 'Dirt/F1', 'Mask', 'A>Mask', 'Base'])
+  })
+
+  it('a layer beside a folder steps into it', () => {
+    const s = makeStack(foldered)
+    move(s, 'Top', 'down')
+    expect(view(s)).toEqual(['Dirt/Top', 'Dirt/F1', 'Dirt/Mask', 'Dirt/A>Mask', 'Base'])
+    move(s, 'Base', 'up')
+    expect(view(s)).toEqual(['Dirt/Top', 'Dirt/F1', 'Dirt/Mask', 'Dirt/A>Mask', 'Dirt/Base'])
+  })
+
+  it('moves a folder past its neighbors as one block', () => {
+    const s = makeStack(foldered)
+    s.moveFolder(s.folders[0].id, 'up')
+    expect(view(s)).toEqual(['Dirt/F1', 'Dirt/Mask', 'Dirt/A>Mask', 'Top', 'Base'])
+    s.moveFolder(s.folders[0].id, 'down')
+    s.moveFolder(s.folders[0].id, 'down')
+    expect(view(s)).toEqual(['Top', 'Base', 'Dirt/F1', 'Dirt/Mask', 'Dirt/A>Mask'])
+  })
+
+  it('swaps two adjacent folders whole', () => {
+    const s = makeStack([
+      { name: 'A', folder: 'One' },
+      { name: 'B', folder: 'Two' },
+      { name: 'C', folder: 'Two' }
+    ])
+    s.moveFolder(s.folders[1].id, 'up')
+    expect(view(s)).toEqual(['Two/B', 'Two/C', 'One/A'])
+  })
+
+  it('groups a clipped layer together with its whole mask group', () => {
+    const s = makeStack(group)
+    s.groupIntoFolder(id(s, 'A'), 'G')
+    expect(view(s)).toEqual(['Top', 'G/Mask', 'G/A>Mask', 'G/B>Mask', 'Base'])
+  })
+
+  it('does not nest folders', () => {
+    const s = makeStack(foldered)
+    const before = s.folders.length
+    s.groupIntoFolder(id(s, 'F1'))
+    expect(s.folders.length).toBe(before)
+  })
+
+  it('ungroup keeps the layers in place', () => {
+    const s = makeStack(foldered)
+    s.ungroupFolder(s.folders[0].id)
+    expect(view(s)).toEqual(['Top', 'F1', 'Mask', 'A>Mask', 'Base'])
+    expect(s.folders).toEqual([])
+  })
+
+  it('removing a folder deletes its layers', () => {
+    const s = makeStack(foldered)
+    s.removeFolder(s.folders[0].id)
+    expect(view(s)).toEqual(['Top', 'Base'])
+    expect(s.folders).toEqual([])
+  })
+
+  it('drops a folder once its last member leaves', () => {
+    const s = makeStack([{ name: 'Top' }, { name: 'Only', folder: 'Solo' }, { name: 'Base' }])
+    move(s, 'Only', 'up')
+    expect(view(s)).toEqual(['Top', 'Only', 'Base'])
+    expect(s.folders).toEqual([])
   })
 })

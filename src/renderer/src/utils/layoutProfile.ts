@@ -79,6 +79,8 @@ const VALID_TOOLS: Set<string> = new Set([
   'eraser',
   'fill',
   'gradient',
+  'lasso',
+  'clone',
   'effect',
   'material',
   'eyedropper',

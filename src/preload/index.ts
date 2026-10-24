@@ -32,12 +32,19 @@ const api = {
     /** Open next to this file (e.g. the loaded model) when it exists on disk. */
     nearPath?: string | null
   }): Promise<string | null> => ipcRenderer.invoke('file:save-dialog', options),
-  saveProjectFile: (filePath: string, content: string): Promise<boolean> =>
-    ipcRenderer.invoke('project:save-file', filePath, content),
-  readProjectFile: (filePath: string): Promise<string | null> =>
-    ipcRenderer.invoke('project:read-file', filePath),
-  saveRecovery: (content: string): Promise<boolean> => ipcRenderer.invoke('recovery:save', content),
-  loadRecovery: (): Promise<{ data: string; timestamp: number } | null> =>
+  /** Streamed write to `target` (temp file + rename on commit) — see renderer utils/fileIo. */
+  beginFileWrite: (target: string): Promise<number> =>
+    ipcRenderer.invoke('file:write-begin', target),
+  writeFileChunk: (id: number, chunk: Uint8Array): Promise<void> =>
+    ipcRenderer.invoke('file:write-chunk', id, chunk),
+  commitFileWrite: (id: number): Promise<boolean> => ipcRenderer.invoke('file:write-commit', id),
+  abortFileWrite: (id: number): Promise<void> => ipcRenderer.invoke('file:write-abort', id),
+  findExistingFile: (paths: string[]): Promise<string | null> =>
+    ipcRenderer.invoke('file:find-existing', paths),
+  recoveryTarget: (): Promise<string> => ipcRenderer.invoke('recovery:target'),
+  commitRecovery: (writeId: number): Promise<boolean> =>
+    ipcRenderer.invoke('recovery:commit', writeId),
+  loadRecovery: (): Promise<{ path: string; timestamp: number } | null> =>
     ipcRenderer.invoke('recovery:load'),
   clearRecovery: (): Promise<boolean> => ipcRenderer.invoke('recovery:clear'),
   getRecentProjects: (): Promise<RecentEntry[]> => ipcRenderer.invoke('project:recent'),
@@ -81,9 +88,13 @@ const api = {
     ipcRenderer.invoke('clipboard:read-image'),
   readBinaryFile: (filePath: string): Promise<Uint8Array | null> =>
     ipcRenderer.invoke('file:read-binary', filePath),
-  loadBrushPacks: (): Promise<any | null> => ipcRenderer.invoke('brushes:load'),
-  saveBrushPacks: (packsJson: string): Promise<boolean> =>
-    ipcRenderer.invoke('brushes:save', packsJson),
+  listBrushPackFiles: (): Promise<{ files: string[]; legacy: string | null }> =>
+    ipcRenderer.invoke('brushes:list'),
+  brushPackPath: (packName: string): Promise<string> =>
+    ipcRenderer.invoke('brushes:pack-path', packName),
+  deleteBrushPackFile: (packName: string): Promise<boolean> =>
+    ipcRenderer.invoke('brushes:delete', packName),
+  retireLegacyBrushPacks: (): Promise<void> => ipcRenderer.invoke('brushes:retire-legacy'),
   detectBlender: (): Promise<{ path: string | null; version?: string }> =>
     ipcRenderer.invoke('blender:detect'),
   setBlenderPath: (
@@ -120,7 +131,11 @@ const api = {
   },
   confirmClose: (): void => ipcRenderer.send('app:close-confirmed'),
   toggleDevTools: (): void => ipcRenderer.send('devtools:toggle'),
-  reportGpuContextLost: (): void => ipcRenderer.send('app:gpu-context-lost')
+  reportGpuContextLost: (): void => ipcRenderer.send('app:gpu-context-lost'),
+  /** Appends a line to the app log file. Args must already be cloneable (see renderer utils/logger). */
+  writeLog: (level: 'debug' | 'info' | 'warn' | 'error', scope: string, args: unknown[]): void =>
+    ipcRenderer.send('log:write', level, scope, args),
+  openLogsFolder: (): Promise<boolean> => ipcRenderer.invoke('log:open-folder')
 }
 
 contextBridge.exposeInMainWorld('electron', electronAPI)

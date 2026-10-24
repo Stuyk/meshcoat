@@ -1,8 +1,13 @@
 import { gradient } from '../paint/gradient'
+import { lasso } from '../paint/pixelSelection'
+import { clone } from '../paint/clone'
+import { cancelLasso, clearPixelSelection, invertPixelSelection } from './viewportLasso'
+import { clearCloneSource, releaseCloneBuffers, updateCloneMarker } from './viewportClone'
 import { onMount, onCleanup, createEffect, untrack, Show, type JSX } from 'solid-js'
 import * as THREE from 'three'
 import { createScene } from './scene'
-import { createDefaultTestModel } from './modelLoader'
+import { createDefaultTestModel, type LoadedModel } from './modelLoader'
+import type { EdgeWearParams } from '../paint/paintEngine'
 import { brush, selectAllFaces, invertFaceSelection, setTextureScale } from '../paint/brush'
 import { stencil, setStencilTransforming } from '../paint/stencil'
 import { brushPresets } from '../paint/brushPresets'
@@ -57,6 +62,9 @@ import {
   type StampDiagnostics,
   buildGizmoCtx
 } from './viewportPointer'
+import { createLogger } from '../utils/logger'
+
+const logger = createLogger('viewport')
 
 export type {
   InitialPbrTextures,
@@ -724,11 +732,19 @@ export default function Viewport(props: ViewportProps): JSX.Element {
       },
       getTotalFaces: () => (rt.facePositions ? rt.facePositions.length / 9 : 0),
       stampStencil: () => stampStencilNow(rt),
+      clearPixelSelection: () => clearPixelSelection(rt),
+      invertPixelSelection: () => invertPixelSelection(rt),
+      hasPixelSelection: () => !!rt.layerStack?.pixelSelection,
+      clearCloneSource: () => clearCloneSource(rt),
       previewEdgeWear: (options, asNewLayer = false, newLayerBackground = 'transparent') => {
         if (!rt.layerStack) {
           return
         }
-        rt.layerStack.previewEdgeWear(options, asNewLayer, newLayerBackground)
+        rt.layerStack.previewEdgeWear(
+          scaleEdgeWearToModel(rt, options),
+          asNewLayer,
+          newLayerBackground
+        )
         props.onLayersChanged?.()
       },
       cancelEdgeWearPreview: () => {
@@ -742,7 +758,11 @@ export default function Viewport(props: ViewportProps): JSX.Element {
         if (!rt.layerStack) {
           return
         }
-        rt.layerStack.commitEdgeWear(options, asNewLayer, newLayerBackground)
+        rt.layerStack.commitEdgeWear(
+          scaleEdgeWearToModel(rt, options),
+          asNewLayer,
+          newLayerBackground
+        )
         props.onLayersChanged?.()
       },
       undo: () => {
@@ -796,7 +816,7 @@ export default function Viewport(props: ViewportProps): JSX.Element {
   const boundDblClick = (e: MouseEvent): void => onDblClick(rt, e)
   const boundWheel = (e: WheelEvent): void => onWheel(rt, e)
   const onContextLost = (): void => {
-    console.error('WebGL context lost')
+    logger.error('WebGL context lost')
     // From here on every render target reads back as zeros (and comes back
     // blank if the context is restored), so block anything that would save
     // that over the artist's real work.
@@ -825,6 +845,23 @@ export default function Viewport(props: ViewportProps): JSX.Element {
       rt.hoverFillMesh.visible = false
     }
     rt.setEyedropperPreview((prev) => ({ ...prev, visible: false }))
+  })
+
+  createEffect(() => {
+    const tool = props.tool()
+    untrack(() => {
+      // A half-drawn lasso belongs to the tool that started it.
+      if (tool !== 'lasso') {
+        cancelLasso(rt)
+      }
+      // The clone UV buffer is viewport-sized; don't hold it for other tools.
+      if (tool !== 'clone') {
+        releaseCloneBuffers(rt)
+        clone.setMarker(null)
+      } else {
+        updateCloneMarker(rt)
+      }
+    })
   })
 
   createEffect(() => {
@@ -1245,6 +1282,60 @@ export default function Viewport(props: ViewportProps): JSX.Element {
           </svg>
         )}
       </Show>
+      {/* Lasso guide: the path being drawn, dashed while it is still open. */}
+      <Show when={lasso.path()}>
+        {(path) => (
+          <svg class="absolute inset-0 w-full h-full pointer-events-none z-10">
+            <polygon
+              points={path()
+                .map((p) => `${p.x},${p.y}`)
+                .join(' ')}
+              fill={
+                lasso.pathMode() === 'subtract'
+                  ? 'rgba(248,113,113,0.12)'
+                  : 'rgba(255,209,102,0.12)'
+              }
+              stroke="black"
+              stroke-width="3"
+              stroke-opacity="0.55"
+              stroke-linejoin="round"
+            />
+            <polygon
+              points={path()
+                .map((p) => `${p.x},${p.y}`)
+                .join(' ')}
+              fill="none"
+              stroke={lasso.pathMode() === 'subtract' ? '#f87171' : 'white'}
+              stroke-width="1.5"
+              stroke-dasharray="5 4"
+              stroke-linejoin="round"
+            />
+            <Show when={lasso.shape() === 'polygon'}>
+              <circle
+                cx={path()[0].x}
+                cy={path()[0].y}
+                r="5"
+                fill="white"
+                stroke="black"
+                stroke-width="1.5"
+              />
+            </Show>
+          </svg>
+        )}
+      </Show>
+      {/* Clone source crosshair. */}
+      <Show when={props.tool() === 'clone' && clone.marker()}>
+        {(m) => (
+          <svg class="absolute inset-0 w-full h-full pointer-events-none z-10">
+            <g transform={`translate(${m().x} ${m().y})`}>
+              <circle r="9" fill="none" stroke="black" stroke-width="3" stroke-opacity="0.6" />
+              <circle r="9" fill="none" stroke="white" stroke-width="1.5" />
+              <line x1="-14" y1="0" x2="14" y2="0" stroke="white" stroke-width="1.5" />
+              <line x1="0" y1="-14" x2="0" y2="14" stroke="white" stroke-width="1.5" />
+            </g>
+          </svg>
+        )}
+      </Show>
       {/* Orbit nav cube: drag to spin the camera around the current pivot
           (selection center, or the whole model when nothing's selected). */}
       <div
@@ -1386,4 +1477,42 @@ export default function Viewport(props: ViewportProps): JSX.Element {
       </Show>
     </>
   )
+}
+
+/** Bounding-box diagonal of the default test sphere/cube, which the edge wear presets were tuned on. */
+const EDGE_WEAR_REFERENCE_SIZE = 2
+const modelSizeCache = new WeakMap<LoadedModel, number>()
+
+/**
+ * Edge wear width and noise frequency are world-space distances, but models
+ * arrive in whatever units they were authored in: the same preset was a
+ * hairline on a model authored in centimeters and a flood on a small one in
+ * meters, so wear and dirt often didn't show at all on first preview. Scaling both by
+ * the model's size makes every preset look the same on any model.
+ */
+function scaleEdgeWearToModel(rt: ViewportRuntime, options: EdgeWearParams): EdgeWearParams {
+  const model = rt.currentModel
+  if (!model) {
+    return options
+  }
+  let size = modelSizeCache.get(model)
+  if (size === undefined) {
+    // Meshes only: the symmetry guide hangs off the model root too.
+    const box = new THREE.Box3()
+    for (const mesh of model.meshes) {
+      box.expandByObject(mesh)
+    }
+    size = box.isEmpty() ? EDGE_WEAR_REFERENCE_SIZE : box.getSize(new THREE.Vector3()).length()
+    modelSizeCache.set(model, size)
+  }
+  const scale = size > 1e-6 ? size / EDGE_WEAR_REFERENCE_SIZE : 1
+  return {
+    ...options,
+    wearWidth: options.wearWidth * scale,
+    noiseScale: options.noiseScale / scale,
+    textureScale:
+      options.textureMapping === 'triplanar' && options.textureScale !== undefined
+        ? options.textureScale / scale
+        : options.textureScale
+  }
 }

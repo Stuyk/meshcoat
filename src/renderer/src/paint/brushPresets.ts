@@ -6,7 +6,11 @@ import {
   type AbrFileResult
 } from './abrLoader'
 import { setSpacing, setTipTexturePath } from './brush'
-import { idbGet, idbSet } from '../utils/idbStorage'
+import { idbGet, idbDelete } from '../utils/idbStorage'
+import { readFileBytes, writeFileParts } from '../utils/fileIo'
+import { createLogger } from '../utils/logger'
+
+const logger = createLogger('brushes')
 
 export type { AbrBrushPreset, AbrFileResult }
 
@@ -36,64 +40,118 @@ const [brushGroupOrder, setBrushGroupOrderRaw] = createSignal<BrushGroupOrder>('
 let cycleIndex = -1
 let lastPickId: string | null = null
 
-/** Load persisted custom packs from Electron disk storage or IndexedDB on initialization */
+/**
+ * Loads imported packs: one file per pack on disk (see main/brushStore.ts).
+ *
+ * Older builds kept every pack in one brush-packs.json, mirrored to IndexedDB
+ * and, when small, localStorage. That single file stopped saving once it got
+ * too big to stringify (#55), while the IndexedDB copy kept every pack — so
+ * on first run the stores are merged by pack name, anything not yet in its
+ * own file is written out, and the old copies are retired. That brings back
+ * packs the old file silently dropped.
+ */
 export async function initBrushPresets(): Promise<void> {
-  let customPacks: AbrFileResult[] | null = null
+  const fromFiles = await loadPackFiles()
+  let customPacks = fromFiles
 
-  // 1. Try loading from Electron userData disk storage
-  if (typeof window.api?.loadBrushPacks === 'function') {
-    try {
-      const diskData = await window.api.loadBrushPacks()
-      if (Array.isArray(diskData) && diskData.length > 0) {
-        customPacks = diskData
-      }
-    } catch (err) {
-      console.warn('Failed to load brush packs from Electron disk storage:', err)
+  const legacy = await loadLegacyPacks()
+  if (legacy.length > 0) {
+    const have = new Set(fromFiles.map((p) => p.packName))
+    const missing = legacy.filter((p) => !have.has(p.packName))
+    let migrated = true
+    for (const pack of missing) {
+      migrated = (await persistPack(pack)) && migrated
+    }
+    customPacks = [...fromFiles, ...missing]
+    if (missing.length > 0) {
+      logger.info(`Migrated ${missing.length} brush pack(s) to per-pack files`)
+    }
+    // Only drop the old copies once every pack is safely in its own file.
+    if (migrated) {
+      await retireLegacyPacks()
     }
   }
 
-  // 2. Fallback to IndexedDB (virtually unlimited quota)
-  if (!customPacks) {
-    try {
-      const idbData = await idbGet<AbrFileResult[]>(STORAGE_KEY)
-      if (Array.isArray(idbData) && idbData.length > 0) {
-        customPacks = idbData
-      }
-    } catch (err) {
-      console.warn('Failed to load brush packs from IndexedDB:', err)
-    }
-  }
-
-  // 3. Fallback to localStorage (legacy migration)
-  if (!customPacks) {
-    customPacks = loadLegacyPacksFromLocalStorage()
-  }
-
-  const allPacks =
-    customPacks && customPacks.length > 0 ? [standardPack, ...customPacks] : [standardPack]
-  setBrushPacks(allPacks)
-
-  restoreActiveBrushPreset(allPacks)
-  restoreBrushGroup(allPacks)
+  setBrushPacks([standardPack, ...customPacks])
+  restoreActiveBrushPreset(brushPacks())
+  restoreBrushGroup(brushPacks())
 }
 
-/** Reads the legacy localStorage pack list and migrates it into IndexedDB/disk storage. Returns null on any failure or empty result. */
-function loadLegacyPacksFromLocalStorage(): AbrFileResult[] | null {
+async function loadPackFiles(): Promise<AbrFileResult[]> {
+  let files: string[] = []
+  try {
+    ;({ files } = await window.api.listBrushPackFiles())
+  } catch (err) {
+    logger.warn('Failed to list brush pack files:', err)
+  }
+  const packs: AbrFileResult[] = []
+  for (const file of files) {
+    const pack = await readPackFile(file)
+    if (pack) {
+      packs.push(pack)
+    }
+  }
+  return packs
+}
+
+/** One pack file, or null (logged) when it's unreadable — one bad file mustn't cost the rest. */
+async function readPackFile(file: string): Promise<AbrFileResult | null> {
+  try {
+    const pack = JSON.parse(new TextDecoder().decode(await readFileBytes(file)))
+    return pack && Array.isArray(pack.brushes) ? pack : null
+  } catch (err) {
+    logger.warn('Skipping unreadable brush pack file:', file, err)
+    return null
+  }
+}
+
+/** Every pack any older store still holds, de-duplicated by name (first store wins). */
+async function loadLegacyPacks(): Promise<AbrFileResult[]> {
+  const sources: AbrFileResult[][] = []
+  try {
+    const { legacy } = await window.api.listBrushPackFiles()
+    if (legacy) {
+      const data = JSON.parse(new TextDecoder().decode(await readFileBytes(legacy)))
+      if (Array.isArray(data)) {
+        sources.push(data)
+      }
+    }
+  } catch (err) {
+    logger.warn('Failed to read legacy brush-packs.json:', err)
+  }
+  try {
+    const idbData = await idbGet<AbrFileResult[]>(STORAGE_KEY)
+    if (Array.isArray(idbData)) {
+      sources.push(idbData)
+    }
+  } catch (err) {
+    logger.warn('Failed to load brush packs from IndexedDB:', err)
+  }
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) {
-      return null
+    const localData = raw ? JSON.parse(raw) : null
+    if (Array.isArray(localData)) {
+      sources.push(localData)
     }
-    const localData = JSON.parse(raw) as AbrFileResult[]
-    if (!Array.isArray(localData) || localData.length === 0) {
-      return null
-    }
-    // Migrate into IndexedDB and Electron disk
-    void persistPacks([standardPack, ...localData])
-    return localData
   } catch (err) {
-    console.warn('Failed to restore brush packs from localStorage:', err)
-    return null
+    logger.warn('Failed to restore brush packs from localStorage:', err)
+  }
+  const byName = new Map<string, AbrFileResult>()
+  for (const pack of sources.flat()) {
+    if (pack?.packName && pack.packName !== standardPack.packName && !byName.has(pack.packName)) {
+      byName.set(pack.packName, pack)
+    }
+  }
+  return [...byName.values()]
+}
+
+async function retireLegacyPacks(): Promise<void> {
+  await window.api.retireLegacyBrushPacks()
+  await idbDelete(STORAGE_KEY).catch(() => {})
+  try {
+    localStorage.removeItem(STORAGE_KEY)
+  } catch {
+    // Storage unavailable — nothing to remove.
   }
 }
 
@@ -216,35 +274,18 @@ export function nextBrushGroupTip(): AbrBrushPreset | null {
   return pick
 }
 
-/** Persist custom packs to Electron disk storage, IndexedDB, and localStorage */
-export async function persistPacks(packs: AbrFileResult[]): Promise<void> {
-  // Only persist user-imported packs (exclude Standard Tips)
-  const custom = packs.filter((p) => p.packName !== 'Standard Tips')
-
-  // 1. Electron filesystem storage (app.getPath('userData')/brush-packs.json)
-  if (typeof window.api?.saveBrushPacks === 'function') {
-    try {
-      await window.api.saveBrushPacks(JSON.stringify(custom))
-    } catch (err) {
-      console.warn('Failed to persist brush packs to Electron disk:', err)
-    }
-  }
-
-  // 2. IndexedDB storage (handles large textures without quota restrictions)
+/** Writes one pack to its own file. Resolves false (and logs) if it couldn't be saved. */
+async function persistPack(pack: AbrFileResult): Promise<boolean> {
   try {
-    await idbSet(STORAGE_KEY, custom)
+    const path = await window.api.brushPackPath(pack.packName)
+    const ok = await writeFileParts(path, [new TextEncoder().encode(JSON.stringify(pack))])
+    if (!ok) {
+      logger.error('Failed to save brush pack:', pack.packName)
+    }
+    return ok
   } catch (err) {
-    console.warn('Failed to persist brush packs to IndexedDB:', err)
-  }
-
-  // 3. Optional small fallback in localStorage if small enough
-  try {
-    const serialized = JSON.stringify(custom)
-    if (serialized.length < 2_000_000) {
-      localStorage.setItem(STORAGE_KEY, serialized)
-    }
-  } catch {
-    // Quota exceeded is normal for large brushes; IndexedDB and disk handle it.
+    logger.error('Failed to save brush pack:', pack.packName, err)
+    return false
   }
 }
 
@@ -297,7 +338,7 @@ export function addBrushPack(pack: AbrFileResult): void {
   const filtered = current.filter((p) => p.packName !== pack.packName)
   const next = [...filtered, pack]
   setBrushPacks(next)
-  void persistPacks(next)
+  void persistPack(pack)
 }
 
 /** Removes a brush pack by name. */
@@ -307,7 +348,7 @@ export function removeBrushPack(packName: string): void {
   }
   const next = brushPacks().filter((p) => p.packName !== packName)
   setBrushPacks(next)
-  void persistPacks(next)
+  void window.api.deleteBrushPackFile(packName)
 
   if (brushGroup().some((b) => b.packName === packName)) {
     setBrushGroup(brushGroup().filter((b) => b.packName !== packName))

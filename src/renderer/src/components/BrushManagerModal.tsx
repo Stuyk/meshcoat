@@ -2,6 +2,9 @@ import { createSignal, createMemo, Show, For, onMount, onCleanup } from 'solid-j
 import { Modal, Button, SearchInput, Label } from './ui'
 import { brushPresets, type AbrBrushPreset } from '../paint/brushPresets'
 import { TrashIcon, UploadIcon, LibraryIcon, LayersPlusIcon } from './icons'
+import { createLogger } from '../utils/logger'
+
+const logger = createLogger('brushes')
 
 export default function BrushManagerModal(props: { isOpen: boolean; onClose: () => void }) {
   const [selectedPackName, setSelectedPackName] = createSignal<string>('All')
@@ -75,7 +78,7 @@ export default function BrushManagerModal(props: { isOpen: boolean; onClose: () 
       }
       setImportStatus(null)
     } catch (err) {
-      console.error('Failed to import ABR:', err)
+      logger.error('Failed to import ABR:', err)
       setImportStatus('Error importing brush file.')
       setTimeout(() => setImportStatus(null), 3000)
     } finally {
@@ -101,7 +104,7 @@ export default function BrushManagerModal(props: { isOpen: boolean; onClose: () 
       }
       setImportStatus(null)
     } catch (err) {
-      console.error('Failed to pick ABR files:', err)
+      logger.error('Failed to pick ABR files:', err)
       setImportStatus('Failed to import ABR file')
       setTimeout(() => setImportStatus(null), 3000)
     } finally {

@@ -49,6 +49,21 @@ import { faceProjectionOptions, wholeUvProjectionOptions } from './viewportHighl
 import { frameSelectionOrModel } from './viewportLoad'
 import { updateGizmo, makeGizmoUpdateContext } from './gizmoUpdate'
 import type { ViewportRuntime } from './viewportRuntime'
+import {
+  lassoPointerDown,
+  lassoPointerMove,
+  lassoPointerUp,
+  closeLasso,
+  cancelLasso
+} from './viewportLasso'
+import {
+  beginCloneStroke,
+  cloneParamsFor,
+  endCloneStroke,
+  setCloneSource,
+  updateCloneMarker
+} from './viewportClone'
+import { lasso } from '../paint/pixelSelection'
 
 /**
  * The mirrored hit for Symmetry Mode: reflects `hit` across the model's
@@ -542,10 +557,15 @@ export function applyToolAt(
     } else {
       selectOnlyFace(hit.faceIndex)
     }
-  } else if (tool === 'brush' || tool === 'stamp' || tool === 'eraser') {
+  } else if (tool === 'brush' || tool === 'stamp' || tool === 'eraser' || tool === 'clone') {
     const isMask = !!layer.isMask
     const engine = layer.engine
-    if (tool !== 'eraser' && !isMask) {
+    const isClone = tool === 'clone'
+    const cloneParams = isClone ? cloneParamsFor(rt) : null
+    if (isClone && !cloneParams) {
+      return
+    }
+    if (tool !== 'eraser' && !isMask && !isClone) {
       recordUsedColor(brush.color())
     }
 
@@ -611,15 +631,18 @@ export function applyToolAt(
       }
     }
 
-    const color = isMask
-      ? tool === 'eraser'
-        ? new THREE.Color(0x000000)
-        : new THREE.Color(brush.color())
-      : tool === 'eraser'
-        ? engine.baseColor
-        : brush.jitteredColor()
+    // A clone stroke's color comes from its source; white leaves it untinted.
+    const color = isClone
+      ? new THREE.Color(1, 1, 1)
+      : isMask
+        ? tool === 'eraser'
+          ? new THREE.Color(0x000000)
+          : new THREE.Color(brush.color())
+        : tool === 'eraser'
+          ? engine.baseColor
+          : brush.jitteredColor()
     const alpha = isMask ? (tool === 'eraser' ? 1 : 1) : tool === 'eraser' ? engine.baseAlpha : 1
-    const strokeTexture = isMask ? null : tool === 'eraser' ? null : rt.brushTexture
+    const strokeTexture = isMask || isClone ? null : tool === 'eraser' ? null : rt.brushTexture
     const strokeTip = rt.brushTipTexture
 
     const baseAngle = (brush.brushRotation() * Math.PI) / 180
@@ -655,9 +678,10 @@ export function applyToolAt(
 
     // A mask layer is grayscale coverage, and the eraser takes material back
     // out rather than laying it down — neither wants the brush's PBR values.
+    // Clone copies base color only: the frozen source is a base-color sheet.
     const channels = brush.buildChannelPayload({
       baseColor: { color, alpha },
-      baseColorOnly: isMask || tool === 'eraser'
+      baseColorOnly: isMask || tool === 'eraser' || isClone
     })
 
     engine.paintStroke(hit, {
@@ -682,11 +706,13 @@ export function applyToolAt(
       angle: strokeAngle,
       occlusion,
       stencil: stencilParams,
-      uvDab: uvDabFor(rt, strokeRadius)
+      uvDab: uvDabFor(rt, strokeRadius),
+      clone: cloneParams
     })
 
-    // A texture-space dab has no mirror image on the sheet to aim at.
-    if (brush.symmetryEnabled() && !rt.uvPaintMode) {
+    // A texture-space dab has no mirror image on the sheet to aim at, and a
+    // clone's screen offset means nothing on the far side of the model.
+    if (brush.symmetryEnabled() && !rt.uvPaintMode && !isClone) {
       const mirrored = getMirroredHit(rt, hit)
       if (mirrored) {
         engine.paintStroke(mirrored, {
@@ -963,6 +989,17 @@ export function onPointerMove(rt: ViewportRuntime, e: PointerEvent): void {
     return
   }
 
+  if (rt.props.tool() === 'lasso' && lassoPointerMove(rt, e)) {
+    return
+  }
+  if (rt.props.tool() === 'clone' && rt.canvasRef) {
+    const cursor = canvasPoint(rt, e)
+    if (rt.cloneStroke) {
+      rt.cloneStroke.lastCursor = cursor
+    }
+    updateCloneMarker(rt, cursor)
+  }
+
   if (rt.stencilDrag && rt.canvasRef) {
     const rect = rt.canvasRef.getBoundingClientRect()
     const dx = (e.clientX - rt.stencilDrag.lastX) / rect.width
@@ -1078,7 +1115,13 @@ export function onPointerMove(rt: ViewportRuntime, e: PointerEvent): void {
   if (tool === 'fill' || tool === 'eyedropper' || tool === 'line') {
     return
   }
-  if (tool === 'brush' || tool === 'stamp' || tool === 'eraser' || tool === 'effect') {
+  if (
+    tool === 'brush' ||
+    tool === 'stamp' ||
+    tool === 'eraser' ||
+    tool === 'effect' ||
+    tool === 'clone'
+  ) {
     // A pen reports several samples per frame; the browser folds them into one
     // pointermove. Walking the coalesced samples keeps a fast stroke's curve
     // (and its pressure taper) instead of joining frame endpoints. Samples a
@@ -1158,6 +1201,18 @@ export function onPointerDown(rt: ViewportRuntime, e: PointerEvent): void {
     rt.props.tool() === 'faceProjector' ||
     rt.props.tool() === 'text'
 
+  // Alt+click sets the clone source, as in every image editor — it takes
+  // precedence over the Alt camera gesture only for this tool.
+  if (rt.props.tool() === 'clone' && e.altKey && e.button === 0) {
+    const hit = hitFromEvent(rt, e)
+    if (hit && (!hit.mesh || hit.mesh === activeMesh(rt))) {
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      setCloneSource(rt, hit)
+      return
+    }
+  }
+
   // Connected UV Island Selection: In Face Select mode (or holding Ctrl), Alt + Click
   if ((isFaceSelectTool || isCtrl) && e.altKey && e.button === 0) {
     const hit = hitFromEvent(rt, e)
@@ -1177,6 +1232,13 @@ export function onPointerDown(rt: ViewportRuntime, e: PointerEvent): void {
     return
   }
 
+  // The lasso owns the left button outright: Shift and Ctrl are its own
+  // add/subtract modifiers, not the face-selection gesture.
+  if (e.button === 0 && rt.props.tool() === 'lasso') {
+    lassoPointerDown(rt, e)
+    return
+  }
+
   // Face Select uses shift+click for multi-select, so it can't also use
   // shift+drag for the brush-size gesture below — right-click resize still
   // applies to every other tool unless holding Ctrl.
@@ -1187,7 +1249,8 @@ export function onPointerDown(rt: ViewportRuntime, e: PointerEvent): void {
     !isFaceSelectTool &&
     !isCtrl &&
     rt.props.tool() !== 'fill' &&
-    rt.props.tool() !== 'gradient'
+    rt.props.tool() !== 'gradient' &&
+    rt.props.tool() !== 'lasso'
   ) {
     e.preventDefault()
     rt.resizeDrag = { shift: e.shiftKey, lastX: e.clientX, lastY: e.clientY }
@@ -1257,6 +1320,16 @@ export function onPointerDown(rt: ViewportRuntime, e: PointerEvent): void {
       // must not drag color from wherever the last one ended.
       rt.lastEffectUv = null
     }
+    if (tool === 'clone') {
+      if (!rt.cloneSource) {
+        rt.props.onToast?.('Alt+click the model to set a clone source first', 'info')
+        return
+      }
+      if (!beginCloneStroke(rt, canvasPoint(rt, e))) {
+        return
+      }
+      rt.layerStack?.history.record()
+    }
     if (tool === 'brush' || tool === 'stamp' || tool === 'eraser') {
       rt.layerStack?.history.record()
       if (tool !== 'eraser' && !rt.layerStack?.active?.isMask && brush.texturePath()) {
@@ -1290,6 +1363,12 @@ export function onPointerDown(rt: ViewportRuntime, e: PointerEvent): void {
 }
 
 export function onDblClick(rt: ViewportRuntime, e: MouseEvent): void {
+  if (rt.props.tool() === 'lasso') {
+    if (lasso.path()) {
+      closeLasso(rt)
+    }
+    return
+  }
   const isFaceSelectTool =
     rt.props.tool() === 'faceSelect' ||
     rt.props.tool() === 'faceProjector' ||
@@ -1412,6 +1491,12 @@ export function onPointerUp(rt: ViewportRuntime, e?: PointerEvent): void {
     }
     return
   }
+  if (lassoPointerUp(rt)) {
+    return
+  }
+  if (rt.cloneStroke) {
+    endCloneStroke(rt)
+  }
   rt.stencilDrag = null
   rt.resizeDrag = null
   rt.ctrlFaceSelecting = false
@@ -1485,7 +1570,18 @@ export function onKeyDown(rt: ViewportRuntime, e: KeyboardEvent): void {
     return
   }
 
+  if (e.key === 'Enter' && lasso.path()) {
+    e.preventDefault()
+    closeLasso(rt)
+    return
+  }
+
   if (e.key === 'Escape') {
+    if (cancelLasso(rt)) {
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      return
+    }
     if (stencil.transforming()) {
       e.preventDefault()
       setStencilTransforming(false)

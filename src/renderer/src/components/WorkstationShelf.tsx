@@ -6,6 +6,8 @@ import {
   EraserIcon,
   FillIcon,
   GradientIcon,
+  CloneIcon,
+  LassoIcon,
   DropletsIcon,
   ImagesIcon,
   EyedropperIcon,
@@ -100,6 +102,16 @@ export default function WorkstationShelf(props: WorkstationShelfProps): JSX.Elem
 
         <IconButton
           size="sm"
+          active={props.activeTool === 'clone'}
+          onClick={() => props.onSelectTool('clone')}
+          shortcut="K"
+          tooltip="Clone Stamp — Alt+click a source, then paint (K)"
+        >
+          <CloneIcon size={18} />
+        </IconButton>
+
+        <IconButton
+          size="sm"
           active={props.activeTool === 'effect'}
           onClick={() => props.onSelectTool('effect')}
           shortcut="U"
@@ -118,6 +130,16 @@ export default function WorkstationShelf(props: WorkstationShelfProps): JSX.Elem
           tooltip="Color Eyedropper (I)"
         >
           <EyedropperIcon size={18} />
+        </IconButton>
+
+        <IconButton
+          size="sm"
+          active={props.activeTool === 'lasso'}
+          onClick={() => props.onSelectTool('lasso')}
+          shortcut="Q"
+          tooltip="Lasso Selection — Shift adds, Ctrl subtracts (Q)"
+        >
+          <LassoIcon size={18} />
         </IconButton>
 
         <IconButton

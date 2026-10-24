@@ -5,7 +5,15 @@ import type { ToolMode } from './brush'
  * `ToolPanelDock`; this module only decides *which* tool shows which ones.
  */
 export type ToolPanelId =
-  'material' | 'region' | 'text' | 'projector' | 'effect' | 'stencil' | 'gradient'
+  | 'material'
+  | 'region'
+  | 'text'
+  | 'projector'
+  | 'effect'
+  | 'stencil'
+  | 'gradient'
+  | 'lasso'
+  | 'clone'
 
 /**
  * Extra runtime state a panel needs before it is worth showing. These are
@@ -59,7 +67,9 @@ export const TOOL_PANELS: Record<ToolMode, readonly ToolPanelEntry[]> = {
     { id: 'projector', requires: ['texture', 'faceSelection'] }
   ],
   text: [{ id: 'text' }, { id: 'projector', requires: ['texture', 'faceSelection'] }],
-  gradient: [{ id: 'gradient' }]
+  gradient: [{ id: 'gradient' }],
+  lasso: [{ id: 'lasso' }],
+  clone: [{ id: 'clone' }, { id: 'stencil', requires: ['stencilPanelOpen'] }]
 }
 
 const SATISFIED: Record<ToolPanelRequirement, (ctx: ToolPanelContext) => boolean> = {

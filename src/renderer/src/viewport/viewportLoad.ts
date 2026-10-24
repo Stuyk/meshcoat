@@ -16,6 +16,9 @@ import {
 import { applyPbrTexturesToPiece } from './viewportPbr'
 import type { InitialPbrTextures, InitialTexturePayload, LoadOptions } from './viewportTypes'
 import type { ViewportRuntime } from './viewportRuntime'
+import { createLogger } from '../utils/logger'
+
+const logger = createLogger('load')
 
 /**
  * Frames the active face selection, or the whole model when nothing is
@@ -203,7 +206,7 @@ export async function loadFromUrl(
       await applyInitialTextures(rt, initialTextures)
       rt.props.onLayersChanged?.()
     } catch (err) {
-      console.error('Failed to load initial PBR texture maps:', err)
+      logger.error('Failed to load initial PBR texture maps:', err)
     }
   }
 

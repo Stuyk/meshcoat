@@ -44,6 +44,10 @@ ${BRUSH_MASK_UNIFORMS_GLSL}
   uniform float uStampMode;
   // Face selection (spec: select faces, paint/fill only within them).
   uniform float uRestrictFace;
+  // Lasso pixel selection (see pixelSelection.ts): a texture-space mask that
+  // gates every write the same way the face selection does, and with it.
+  uniform sampler2D uPixelSelection;
+  uniform float uUsePixelSelection;
   // Fill mode: paints uBrushColor / uBrushTexture at full uBrushOpacity everywhere the face
   // restriction allows, ignoring brush position/falloff/facing — used by
   // PaintEngine.fillFaces / fill for a bucket fill of the selected faces or whole model.
@@ -100,6 +104,15 @@ ${BRUSH_MASK_UNIFORMS_GLSL}
   // black-and-white stencils that have no alpha channel.
   uniform float uStencilUseLuma;
   uniform vec2 uCanvasSize;
+  // Clone stamp (see viewportClone.ts). The brush paints what is on screen
+  // uCloneOffset CSS pixels away from each texel: uCloneUv says which surface
+  // texel sits under every viewport pixel (a UV render of the scene taken at
+  // stroke start), and uCloneSource is a copy of the pixels being cloned from,
+  // frozen at stroke start so a stroke never re-clones its own paint.
+  uniform float uCloneMode;
+  uniform sampler2D uCloneUv;
+  uniform sampler2D uCloneSource;
+  uniform vec2 uCloneOffset;
 
   // Which PBR channel this pass is writing (see channels.ts). One pass runs per
   // enabled channel, sharing every dab parameter — the projector footprint,
@@ -377,6 +390,9 @@ ${BRUSH_MASK_GLSL}
     }
 
     float faceMask = mix(1.0, vSelected, uRestrictFace);
+    if (uUsePixelSelection > 0.5) {
+      faceMask *= texture2D(uPixelSelection, vUv).r;
+    }
 
     // Stroke falloff: if a custom tip or stamp is active, its alpha mask shapes the stroke;
     // otherwise, use spherical smoothstep falloff:
@@ -386,8 +402,35 @@ ${BRUSH_MASK_GLSL}
     float stampDecalMask = mix(1.0, inStamp, uStampMode * (1.0 - uFillMode));
     float texMask = mix(1.0, texSample.a * stampDecalMask, uUseTexture);
 
+    // Clone: the payload is whatever the source point holds. Transparent source
+    // texels clone as "no paint" rather than as an eraser.
+    float cloneMask = 1.0;
+    if (uCloneMode > 0.5) {
+      cloneMask = 0.0;
+      vec4 cClip = uCameraViewProjMatrix * vec4(vWorldPosition, 1.0);
+      if (cClip.w > 0.0) {
+        vec2 cNdc = cClip.xy / cClip.w;
+        vec2 pix = vec2(
+          (cNdc.x * 0.5 + 0.5) * uCanvasSize.x,
+          (1.0 - (cNdc.y * 0.5 + 0.5)) * uCanvasSize.y
+        );
+        vec2 srcPix = pix - uCloneOffset;
+        // Back to a y-up render-target coordinate for the UV buffer.
+        vec2 srcScreen = vec2(srcPix.x / uCanvasSize.x, 1.0 - srcPix.y / uCanvasSize.y);
+        if (srcScreen.x >= 0.0 && srcScreen.x <= 1.0 && srcScreen.y >= 0.0 && srcScreen.y <= 1.0) {
+          vec4 under = texture2D(uCloneUv, srcScreen);
+          // Alpha marks pixels where the painted piece itself is frontmost.
+          if (under.a > 0.5) {
+            vec4 src = texture2D(uCloneSource, under.xy);
+            paintColor = src.a > 0.0001 ? src.rgb / src.a : src.rgb;
+            cloneMask = src.a;
+          }
+        }
+      }
+    }
+
     float fillAlpha = uBrushOpacity * mix(1.0, texSample.a, uUseTexture);
-    float strength = mix(strokeFalloff * uBrushOpacity * tipMask * texMask, fillAlpha, uFillMode) * faceMask * stencilMask;
+    float strength = mix(strokeFalloff * uBrushOpacity * tipMask * texMask, fillAlpha, uFillMode) * faceMask * stencilMask * cloneMask;
     float targetAlpha = uBrushColor.a * mix(1.0, texSample.a, uUseTexture);
 
     // Stencil STAMP: project the stencil image itself onto every visible texel
@@ -436,6 +479,8 @@ export interface PaintUniforms extends BrushMaskUniforms {
   uTextureScale: THREE.IUniform<number>
   uStampMode: THREE.IUniform<number>
   uRestrictFace: THREE.IUniform<number>
+  uPixelSelection: THREE.IUniform<THREE.Texture | null>
+  uUsePixelSelection: THREE.IUniform<number>
   uFillMode: THREE.IUniform<number>
   uFillScale: THREE.IUniform<number>
   uFillFit: THREE.IUniform<number>
@@ -456,6 +501,10 @@ export interface PaintUniforms extends BrushMaskUniforms {
   uStencilStamp: THREE.IUniform<number>
   uStencilUseLuma: THREE.IUniform<number>
   uCanvasSize: THREE.IUniform<THREE.Vector2>
+  uCloneMode: THREE.IUniform<number>
+  uCloneUv: THREE.IUniform<THREE.Texture | null>
+  uCloneSource: THREE.IUniform<THREE.Texture | null>
+  uCloneOffset: THREE.IUniform<THREE.Vector2>
   uChannelMode: THREE.IUniform<number>
   uNormalStrength: THREE.IUniform<number>
   uChannelMap: THREE.IUniform<THREE.Texture | null>
@@ -475,6 +524,8 @@ export function createPaintMaterial(): THREE.ShaderMaterial & { uniforms: PaintU
     uTextureScale: { value: 1 },
     uStampMode: { value: 0 },
     uRestrictFace: { value: 0 },
+    uPixelSelection: { value: null },
+    uUsePixelSelection: { value: 0 },
     uFillMode: { value: 0 },
     uFillScale: { value: 1 },
     uFillFit: { value: 0 },
@@ -495,6 +546,10 @@ export function createPaintMaterial(): THREE.ShaderMaterial & { uniforms: PaintU
     uStencilStamp: { value: 0 },
     uStencilUseLuma: { value: 0 },
     uCanvasSize: { value: new THREE.Vector2(1, 1) },
+    uCloneMode: { value: 0 },
+    uCloneUv: { value: null },
+    uCloneSource: { value: null },
+    uCloneOffset: { value: new THREE.Vector2() },
     uChannelMode: { value: 0 },
     uNormalStrength: { value: 1 },
     uChannelMap: { value: null },

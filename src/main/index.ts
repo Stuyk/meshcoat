@@ -32,9 +32,21 @@ import {
   setColorLibrary,
   type ColorLibrary
 } from './prefs'
-import { saveAutosave, loadAutosave, clearAutosave, writeFileAtomic } from './recovery'
+import { loadAutosave, clearAutosave, autosaveTarget, commitAutosave } from './recovery'
+import { beginWrite, writeChunk, commitWrite, abortWrite } from './chunkedWrite'
+import {
+  listPackFiles,
+  packFilePath,
+  deletePackFile,
+  legacyPacksPath,
+  retireLegacyPacks
+} from './brushStore'
 import { existsSync } from 'fs'
 import { getEffectiveBlender, convertBlendToGlb, testBlenderExecutable } from './blenderBridge'
+import { initLogger, createLogger, log, getLogsDir, type LogLevel } from './logger'
+
+initLogger()
+const logger = createLogger('main')
 
 // Chromium can't decode .tga in an <img>, but three's TGALoader can, and
 // texture packs routinely ship a .tga albedo beside .png data maps. Excluding
@@ -91,6 +103,7 @@ async function showRecoveryDialog(
     return
   }
   recoveryDialogOpen = true
+  logger.warn('Recovery dialog:', message)
   const buttons = allowWait ? ['Wait', 'Reload', 'Quit'] : ['Reload', 'Quit']
   const { response } = await dialog.showMessageBox(win, {
     type: 'error',
@@ -107,6 +120,7 @@ async function showRecoveryDialog(
     return
   }
   const choice = buttons[response]
+  logger.info('Recovery dialog choice:', choice)
   if (choice === 'Reload') {
     rendererGone = false
     rendererHung = false
@@ -137,7 +151,16 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
+    logger.info('Main window ready')
     mainWindow?.show()
+  })
+
+  mainWindow.webContents.on('did-fail-load', (_event, code, description, url) => {
+    logger.error('Renderer failed to load:', code, description, url)
+  })
+
+  mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
+    logger.error('Preload script error:', preloadPath, error)
   })
 
   // Never let a stray click on the close button, Alt+F4, or Cmd+Q throw away
@@ -162,6 +185,8 @@ function createWindow(): void {
       })
       if (choice !== 1) {
         event.preventDefault()
+      } else {
+        logger.warn('Window closed while renderer unresponsive')
       }
       return
     }
@@ -170,7 +195,7 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
-    console.error('Renderer process gone:', details)
+    logger.error('Renderer process gone:', details)
     if (details.reason === 'clean-exit') {
       return
     }
@@ -181,6 +206,7 @@ function createWindow(): void {
   })
 
   mainWindow.on('unresponsive', () => {
+    logger.warn('Renderer became unresponsive')
     rendererHung = true
     void showRecoveryDialog(
       mainWindow!,
@@ -191,6 +217,7 @@ function createWindow(): void {
   })
 
   mainWindow.on('responsive', () => {
+    logger.info('Renderer responsive again')
     rendererHung = false
   })
 
@@ -260,6 +287,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  logger.info('App ready')
   electronApp.setAppUserModelId('com.sliptexturepaint.app')
 
   app.on('browser-window-created', (_, window) => {
@@ -300,6 +328,7 @@ app.whenReady().then(() => {
       if (options?.key) {
         setLastPath(options.key, dirname(result.filePaths[0]))
       }
+      logger.info(`Open dialog (${options?.key ?? 'unkeyed'}):`, result.filePaths.join(', '))
       return result.filePaths
     }
   )
@@ -340,6 +369,7 @@ app.whenReady().then(() => {
       if (options?.key) {
         setLastPath(options.key, dirname(result.filePath))
       }
+      logger.info(`Save dialog (${options?.key ?? 'unkeyed'}):`, result.filePath)
       return result.filePath
     }
   )
@@ -364,8 +394,9 @@ app.whenReady().then(() => {
     for (const sub of subdirs) {
       try {
         files.push(...(await listTextures(join(dir, sub.name), depth - 1)))
-      } catch {
+      } catch (err) {
         // An unreadable subfolder shouldn't cost the rest of the library.
+        logger.warn('Skipped unreadable texture subfolder:', join(dir, sub.name), err)
       }
     }
     return files
@@ -387,7 +418,9 @@ app.whenReady().then(() => {
     }
     const dir = result.filePaths[0]
     setLastTextureFolder(dir)
-    return listTextures(dir, TEXTURE_FOLDER_DEPTH)
+    const files = await listTextures(dir, TEXTURE_FOLDER_DEPTH)
+    logger.info(`Texture folder picked: ${dir} (${files.length} images)`)
+    return files
   })
 
   ipcMain.handle('folder:load-last-textures', async () => {
@@ -409,7 +442,14 @@ app.whenReady().then(() => {
 
   ipcMain.handle('file:save-png', async (_e, filePath: string, dataUrl: string) => {
     const base64 = dataUrl.replace(/^data:image\/png;base64,/, '')
-    await writeFile(filePath, Buffer.from(base64, 'base64'))
+    const bytes = Buffer.from(base64, 'base64')
+    try {
+      await writeFile(filePath, bytes)
+    } catch (err) {
+      logger.error('Failed to write PNG:', filePath, err)
+      throw err
+    }
+    logger.info(`Wrote PNG ${filePath} (${bytes.length} bytes)`)
     return true
   })
 
@@ -418,60 +458,64 @@ app.whenReady().then(() => {
       const buf = await readFile(filePath)
       return new Uint8Array(buf)
     } catch (err) {
-      console.error('Failed to read binary file:', filePath, err)
+      logger.error('Failed to read binary file:', filePath, err)
       return null
     }
   })
 
-  ipcMain.handle('brushes:load', async () => {
+  /**
+   * Streamed file writes — see chunkedWrite.ts. Projects, autosaves and brush
+   * packs all go through these, so none of them has to fit in one IPC
+   * message or one JS string.
+   */
+  ipcMain.handle('file:write-begin', (_e, target: string) => beginWrite(target))
+  ipcMain.handle('file:write-chunk', (_e, id: number, chunk: Uint8Array) => writeChunk(id, chunk))
+  ipcMain.handle('file:write-abort', (_e, id: number) => abortWrite(id))
+  ipcMain.handle('file:write-commit', async (_e, id: number) => {
     try {
-      const p = join(app.getPath('userData'), 'brush-packs.json')
-      if (!existsSync(p)) {
-        return null
-      }
-      const data = await readFile(p, 'utf-8')
-      return JSON.parse(data)
-    } catch (err) {
-      console.error('Failed to load brush packs from disk:', err)
-      return null
-    }
-  })
-
-  ipcMain.handle('brushes:save', async (_e, packsJson: string) => {
-    try {
-      const p = join(app.getPath('userData'), 'brush-packs.json')
-      await writeFile(p, packsJson, 'utf-8')
+      const { path, bytes } = await commitWrite(id)
+      logger.info(`Saved ${path} (${(bytes / 1048576).toFixed(1)} MB)`)
       return true
     } catch (err) {
-      console.error('Failed to save brush packs to disk:', err)
+      logger.error('Failed to commit file write:', err)
       return false
     }
   })
 
-  ipcMain.handle('project:save-file', async (_e, filePath: string, content: string) => {
+  /** First of `paths` that exists on disk, for relinking a moved model (#52). */
+  ipcMain.handle('file:find-existing', (_e, paths: string[]) => {
+    return paths.find((p) => !!p && existsSync(p)) ?? null
+  })
+
+  ipcMain.handle('brushes:list', async () => {
     try {
-      // Atomic: the project file is often the only copy of the work, and a
-      // crash mid-write must not leave it truncated.
-      await writeFileAtomic(filePath, content)
+      const legacy = legacyPacksPath()
+      return { files: await listPackFiles(), legacy: existsSync(legacy) ? legacy : null }
+    } catch (err) {
+      logger.error('Failed to list brush packs:', err)
+      return { files: [], legacy: null }
+    }
+  })
+  ipcMain.handle('brushes:pack-path', (_e, packName: string) => packFilePath(packName))
+  ipcMain.handle('brushes:delete', async (_e, packName: string) => {
+    try {
+      await deletePackFile(packName)
       return true
     } catch (err) {
-      console.error('Failed to save project file:', filePath, err)
+      logger.error('Failed to delete brush pack file:', packName, err)
       return false
     }
   })
-
-  ipcMain.handle('project:read-file', async (_e, filePath: string) => {
+  ipcMain.handle('brushes:retire-legacy', async () => {
     try {
-      return await readFile(filePath, 'utf-8')
+      await retireLegacyPacks()
     } catch (err) {
-      console.error('Failed to read project file:', filePath, err)
-      return null
+      logger.error('Failed to retire legacy brush pack store:', err)
     }
   })
 
-  ipcMain.handle('recovery:save', async (_e, data: string) => {
-    return saveAutosave(data)
-  })
+  ipcMain.handle('recovery:target', () => autosaveTarget())
+  ipcMain.handle('recovery:commit', (_e, writeId: number) => commitAutosave(writeId))
 
   ipcMain.handle('recovery:load', async () => {
     return loadAutosave()
@@ -524,14 +568,17 @@ app.whenReady().then(() => {
 
   ipcMain.handle('blender:set-path', async (_e, customPath: string | null) => {
     if (!customPath) {
+      logger.info('Blender path reset to auto-detect')
       setBlenderPath(undefined)
       return { success: true }
     }
     const test = await testBlenderExecutable(customPath)
     if (test.valid) {
+      logger.info(`Blender path set: ${customPath} (${test.version})`)
       setBlenderPath(customPath)
       return { success: true, version: test.version }
     }
+    logger.warn('Rejected Blender path:', customPath, test.error)
     return { success: false, error: test.error || 'Invalid Blender executable' }
   })
 
@@ -553,9 +600,11 @@ app.whenReady().then(() => {
     const chosen = result.filePaths[0]
     const test = await testBlenderExecutable(chosen)
     if (test.valid) {
+      logger.info(`Blender path set: ${chosen} (${test.version})`)
       setBlenderPath(chosen)
       return { success: true, path: chosen, version: test.version }
     }
+    logger.warn('Rejected Blender executable:', chosen, test.error)
     return {
       success: false,
       error: test.error || 'Selected file is not a valid Blender executable.'
@@ -564,7 +613,12 @@ app.whenReady().then(() => {
 
   ipcMain.handle('blend:convert', async (_e, blendPath: string) => {
     try {
+      logger.info('Converting .blend:', blendPath)
       const res = await convertBlendToGlb(blendPath)
+      logger.info(
+        `Converted .blend in ${res.durationMs}ms with Blender ${res.version}:`,
+        res.glbPath
+      )
       return {
         success: true,
         glbPath: res.glbPath,
@@ -572,7 +626,7 @@ app.whenReady().then(() => {
         version: res.version
       }
     } catch (err) {
-      console.error('Failed to convert .blend file:', err)
+      logger.error('Failed to convert .blend file:', blendPath, err)
       return { success: false, error: err instanceof Error ? err.message : String(err) }
     }
   })
@@ -596,6 +650,7 @@ app.whenReady().then(() => {
   })
 
   ipcMain.on('app:close-confirmed', () => {
+    logger.info('Close confirmed by renderer')
     forceClose = true
     mainWindow?.close()
   })
@@ -607,6 +662,7 @@ app.whenReady().then(() => {
   // A lost WebGL context takes every layer's pixels with it (they live only
   // in GPU render targets), so there's nothing to restore in place.
   ipcMain.on('app:gpu-context-lost', () => {
+    logger.error('Renderer reported WebGL context lost')
     if (mainWindow) {
       void showRecoveryDialog(
         mainWindow,
@@ -618,11 +674,27 @@ app.whenReady().then(() => {
   })
 
   app.on('child-process-gone', (_event, details) => {
-    console.error('Child process gone:', details)
+    logger.error('Child process gone:', details)
   })
 
   ipcMain.on('shell:reveal', (_e, filePath: string) => {
     shell.showItemInFolder(filePath)
+  })
+
+  /** Renderer log lines, written to the same file under a 'renderer:<scope>' tag. */
+  const LOG_LEVELS = new Set<LogLevel>(['debug', 'info', 'warn', 'error'])
+  ipcMain.on('log:write', (_e, level: LogLevel, scope: string, args: unknown[]) => {
+    const safeLevel = LOG_LEVELS.has(level) ? level : 'info'
+    log(safeLevel, `renderer:${String(scope)}`, ...(Array.isArray(args) ? args : [args]))
+  })
+
+  ipcMain.handle('log:open-folder', async () => {
+    const dir = getLogsDir()
+    const error = await shell.openPath(dir)
+    if (error) {
+      logger.error('Failed to open logs folder:', dir, error)
+    }
+    return error === ''
   })
 
   ipcMain.on('drag:start', (event, filePaths: string[]) => {
@@ -643,6 +715,10 @@ app.whenReady().then(() => {
       createWindow()
     }
   })
+})
+
+app.on('before-quit', () => {
+  logger.info('App quitting')
 })
 
 app.on('window-all-closed', () => {

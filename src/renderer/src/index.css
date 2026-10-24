@@ -105,6 +105,8 @@
   .tool-eraser,
   .tool-stamp,
   .tool-effect,
+  .tool-clone,
+  .tool-lasso,
   .tool-line {
     cursor: crosshair !important;
   }

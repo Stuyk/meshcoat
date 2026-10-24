@@ -68,6 +68,16 @@ const SHORTCUTS: ShortcutItem[] = [
   { category: 'Tools & Radial Menu', keys: ['V'], desc: 'Face selection tool (alternate)' },
   { category: 'Tools & Radial Menu', keys: ['7'], desc: 'Effect brush (cycle modes)' },
   { category: 'Tools & Radial Menu', keys: ['U'], desc: 'Effect brush (alternate)' },
+  {
+    category: 'Tools & Radial Menu',
+    keys: ['K'],
+    desc: 'Clone stamp — Alt+click a source, then paint (works across UV seams)'
+  },
+  {
+    category: 'Tools & Radial Menu',
+    keys: ['Q'],
+    desc: 'Lasso selection — freehand or polygon pixel mask'
+  },
   { category: 'Tools & Radial Menu', keys: ['S'], desc: 'Toggle Screen Stencil overlay' },
   { category: 'Tools & Radial Menu', keys: ['Space'], desc: 'Open Radial Pie Menu at cursor' },
 
@@ -97,13 +107,31 @@ const SHORTCUTS: ShortcutItem[] = [
     keys: ['Ctrl', 'A'],
     desc: 'Select all faces on active piece'
   },
-  { category: 'Geometry & Face Selection', keys: ['Ctrl', 'D'], desc: 'Deselect all faces' },
+  {
+    category: 'Geometry & Face Selection',
+    keys: ['Ctrl', 'D'],
+    desc: 'Deselect all faces and clear the lasso selection'
+  },
+  {
+    category: 'Geometry & Face Selection',
+    keys: ['Shift / Ctrl', 'Lasso'],
+    desc: 'Add to / subtract from the lasso selection'
+  },
+  {
+    category: 'Geometry & Face Selection',
+    keys: ['Enter'],
+    desc: 'Close a polygon lasso (or double-click / click the first corner)'
+  },
   {
     category: 'Geometry & Face Selection',
     keys: ['Escape'],
     desc: 'Clear face selection / cancel modal'
   },
-  { category: 'Geometry & Face Selection', keys: ['Ctrl', 'I'], desc: 'Invert face selection' },
+  {
+    category: 'Geometry & Face Selection',
+    keys: ['Ctrl', 'I'],
+    desc: 'Invert face selection (lasso selection while the Lasso is active)'
+  },
   {
     category: 'Geometry & Face Selection',
     keys: ['Ctrl', 'Drag'],
@@ -114,6 +142,10 @@ const SHORTCUTS: ShortcutItem[] = [
     keys: ['Double LMB'],
     desc: 'Select connected UV island (in Face tool)'
   },
+
+  // Layers
+  { category: 'Layers', keys: ['Ctrl', 'G'], desc: 'Group the active layer into a new folder' },
+  { category: 'Layers', keys: ['Ctrl', 'Shift', 'G'], desc: "Ungroup the active layer's folder" },
 
   // Multi-Piece Models
   { category: 'Multi-Piece Models', keys: ['Tab'], desc: 'Next model piece / texture set' },

@@ -1,3 +1,7 @@
+import { createLogger } from './logger'
+
+const logger = createLogger('idb')
+
 const DB_NAME = 'slip_texture_paint_db'
 const DB_VERSION = 1
 const STORE_NAME = 'brush_packs'
@@ -30,7 +34,7 @@ export async function idbGet<T>(key: string): Promise<T | null> {
       req.onerror = () => reject(req.error)
     })
   } catch (err) {
-    console.warn('idbGet failed:', err)
+    logger.warn('idbGet failed:', err)
     return null
   }
 }
@@ -46,7 +50,7 @@ export async function idbSet<T>(key: string, value: T): Promise<void> {
       req.onerror = () => reject(req.error)
     })
   } catch (err) {
-    console.warn('idbSet failed:', err)
+    logger.warn('idbSet failed:', err)
   }
 }
 
@@ -61,6 +65,6 @@ export async function idbDelete(key: string): Promise<void> {
       req.onerror = () => reject(req.error)
     })
   } catch (err) {
-    console.warn('idbDelete failed:', err)
+    logger.warn('idbDelete failed:', err)
   }
 }

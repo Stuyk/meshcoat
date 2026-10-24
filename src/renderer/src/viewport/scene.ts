@@ -1,5 +1,9 @@
 import * as THREE from 'three'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
+import { createLogger } from '../utils/logger'
+
+const logger = createLogger('scene')
+
 export type LightingMode = 'neutral' | 'flat' | 'outdoor' | 'warm' | 'cool'
 
 export interface SceneHandle {
@@ -365,6 +369,7 @@ export function createScene(canvas: HTMLCanvasElement): SceneHandle {
   })
   renderer.setPixelRatio(pixelRatio)
   renderer.outputColorSpace = THREE.SRGBColorSpace
+  logGpuInfo(renderer, pixelRatio)
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   // PCF rather than hard edges: one directional light casting a crisp stencil
   // looks like a bug next to an image-based environment. (PCFSoftShadowMap is
@@ -530,4 +535,23 @@ export function createScene(canvas: HTMLCanvasElement): SceneHandle {
   }
 
   return { scene, camera, renderer, controls, setLightingMode, fitShadows, dispose }
+}
+
+/** The GPU and its limits head every bug report about blank layers or lost contexts. */
+function logGpuInfo(renderer: THREE.WebGLRenderer, pixelRatio: number): void {
+  try {
+    const gl = renderer.getContext()
+    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info')
+    const gpu = debugInfo
+      ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)
+      : gl.getParameter(gl.RENDERER)
+    const vendor = debugInfo
+      ? gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL)
+      : gl.getParameter(gl.VENDOR)
+    logger.info(
+      `WebGL: ${vendor} / ${gpu}, max texture ${renderer.capabilities.maxTextureSize}px, pixel ratio ${pixelRatio}, MSAA ${pixelRatio < 1.5}`
+    )
+  } catch (err) {
+    logger.warn('Could not read GPU info:', err)
+  }
 }

@@ -5,6 +5,9 @@ import { existsSync, readdirSync, mkdirSync } from 'fs'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { getBlenderPath, setBlenderPath } from './prefs'
+import { createLogger } from './logger'
+
+const logger = createLogger('blender')
 
 const execFileAsync = promisify(execFile)
 
@@ -29,6 +32,7 @@ export async function testBlenderExecutable(
     }
     return { valid: true, version: 'Blender (unknown version)' }
   } catch (err) {
+    logger.debug('Blender test failed:', executablePath, err)
     return {
       valid: false,
       error: err instanceof Error ? err.message : String(err)
@@ -173,11 +177,13 @@ export async function getEffectiveBlender(): Promise<{
   if (found) {
     const test = await testBlenderExecutable(found)
     if (test.valid) {
+      logger.info(`Auto-detected Blender: ${found} (${test.version})`)
       setBlenderPath(found)
       return { path: found, version: test.version }
     }
   }
 
+  logger.info('No Blender installation found')
   return { path: null }
 }
 
@@ -222,6 +228,9 @@ export async function convertBlendToGlb(
       maxBuffer: 20 * 1024 * 1024
     })
   } catch (err) {
+    // execFile errors carry Blender's own output, which says why far better than the exit code.
+    const { stderr, stdout } = err as { stderr?: string; stdout?: string }
+    logger.error('Blender conversion failed:', blendPath, err, stderr || stdout || '')
     throw new Error(
       `Blender conversion failed: ${err instanceof Error ? err.message : String(err)}`
     )

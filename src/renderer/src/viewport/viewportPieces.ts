@@ -9,6 +9,11 @@ import type { LoadedModel } from './modelLoader'
 import type { PaintPiece, EmbeddedSlot } from './viewportTypes'
 import { updateHighlight, updateProjectorPreview } from './viewportHighlight'
 import type { ViewportRuntime } from './viewportRuntime'
+import { createLogger } from '../utils/logger'
+import { syncPixelSelection } from './viewportLasso'
+import { clearCloneSource } from './viewportClone'
+
+const logger = createLogger('pieces')
 
 /** Texture slots a loaded model's materials can carry. */
 const MATERIAL_MAP_KEYS = [
@@ -134,6 +139,8 @@ export function clearCurrentModel(rt: ViewportRuntime): void {
   // on — carrying it into a freshly loaded model could restrict painting
   // to an unrelated (or out-of-range) face.
   clearFaceSelection()
+  // Same for a clone source: it is a point on the model being torn down.
+  clearCloneSource(rt)
 }
 
 export function setupWireframe(rt: ViewportRuntime, model: LoadedModel): void {
@@ -593,6 +600,7 @@ export function setActivePiece(rt: ViewportRuntime, index: number): void {
   rt.occlusionPass?.invalidate()
   applyPieceVisibility(rt)
   updatePieceOutlines(rt)
+  syncPixelSelection(rt)
   // Only onPiecesChanged: switching piece redraws the layers panel but is not
   // an edit, so it must not mark the project dirty.
   rt.props.onPiecesChanged?.()
@@ -652,7 +660,7 @@ export function setupLayers(
     const requested = sizeByName?.[mesh.name] ?? textureSize ?? DEFAULT_TEXTURE_SIZE
     const fitted = fitSize(requested)
     if (fitted !== requested) {
-      console.warn(
+      logger.warn(
         `[slip] ${paintable.length} paintable pieces at ${requested}px would exceed the GPU ` +
           `texture budget; "${mesh.name}" allocated at ${fitted}px instead.`
       )
@@ -663,6 +671,8 @@ export function setupLayers(
   applyPieceVisibility(rt)
   if (rt.pieces.length > 0) {
     setActivePiece(rt, 0)
+  } else {
+    syncPixelSelection(rt)
   }
   updatePieceOutlines(rt)
   rt.props.onPiecesChanged?.()

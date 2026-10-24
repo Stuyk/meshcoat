@@ -10,6 +10,9 @@ import {
 } from './icons'
 import type { ViewportHandle, PieceInfo } from '../viewport/Viewport'
 import { combineDataUrls, combineMaskedDataUrls, packOrmFromDataUrls } from '../paint/exportTexture'
+import { createLogger } from '../utils/logger'
+
+const logger = createLogger('export')
 
 export interface ExportWizardModalProps {
   isOpen: boolean
@@ -398,6 +401,10 @@ export default function ExportWizardModal(props: ExportWizardModalProps) {
         normal: exportNormal(),
         orm: exportOrm()
       }
+      logger.info(
+        `Exporting ${pieceList.length} piece(s), mode ${mode()}, ${resolution()} (${targetSize}px) to ${dir}${chosenStem}`,
+        flags
+      )
       const writtenCount =
         mode() === 'combined' || pieceList.length <= 1
           ? await exportCombinedMode(
@@ -419,6 +426,7 @@ export default function ExportWizardModal(props: ExportWizardModalProps) {
               flags
             )
 
+      logger.info(`Export complete: ${writtenCount} file(s)`)
       props.onToast?.(
         writtenCount === 1
           ? `Exported 1 texture map to ${dir}`
@@ -427,7 +435,7 @@ export default function ExportWizardModal(props: ExportWizardModalProps) {
       )
       props.onClose()
     } catch (err: any) {
-      console.error('Export wizard error:', err)
+      logger.error('Export wizard error:', err)
       props.onToast?.(`Export failed: ${err?.message || err}`, 'error')
     } finally {
       setIsExporting(false)

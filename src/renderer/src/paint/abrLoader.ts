@@ -1,4 +1,7 @@
 import { readAbr, type SampleInfo } from 'ag-psd'
+import { createLogger } from '../utils/logger'
+
+const logger = createLogger('abr')
 
 export interface AbrBrushPreset {
   id: string
@@ -518,12 +521,12 @@ export function parseAbr(
     brushes.push(...unmatchedSampleBrushes(sampleMap, matchedSampleIds, cleanPackName))
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
-    console.warn(`ag-psd readAbr failed for ${fileName} (${msg}), trying legacy v1/v2 parser...`)
+    logger.warn(`ag-psd readAbr failed for ${fileName} (${msg}), trying legacy v1/v2 parser...`)
     const legacyBrushes = parseLegacyAbr(bytes, cleanPackName)
     if (legacyBrushes.length > 0) {
       brushes.push(...legacyBrushes)
     } else {
-      console.error(`Failed to parse ABR file: ${fileName}`, err)
+      logger.error(`Failed to parse ABR file: ${fileName}`, err)
       throw new Error(`Unable to parse .abr file: ${msg}`)
     }
   }

@@ -11,7 +11,8 @@ import {
   DevConsoleIcon,
   HelpCircleIcon,
   ChevronDownIcon,
-  CheckIcon
+  CheckIcon,
+  FolderOpenIcon
 } from './icons'
 import { DropdownMenu, IconButton, SegmentedControl, type MenuItem } from './ui'
 import type { LightingMode } from '../viewport/scene'
@@ -22,6 +23,8 @@ export interface WorkstationHeaderProps {
   modelName: string
   isDirty: boolean
   isRestoringSession: boolean
+  /** A save or autosave is encoding/writing — shown so a hitch reads as the save. */
+  saveActivity?: 'save' | 'autosave' | null
   fileMenuItems: MenuItem[]
   editMenuItems: MenuItem[]
   selectionMenuItems: MenuItem[]
@@ -106,6 +109,23 @@ export default function WorkstationHeader(props: WorkstationHeaderProps): JSX.El
   const [showSelectionMenu, setShowSelectionMenu] = createSignal(false)
   const [showPanelMenu, setShowPanelMenu] = createSignal(false)
   const [showLightingMenu, setShowLightingMenu] = createSignal(false)
+  const [showSettingsMenu, setShowSettingsMenu] = createSignal(false)
+
+  const settingsMenuItems = (): MenuItem[] => [
+    { label: 'Settings…', icon: SettingsIcon, onClick: props.onOpenSettings },
+    { type: 'divider' },
+    {
+      label: 'Open Logs Folder',
+      icon: FolderOpenIcon,
+      onClick: () => void window.api.openLogsFolder()
+    },
+    {
+      label: 'Developer Console',
+      icon: DevConsoleIcon,
+      shortcut: 'Ctrl+Shift+I',
+      onClick: () => window.api.toggleDevTools()
+    }
+  ]
 
   const currentLighting = () =>
     LIGHTING_OPTIONS.find((o) => o.value === props.lightingMode) ?? LIGHTING_OPTIONS[0]
@@ -128,6 +148,15 @@ export default function WorkstationHeader(props: WorkstationHeaderProps): JSX.El
           </span>
           <Show when={props.isRestoringSession}>
             <RefreshCwIcon size={11} class="animate-spin text-[var(--accent-color)] ml-1" />
+          </Show>
+          <Show when={props.saveActivity}>
+            <span
+              class="flex items-center gap-1 ml-2 text-[11px] text-[var(--text-muted)]"
+              title="Writing the project to disk"
+            >
+              <RefreshCwIcon size={11} class="animate-spin text-[var(--accent-color)]" />
+              {props.saveActivity === 'autosave' ? 'Autosaving…' : 'Saving…'}
+            </span>
           </Show>
         </div>
 
@@ -389,14 +418,23 @@ export default function WorkstationHeader(props: WorkstationHeaderProps): JSX.El
           <DevConsoleIcon size={15} />
         </IconButton>
 
-        <IconButton
-          size="xs"
-          variant="ghost"
-          onClick={props.onOpenSettings}
-          tooltip="Settings"
-        >
-          <SettingsIcon size={15} />
-        </IconButton>
+        <div class="relative">
+          <IconButton
+            size="xs"
+            variant="ghost"
+            active={showSettingsMenu()}
+            onClick={() => setShowSettingsMenu((v) => !v)}
+            tooltip="Settings"
+          >
+            <SettingsIcon size={15} />
+          </IconButton>
+          <DropdownMenu
+            isOpen={showSettingsMenu()}
+            onClose={() => setShowSettingsMenu(false)}
+            items={settingsMenuItems()}
+            align="right"
+          />
+        </div>
 
         <IconButton
           size="xs"

@@ -16,6 +16,8 @@ export type ToolMode =
   | 'faceProjector'
   | 'text'
   | 'gradient'
+  | 'lasso'
+  | 'clone'
 export type BrushTextureMapping = 'uv' | 'triplanar' | 'tip'
 /**
  * How the selected region repeats across a stroke.

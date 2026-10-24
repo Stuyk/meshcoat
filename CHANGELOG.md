@@ -1,5 +1,28 @@
 # Changelog
 
+## v3.3.0
+
+### Added
+- **Layer Folders**: Group layers into folders to keep big stacks manageable. Ctrl+G (or the folder button) puts the selected layer, together with its whole mask group, into a new folder; Ctrl+Shift+G ungroups it. A folder collapses, hides and fades everything inside it, and can be renamed, moved as one block, or deleted with its layers. Layers keep their own blend modes inside a folder. Moving a layer past a folder's edge steps it out, and moving one beside a folder steps it in. Folders are saved with the project; older versions open the same layers ungrouped.
+- **Clone Stamp (K)**: Alt+click the model to pick a source, then paint to copy it. Cloning works in screen space, so it reaches across UV seams and between islands, which is what fixing seams and patching projected photos needs. It can copy from every visible layer or only the current one, and Aligned keeps successive strokes copying from one continuous patch, even after orbiting. It uses the brush's size, hardness, opacity and tip, and copies base color only.
+- **Lasso Selection (Q)**: Draw a freehand or polygon shape to select any part of the model, cutting across faces wherever you draw. Only what's visible from the current view gets selected, and the selection then stays put while you orbit. Every paint tool, fill, stamp, gradient and effect stays inside it, together with any face selection. Shift adds, Ctrl subtracts, a plain click clears; Ctrl+I inverts and Ctrl+D clears. The Fill button fills the selection on the active layer.
+- **Resize Textures** ([Closes #54](https://github.com/Stuyk/slip-texture-paint/issues/54)): File → Resize Textures changes the resolution after setup, for every piece or just the active one. Every layer, mask and name is kept and resampled to the new size. Scaling up keeps the current detail rather than adding any.
+- **Relink a Moved Model** ([Closes #52](https://github.com/Stuyk/slip-texture-paint/issues/52)): When a project's model isn't at its saved path (a project shared between machines, a moved folder), MeshCoat looks for it next to the project file, then asks you to locate it. Every location that has worked is kept in the project, so it opens on each collaborator's machine without asking again.
+- **Save Indicator** ([#53](https://github.com/Stuyk/slip-texture-paint/issues/53)): "Saving…" / "Autosaving…" shows in the top bar while a project is being written, so a hitch during a save is clearly the save.
+- **Log Files**: MeshCoat now writes a daily log (kept for 14 days) covering startup, GPU details, loads, saves, autosaves, exports, Blender conversions, crashes and errors. Open it from the new Settings menu → Open Logs Folder, and attach it to bug reports.
+
+### Changed
+- **Much Smaller Project Files** ([Closes #53](https://github.com/Stuyk/slip-texture-paint/issues/53)): Projects are now saved in a compact binary `.meshcoat` format. Layers are stored as raw PNG data instead of base64 text, and the first piece's layers are no longer stored twice. Single-piece projects come out at about 40% of their old size, and multi-piece projects at least 25% smaller. Older projects still open; projects saved by 3.3.0 can't be opened by earlier versions.
+- **Smoother Saves and Autosaves**: Image encoding runs off the main thread and files are written in chunks, so saving freezes the app far less, and very large projects can always be saved.
+- **Edge Wear Presets Keep Your Color**: Picking a style preset in the Edge Wear / Crevice Dirt wizard only changes the shape of the effect; your chosen color or texture stays put.
+- **Edge Wear and Crevice Dirt Tuning**: Wear width and noise now scale with the model's size, so presets look the same whatever units a model was made in — previously they could be invisible (or flood the surface) on first preview. Shallow creases and bevels also pick up dirt and wear much more readily, and Ambient Occlusion is a little stronger by default.
+- **Settings Menu**: The gear button opens a menu with Settings, Open Logs Folder and Developer Console.
+
+### Fixed
+- **Brush Packs Lost After Restart** ([Closes #55](https://github.com/Stuyk/slip-texture-paint/issues/55)): All imported packs were saved into one file that stopped saving once it grew too large (usually around the 7th pack), so newer packs disappeared on the next launch. Each pack now gets its own file. On first launch, packs from the old storage are moved over, including any that the old file had dropped.
+- **Projects Could Become Unsaveable**: Large projects could exceed a hard size limit while saving, after which neither Save nor autosave worked. The new format has no such limit.
+- **Overlapping Autosaves**: A slow autosave could overlap the next one or land after a manual save had cleared it, leaving a stale or corrupted recovery file. Autosaves now never overlap, are written atomically, and leftover temporary files from a crash are cleaned up.
+
 ## v3.2.1
 
 ### Changed

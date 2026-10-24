@@ -178,6 +178,13 @@ export function createEdgeWearMaterial(): THREE.ShaderMaterial {
         // here is the whole difference between chipping an exposed corner and
         // settling grime into an interior crease.
         vec3 curvature = mix(vEdgeCurvature, vEdgeConcavity, step(0.5, uCurvatureMode));
+        // Curvature is 1 - cos(fold angle): 1.0 at a right angle but only ~0.13
+        // at 30° and ~0.29 at 45°, so the shallow creases and bevels most models
+        // are made of barely registered — dirt in a corner was often invisible
+        // until the sliders were pushed. The square root lifts those folds
+        // (30° → 0.37, 45° → 0.54) while a right angle stays at 1.0. The
+        // threshold still tests the raw value, so it keeps meaning degrees.
+        vec3 strength = sqrt(clamp(curvature, 0.0, 1.0));
 
         // Falloff from all 3 edges of the triangle.
         float safeWidth = max(uWearWidth, 0.0001);
@@ -185,9 +192,9 @@ export function createEdgeWearMaterial(): THREE.ShaderMaterial {
         // has a harder boundary. Squaring the ramp gives the cavity mode that
         // softer, deeper-in-the-corner gradient without a separate falloff path.
         float gamma = mix(1.0, 2.0, uSmoothness);
-        float e0 = curvature.x >= uThreshold ? pow(clamp(1.0 - vEdgeDist.x / safeWidth, 0.0, 1.0), gamma) * curvature.x : 0.0;
-        float e1 = curvature.y >= uThreshold ? pow(clamp(1.0 - vEdgeDist.y / safeWidth, 0.0, 1.0), gamma) * curvature.y : 0.0;
-        float e2 = curvature.z >= uThreshold ? pow(clamp(1.0 - vEdgeDist.z / safeWidth, 0.0, 1.0), gamma) * curvature.z : 0.0;
+        float e0 = curvature.x >= uThreshold ? pow(clamp(1.0 - vEdgeDist.x / safeWidth, 0.0, 1.0), gamma) * strength.x : 0.0;
+        float e1 = curvature.y >= uThreshold ? pow(clamp(1.0 - vEdgeDist.y / safeWidth, 0.0, 1.0), gamma) * strength.y : 0.0;
+        float e2 = curvature.z >= uThreshold ? pow(clamp(1.0 - vEdgeDist.z / safeWidth, 0.0, 1.0), gamma) * strength.z : 0.0;
 
         float edgeFactor = max(e0, max(e1, e2));
         if (edgeFactor <= 0.001) {

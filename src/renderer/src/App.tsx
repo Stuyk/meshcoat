@@ -42,14 +42,22 @@ const StartWizardModal = lazy(() => import('./components/StartWizardModal'))
 const BrushManagerModal = lazy(() => import('./components/BrushManagerModal'))
 const EdgeWearWizard = lazy(() => import('./components/EdgeWearWizard'))
 const ExportWizardModal = lazy(() => import('./components/ExportWizardModal'))
-import { serializeProject, deserializeProject } from './utils/projectSerializer'
+import {
+  captureProject,
+  encodeProject,
+  deserializeProject,
+  type CapturedProject
+} from './utils/projectSerializer'
+import { writeFileParts, readFileBytes, streamParts } from './utils/fileIo'
 
 import {
   SlidersIcon,
   LayersIcon,
   FolderOpenIcon,
+  FolderIcon,
   DownloadIcon,
   RefreshCwIcon,
+  FitIcon,
   SparklesIcon,
   EdgeWearIcon,
   BookmarkIcon,
@@ -86,7 +94,7 @@ import {
   stepRadius,
   type ToolMode
 } from './paint/brush'
-import { DEFAULT_TEXTURE_SIZE, type TextureSize } from './paint/paintEngine'
+import { DEFAULT_TEXTURE_SIZE, TEXTURE_SIZE_OPTIONS, type TextureSize } from './paint/paintEngine'
 import { textTool } from './paint/textTool'
 import {
   selectionGroups,
@@ -98,6 +106,9 @@ import type { MeshCoatProject } from './utils/projectSerializer'
 import SelectionGroupsPanel from './components/SelectionGroupsPanel'
 import UnsavedChangesModal from './components/UnsavedChangesModal'
 import { loadLayoutProfile, saveLayoutProfile } from './utils/layoutProfile'
+import { createLogger } from './utils/logger'
+
+const logger = createLogger('app')
 
 export default function App(): JSX.Element {
   const initialProfile = loadLayoutProfile()
@@ -464,11 +475,27 @@ export default function App(): JSX.Element {
   const [modelName, setModelName] = createSignal('Default Model')
   const [textureSize, setTextureSize] = createSignal<TextureSize>(DEFAULT_TEXTURE_SIZE)
   const [showStartWizard, setShowStartWizard] = createSignal(true)
-  const [isDirty, setIsDirty] = createSignal(false)
+  const [isDirty, setIsDirtyRaw] = createSignal(false)
+  /**
+   * Bumped on every edit. A save captures the project, then spends a while
+   * encoding and writing it; comparing this afterwards tells whether edits
+   * landed meanwhile, in which case the project has to stay dirty.
+   */
+  let editGeneration = 0
+  /** Shown in the header while a save is writing, so a hitch reads as the save (#53). */
+  const [saveActivity, setSaveActivity] = createSignal<'save' | 'autosave' | null>(null)
+  const setIsDirty = (dirty: boolean): void => {
+    if (dirty) {
+      editGeneration++
+    }
+    setIsDirtyRaw(dirty)
+  }
   const [showUnsavedChangesModal, setShowUnsavedChangesModal] = createSignal(false)
   const [isSavingBeforeClose, setIsSavingBeforeClose] = createSignal(false)
   const [currentProjectPath, setCurrentProjectPath] = createSignal<string | null>(null)
   const [currentModelPath, setCurrentModelPath] = createSignal<string | null>(null)
+  /** Other known locations of the model, carried in the project file (#52). */
+  const [modelPathAlternates, setModelPathAlternates] = createSignal<string[]>([])
 
   const [isRestoringSession, setIsRestoringSession] = createSignal(false)
 
@@ -507,6 +534,10 @@ export default function App(): JSX.Element {
     type: 'info' | 'success' | 'warning' | 'error' = 'info',
     durationMs = 3500
   ): void {
+    // What the artist was told is the best breadcrumb when reading a log back.
+    if (type === 'error' || type === 'warning') {
+      logger.warn(`Toast (${type}): ${text}`)
+    }
     if (toastTimer) {
       clearTimeout(toastTimer)
     }
@@ -547,20 +578,21 @@ export default function App(): JSX.Element {
   }
 
   /**
-   * The project file's contents, or null (with a toast) when the layers can't
-   * be read — after a GPU context loss every layer reads back blank, and
-   * writing that would overwrite the last good save.
+   * The project as it is right now, or null (with a toast) when the layers
+   * can't be read — after a GPU context loss every layer reads back blank,
+   * and writing that would overwrite the last good save.
    */
-  function serializeForSave(savePieces: ReturnType<typeof projectPieces>): string | null {
+  function captureForSave(savePieces: ReturnType<typeof projectPieces>): CapturedProject | null {
     try {
-      return serializeProject({
+      return captureProject({
         modelPath: currentModelPath(),
         modelName: modelName(),
         pieces: savePieces,
-        activePieceIndex: viewportHandle?.activePieceIndex() ?? 0
+        activePieceIndex: viewportHandle?.activePieceIndex() ?? 0,
+        modelPathAlternates: modelPathAlternates()
       })
     } catch (err) {
-      console.error('Failed to serialize project:', err)
+      logger.error('Failed to capture project for saving:', err)
       showToast(
         err instanceof GpuContextLostError
           ? 'Not saved: the graphics context was lost, so the layers can no longer be read. Your last save and autosave are untouched — reload to restore.'
@@ -571,75 +603,68 @@ export default function App(): JSX.Element {
     }
   }
 
-  async function handleSaveProject(): Promise<boolean> {
+  /** Captures, encodes and writes the project to `targetPath`. */
+  async function writeProject(targetPath: string, toastPrefix: string): Promise<boolean> {
     const savePieces = projectPieces()
     if (savePieces.length === 0) {
       return false
     }
-
-    let targetPath = currentProjectPath()
-    if (!targetPath) {
-      targetPath = await window.api.saveFileDialog({
-        defaultPath: `${modelName().replace(/\.[^/.]+$/, '')}.meshcoat`,
-        filters: [{ name: 'MeshCoat Project', extensions: ['meshcoat'] }],
-        key: 'project',
-        nearPath: currentModelPath()
-      })
-      if (!targetPath) {
+    // Captured before anything awaits, so edits made while it encodes and
+    // writes belong to the next save — and leave the project dirty.
+    const captured = captureForSave(savePieces)
+    if (!captured) {
+      return false
+    }
+    const capturedGeneration = editGeneration
+    const started = performance.now()
+    setSaveActivity('save')
+    try {
+      const ok = await writeFileParts(targetPath, await encodeProject(captured))
+      if (!ok) {
+        showToast('Failed to save project', 'error')
         return false
       }
-      setCurrentProjectPath(targetPath)
-    }
-
-    const content = serializeForSave(savePieces)
-    if (content === null) {
+    } catch (err) {
+      logger.error('Failed to save project:', targetPath, err)
+      showToast(`Failed to save project: ${err instanceof Error ? err.message : String(err)}`, 'error')
       return false
+    } finally {
+      setSaveActivity(null)
     }
-
-    const ok = await window.api.saveProjectFile(targetPath, content)
-    if (ok) {
+    logger.info(`Saved project ${targetPath} in ${Math.round(performance.now() - started)}ms`)
+    setCurrentProjectPath(targetPath)
+    if (editGeneration === capturedGeneration) {
       setIsDirty(false)
       await window.api.clearRecovery()
-      await window.api.addRecentProject(targetPath, modelName(), 'project')
-      showToast(`Saved project: ${targetPath.split(/[/\\]/).pop()}`, 'success')
-      return true
     }
-    showToast('Failed to save project', 'error')
-    return false
+    await window.api.addRecentProject(targetPath, modelName(), 'project')
+    showToast(`${toastPrefix}: ${targetPath.split(/[/\\]/).pop()}`, 'success')
+    return true
   }
 
-  async function handleSaveAsProject(): Promise<boolean> {
-    const savePieces = projectPieces()
-    if (savePieces.length === 0) {
-      return false
-    }
-
-    const targetPath = await window.api.saveFileDialog({
+  function projectSaveDialog(): Promise<string | null> {
+    return window.api.saveFileDialog({
       defaultPath: `${modelName().replace(/\.[^/.]+$/, '')}.meshcoat`,
       filters: [{ name: 'MeshCoat Project', extensions: ['meshcoat'] }],
       key: 'project',
       nearPath: currentModelPath()
     })
-    if (!targetPath) {
+  }
+
+  async function handleSaveProject(): Promise<boolean> {
+    if (projectPieces().length === 0) {
       return false
     }
-    setCurrentProjectPath(targetPath)
+    const targetPath = currentProjectPath() ?? (await projectSaveDialog())
+    return targetPath ? writeProject(targetPath, 'Saved project') : false
+  }
 
-    const content = serializeForSave(savePieces)
-    if (content === null) {
+  async function handleSaveAsProject(): Promise<boolean> {
+    if (projectPieces().length === 0) {
       return false
     }
-
-    const ok = await window.api.saveProjectFile(targetPath, content)
-    if (ok) {
-      setIsDirty(false)
-      await window.api.clearRecovery()
-      await window.api.addRecentProject(targetPath, modelName(), 'project')
-      showToast(`Saved project as: ${targetPath.split(/[/\\]/).pop()}`, 'success')
-      return true
-    }
-    showToast('Failed to save project', 'error')
-    return false
+    const targetPath = await projectSaveDialog()
+    return targetPath ? writeProject(targetPath, 'Saved project as') : false
   }
 
   function handleRequestClose(): void {
@@ -687,12 +712,14 @@ export default function App(): JSX.Element {
     primitive: 'sphere' | 'cube' = 'sphere'
   ): Promise<void> {
     const handle = await getReadyViewport()
+    logger.info(`New scratch project: ${primitive} at ${size}px`)
     // Every open inspector is showing pixels that are about to be disposed.
     closeAllUvInspectors()
     await handle.loadDefaultModel(size, primitive)
     setTextureSize(size)
     setModelName(primitive === 'cube' ? 'Default Cube' : 'Default Sphere')
     setCurrentModelPath(null)
+    setModelPathAlternates([])
     setCurrentProjectPath(null)
     setIsDirty(false)
     showToast(
@@ -713,6 +740,7 @@ export default function App(): JSX.Element {
     try {
       await handleOpenModel(path, textureSize())
     } catch (err) {
+      logger.error('Failed to open model:', path, err)
       showToast(
         `Failed to open model: ${err instanceof Error ? err.message : String(err)}`,
         'error'
@@ -732,6 +760,7 @@ export default function App(): JSX.Element {
     try {
       await handleOpenProjectFile(path)
     } catch (err) {
+      logger.error('Failed to open project:', path, err)
       showToast(
         `Failed to open project: ${err instanceof Error ? err.message : String(err)}`,
         'error'
@@ -750,6 +779,7 @@ export default function App(): JSX.Element {
     let extension = path.split('.').pop() ?? ''
     const filename = path.split(/[/\\]/).pop() ?? 'Loaded Model'
     let actualPath = path
+    logger.info(`Opening model ${path} at ${size}px${forceTextureSize ? ' (forced)' : ''}`)
 
     if (extension.toLowerCase() === 'blend') {
       showToast(`Converting ${filename} via Blender...`, 'info')
@@ -768,6 +798,9 @@ export default function App(): JSX.Element {
     // painted at their own resolution, and a many-piece model is scaled down to
     // fit the GPU. Report what was actually allocated.
     const allocated = handle.pieces()[0]?.textureSize
+    logger.info(
+      `Model loaded: ${filename}, ${handle.pieces().length} piece(s), painting at ${allocated ?? size}px`
+    )
     setTextureSize((allocated ?? size) as TextureSize)
     if (allocated && allocated !== size) {
       showToast(`Painting at ${allocated}px to match the imported textures`, 'info')
@@ -775,6 +808,7 @@ export default function App(): JSX.Element {
     setModelName(filename)
     setSelectionGroups([])
     setCurrentModelPath(path)
+    setModelPathAlternates([])
     setCurrentProjectPath(null)
     setIsDirty(false)
     await window.api.addRecentProject(path, filename, 'model')
@@ -786,9 +820,10 @@ export default function App(): JSX.Element {
           setTextureRoot(textureFolderPath)
           setTextures(files)
         }
-      } catch {
+      } catch (err) {
         // Texture folder is optional context from the project file — a
         // missing/unreadable one just means the shelf starts empty.
+        logger.warn('Could not list texture folder:', textureFolderPath, err)
       }
     }
 
@@ -813,28 +848,112 @@ export default function App(): JSX.Element {
     )
   }
 
-  async function handleOpenProjectFile(path: string): Promise<void> {
-    const handle = await getReadyViewport()
-    const content = await window.api.readProjectFile(path)
-    if (!content) {
-      throw new Error('Could not read project file from disk')
+  /**
+   * Finds the project's model on this machine (#52). A project shared between
+   * collaborators carries a path from someone else's disk, so this tries, in
+   * order: the saved path, every location it was relinked to before, and the
+   * model's file name next to the project file — then asks.
+   *
+   * Mutates `project.modelPath` to what was found and returns whether that
+   * differs from the saved path (the project then needs saving to keep it).
+   */
+  async function resolveModelPath(
+    project: MeshCoatProject,
+    projectPath: string | null
+  ): Promise<boolean> {
+    const saved = project.modelPath
+    if (!saved) {
+      return false
     }
-    const { project, stackSnapshots } = await deserializeProject(content)
-    await handle.loadProject(project, stackSnapshots)
+    const fileName = saved.split(/[/\\]/).pop() ?? saved
+    const projectDir = projectPath ? projectPath.slice(0, projectPath.search(/[/\\][^/\\]*$/)) : null
+    const sep = projectPath?.includes('\\') ? '\\' : '/'
+    const candidates = [
+      saved,
+      ...(project.modelPathAlternates ?? []),
+      ...(projectDir !== null ? [`${projectDir}${sep}${fileName}`] : [])
+    ]
+    let found = await window.api.findExistingFile(candidates)
+    if (!found) {
+      logger.warn('Model not found at any known location:', candidates)
+      const locate = window.confirm(
+        `The model for this project wasn't found:\n\n${saved}\n\n` +
+          'Locate it? Its new location is saved with the project, alongside the original.'
+      )
+      const ext = fileName.split('.').pop()?.toLowerCase() ?? 'glb'
+      const picked = locate
+        ? await window.api.openFileDialog({
+            filters: [
+              { name: fileName, extensions: [ext] },
+              { name: '3D Models', extensions: ['glb', 'gltf', 'obj', 'blend'] }
+            ],
+            key: 'model'
+          })
+        : null
+      found = picked?.[0] ?? null
+      if (!found) {
+        throw new Error(`Model not found: ${saved}`)
+      }
+    }
+    // Every location that has worked anywhere, minus the one in use now.
+    const known = [saved, ...(project.modelPathAlternates ?? [])]
+    project.modelPathAlternates = [...new Set(known)].filter((p) => p !== found)
+    project.modelPath = found
+    if (found !== saved) {
+      logger.info(`Relinked model ${saved} -> ${found}`)
+    }
+    return found !== saved
+  }
+
+  /** Applies a just-loaded project's metadata to the app state. */
+  function adoptLoadedProject(project: MeshCoatProject, projectPath: string | null): void {
     restoreSelectionGroups(project)
     setTextureSize(project.textureSize as TextureSize)
     setModelName(project.name || project.modelName)
     setCurrentModelPath(project.modelPath)
-    setCurrentProjectPath(path)
-    setIsDirty(false)
+    setModelPathAlternates(project.modelPathAlternates ?? [])
+    setCurrentProjectPath(projectPath)
+  }
+
+  async function handleOpenProjectFile(path: string): Promise<void> {
+    const handle = await getReadyViewport()
+    logger.info('Opening project', path)
+    const bytes = await readFileBytes(path)
+    const { project, stackSnapshots } = await deserializeProject(bytes)
+    logger.info(
+      `Read project ${path}: format v${project.version}, ${(bytes.byteLength / 1048576).toFixed(1)} MB`
+    )
+    const relinked = await resolveModelPath(project, path)
+    await handle.loadProject(project, stackSnapshots)
+    logger.info(
+      `Project loaded: ${project.name}, model ${project.modelPath}, ${project.textureSize}px`
+    )
+    adoptLoadedProject(project, path)
+    setIsDirty(relinked)
     await window.api.addRecentProject(path, project.name, 'project')
-    showToast(`Loaded project: ${project.name}`, 'success')
+    showToast(
+      relinked
+        ? `Loaded project: ${project.name} — model relinked, save to keep the new location`
+        : `Loaded project: ${project.name}`,
+      'success'
+    )
+  }
+
+  /** The live project, captured without encoding — for rebuilding it in place. */
+  function captureLive(): CapturedProject {
+    return captureProject({
+      modelPath: currentModelPath(),
+      modelName: modelName(),
+      pieces: projectPieces(),
+      activePieceIndex: viewportHandle?.activePieceIndex() ?? 0,
+      modelPathAlternates: modelPathAlternates()
+    })
   }
 
   /**
    * Re-imports the model from disk after it was edited elsewhere (Blender,
-   * etc.), keeping every layer. Round-trips through the project format, so
-   * layers land back on pieces by name exactly as opening a saved project does.
+   * etc.), keeping every layer. Goes through the same load as opening a saved
+   * project, so layers land back on pieces by name.
    */
   async function handleReloadModel(): Promise<void> {
     const modelPath = currentModelPath()
@@ -852,33 +971,72 @@ export default function App(): JSX.Element {
     if (!ok) {
       return
     }
+    logger.info('Reloading model from disk:', modelPath)
     try {
-      const content = serializeProject({
-        modelPath,
-        modelName: modelName(),
-        pieces: projectPieces(),
-        activePieceIndex: handle.activePieceIndex()
-      })
-      const { project, stackSnapshots } = await deserializeProject(content)
+      const { project, stackSnapshots } = captureLive()
       await handle.loadProject(project, stackSnapshots, { reload: true })
       restoreSelectionGroups(project)
       setIsDirty(true)
       showToast(`Reloaded ${modelPath.split(/[/\\]/).pop()}`, 'success')
     } catch (err) {
-      console.error('Model reload failed:', err)
+      logger.error('Model reload failed:', err)
       showToast(`Reload failed: ${err instanceof Error ? err.message : String(err)}`, 'error')
     }
   }
 
-  async function handleRestoreRecovery(recoveryData: string): Promise<void> {
+  /**
+   * Changes the texture resolution of every piece, or just one (#54). Layers
+   * are resampled, not cleared: restoring a snapshot onto a stack of another
+   * size already scales it (PaintEngine.restoreFromCpuSnapshot). Upscaling
+   * can't add detail that was never painted, but keeps every layer, name and
+   * mask so painting can carry on at the new size.
+   */
+  async function handleResizeTextures(size: TextureSize, pieceIndex: number | null): Promise<void> {
+    const handle = viewportHandle
+    if (!handle) {
+      return
+    }
+    const target = pieceIndex === null ? 'all pieces' : `"${modelPieces()[pieceIndex]?.name}"`
+    const ok = window.confirm(
+      `Resize ${target} to ${size}px?\n\n` +
+        'Every layer is resampled to the new size. Scaling up keeps the current detail ' +
+        'rather than adding any; scaling down loses detail. Undo history is cleared.'
+    )
+    if (!ok) {
+      return
+    }
+    try {
+      const { project, stackSnapshots } = captureLive()
+      project.pieces?.forEach((piece, i) => {
+        if (pieceIndex === null || i === pieceIndex) {
+          piece.textureSize = size
+        }
+      })
+      project.textureSize = project.pieces?.[0]?.textureSize ?? size
+      logger.info(`Resizing ${target} to ${size}px`)
+      await handle.loadProject(project, stackSnapshots, { reload: true })
+      restoreSelectionGroups(project)
+      setTextureSize(project.textureSize as TextureSize)
+      setIsDirty(true)
+      showToast(`Resized ${target} to ${size}px`, 'success')
+    } catch (err) {
+      logger.error('Resize failed:', err)
+      showToast(
+        err instanceof GpuContextLostError
+          ? 'Resize failed: the graphics context was lost. Reload to restore your last save.'
+          : `Resize failed: ${err instanceof Error ? err.message : String(err)}`,
+        'error'
+      )
+    }
+  }
+
+  async function handleRestoreRecovery(recoveryData: ArrayBuffer): Promise<void> {
     const handle = await getReadyViewport()
+    logger.info('Restoring autosave')
     const { project, stackSnapshots } = await deserializeProject(recoveryData)
+    await resolveModelPath(project, null)
     await handle.loadProject(project, stackSnapshots)
-    restoreSelectionGroups(project)
-    setTextureSize(project.textureSize as TextureSize)
-    setModelName(project.name || project.modelName)
-    setCurrentModelPath(project.modelPath)
-    setCurrentProjectPath(null)
+    adoptLoadedProject(project, null)
     setIsDirty(true)
     showToast(`Restored unsaved session: ${project.name}`, 'success')
   }
@@ -971,23 +1129,16 @@ export default function App(): JSX.Element {
         stack?.recomposite()
       }
       bumpLayers()
-      const hasTexture = Boolean(brush.texturePath())
+      const what = brush.texturePath() ? 'texture' : 'color'
       const count = brush.selectedFaces().size
-      if (hasTexture) {
-        showToast(
-          count > 0
-            ? `Filled ${count} face(s) on "${active.name}" with texture`
-            : `Filled "${active.name}" with texture`,
-          'info'
-        )
-      } else {
-        showToast(
-          count > 0
-            ? `Filled ${count} face(s) on "${active.name}" with color`
-            : `Filled "${active.name}" with color`,
-          'info'
-        )
-      }
+      const lassoed = viewportHandle?.hasPixelSelection() ?? false
+      const where =
+        count > 0
+          ? `${count} face(s)${lassoed ? ' (inside the lasso)' : ''} on "${active.name}"`
+          : lassoed
+            ? `the lasso selection on "${active.name}"`
+            : `"${active.name}"`
+      showToast(`Filled ${where} with ${what}`, 'info')
     }
   }
 
@@ -1007,6 +1158,24 @@ export default function App(): JSX.Element {
     viewportHandle.redo()
     bumpLayers()
     showToast('Redo', 'info', 1200)
+  }
+
+  /** Ctrl+G groups the active layer into a new folder; Ctrl+Shift+G ungroups its folder. */
+  function toggleActiveLayerFolder(ungroup: boolean): void {
+    const stack = viewportHandle?.getLayerStack()
+    const layer = stack?.active
+    if (!stack || !layer) {
+      return
+    }
+    if (ungroup && layer.folderId !== undefined) {
+      stack.ungroupFolder(layer.folderId)
+      bumpLayers()
+      showToast('Ungrouped folder', 'info')
+    } else if (!ungroup && layer.folderId === undefined) {
+      const folder = stack.groupIntoFolder(layer.id)
+      bumpLayers()
+      showToast(`Grouped "${layer.name}" into ${folder?.name ?? 'a folder'}`, 'info')
+    }
   }
 
   function onKeyDown(e: KeyboardEvent): void {
@@ -1087,13 +1256,29 @@ export default function App(): JSX.Element {
       if (e.key.toLowerCase() === 'd') {
         e.preventDefault()
         clearFaceSelection()
-        showToast('Cleared face selection', 'info')
+        viewportHandle?.clearPixelSelection()
+        showToast('Cleared selection', 'info')
         return
       }
       if (e.key.toLowerCase() === 'i') {
         e.preventDefault()
-        viewportHandle?.invertFaceSelection()
-        showToast('Inverted face selection', 'info')
+        // The lasso selection is the one being inverted while it's in use, or
+        // when it is the only selection there is.
+        if (
+          activeTool() === 'lasso' ||
+          (viewportHandle?.hasPixelSelection() && brush.selectedFaces().size === 0)
+        ) {
+          viewportHandle?.invertPixelSelection()
+          showToast('Inverted lasso selection', 'info')
+        } else {
+          viewportHandle?.invertFaceSelection()
+          showToast('Inverted face selection', 'info')
+        }
+        return
+      }
+      if (e.key.toLowerCase() === 'g') {
+        e.preventDefault()
+        toggleActiveLayerFolder(e.shiftKey)
         return
       }
       if (e.key.toLowerCase() === 'b') {
@@ -1116,6 +1301,14 @@ export default function App(): JSX.Element {
         break
       case 'd':
         setActiveTool('gradient')
+        break
+      case 'q':
+        setActiveTool('lasso')
+        setToolPanelCollapsed(false)
+        break
+      case 'k':
+        setActiveTool('clone')
+        setToolPanelCollapsed(false)
         break
       case '2':
       case 'e':
@@ -1284,28 +1477,51 @@ export default function App(): JSX.Element {
             'info'
           )
         }
-      } catch {
-        // Detection is a startup nicety — nothing to surface if it fails.
+      } catch (err) {
+        // Detection is a startup nicety — nothing to surface to the artist if it fails.
+        logger.warn('Blender detection failed:', err)
       }
     })()
 
-    // Periodic Autosave every 60s if there are unsaved changes
+    // Periodic Autosave every 60s if there are unsaved changes. Only the
+    // capture blocks input now; PNG encoding runs off the main thread and the
+    // file streams to disk in chunks. A large project can still take longer
+    // than the interval, so a tick that finds the previous autosave still in
+    // flight skips rather than stacking a second copy on top of it.
+    let autosaveInFlight = false
     const autosaveTimer = setInterval(async () => {
-      if (isDirty() && viewportHandle) {
-        const stack = viewportHandle.getLayerStack()
-        if (stack) {
-          try {
-            const data = serializeProject({
-              modelPath: currentModelPath(),
-              modelName: modelName(),
-              pieces: projectPieces(),
-              activePieceIndex: viewportHandle.activePieceIndex()
-            })
-            await window.api.saveRecovery(data)
-          } catch (err) {
-            console.error('Autosave error:', err)
-          }
+      if (autosaveInFlight || !isDirty() || !viewportHandle?.getLayerStack()) {
+        return
+      }
+      autosaveInFlight = true
+      setSaveActivity('autosave')
+      let writeId: number | null = null
+      try {
+        const started = performance.now()
+        const captured = captureLive()
+        const captureMs = Math.round(performance.now() - started)
+        const parts = await encodeProject(captured)
+        writeId = await window.api.beginFileWrite(await window.api.recoveryTarget())
+        const bytes = await streamParts(writeId, parts)
+        const ok = await window.api.commitRecovery(writeId)
+        writeId = null
+        const totalMs = Math.round(performance.now() - started)
+        const sizeMb = (bytes / 1048576).toFixed(1)
+        if (ok) {
+          logger.info(`Autosave: ${sizeMb} MB, capture ${captureMs}ms (blocking), total ${totalMs}ms`)
+        } else {
+          logger.error(`Autosave commit failed (${sizeMb} MB) — see main log`)
         }
+      } catch (err) {
+        // A lost GPU context lands here too: nothing readable to save, and
+        // the last good autosave stays untouched.
+        logger.error('Autosave error:', err)
+        if (writeId !== null) {
+          await window.api.abortFileWrite(writeId).catch(() => {})
+        }
+      } finally {
+        autosaveInFlight = false
+        setSaveActivity((a) => (a === 'autosave' ? null : a))
       }
     }, 60000)
 
@@ -1391,6 +1607,34 @@ export default function App(): JSX.Element {
       label: 'Open Project File...',
       icon: (p) => <FolderOpenIcon size={p.size} />,
       onClick: () => void handleBrowseAndOpenProject()
+    },
+    {
+      label: 'Resize Textures',
+      icon: (p) => <FitIcon size={p.size} />,
+      submenu: [
+        { type: 'header', label: modelPieces().length > 1 ? 'All pieces' : 'Texture size' },
+        ...TEXTURE_SIZE_OPTIONS.map(
+          (size): MenuItem => ({
+            label: `${size}px`,
+            onClick: () => void handleResizeTextures(size, null)
+          })
+        ),
+        ...(modelPieces().length > 1
+          ? [
+              { type: 'divider' } as MenuItem,
+              {
+                type: 'header',
+                label: `Active piece (${modelPieces()[activePiece()]?.textureSize ?? '?'}px)`
+              } as MenuItem,
+              ...TEXTURE_SIZE_OPTIONS.map(
+                (size): MenuItem => ({
+                  label: `${size}px`,
+                  onClick: () => void handleResizeTextures(size, activePiece())
+                })
+              )
+            ]
+          : [])
+      ]
     },
     { type: 'divider' },
     {
@@ -1535,6 +1779,7 @@ export default function App(): JSX.Element {
         modelName={modelName()}
         isDirty={isDirty()}
         isRestoringSession={isRestoringSession()}
+        saveActivity={saveActivity()}
         fileMenuItems={fileMenuItems()}
         editMenuItems={editMenuItems()}
         selectionMenuItems={selectionMenuItems()}
@@ -1637,6 +1882,7 @@ export default function App(): JSX.Element {
           <Viewport
             tool={activeTool}
             textures={textures()}
+            onToast={showToast}
             onToolChange={(t) => setActiveTool(t)}
             onReady={(h) => {
               viewportHandle = h
@@ -1713,6 +1959,9 @@ export default function App(): JSX.Element {
             onStamp={() => viewportHandle?.stampStencil() ?? false}
             onToast={showToast}
             onFillSelection={handleFillActiveLayer}
+            onInvertPixelSelection={() => viewportHandle?.invertPixelSelection()}
+            onClearPixelSelection={() => viewportHandle?.clearPixelSelection()}
+            onClearCloneSource={() => viewportHandle?.clearCloneSource()}
             stencilPanelOpen={showStencilPanel()}
             collapsed={toolPanelCollapsed()}
             onToggleCollapse={() => setToolPanelCollapsed((v) => !v)}
@@ -1882,6 +2131,7 @@ export default function App(): JSX.Element {
                   </button>
                 </div>
                 <Show when={lowerTab() === 'layers'}>
+                  <>
                   <IconButton
                     size="xs"
                     variant="ghost"
@@ -1896,6 +2146,21 @@ export default function App(): JSX.Element {
                   >
                     <PlusIcon size={14} />
                   </IconButton>
+                  <IconButton
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => {
+                      const stack = viewportHandle?.getLayerStack()
+                      if (stack) {
+                        stack.groupIntoFolder(stack.activeId)
+                        bumpLayers()
+                      }
+                    }}
+                    tooltip="Group the selected layer into a new folder (Ctrl+G)"
+                  >
+                    <FolderIcon size={14} />
+                  </IconButton>
+                  </>
                 </Show>
               </div>
 

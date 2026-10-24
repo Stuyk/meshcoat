@@ -1,5 +1,5 @@
-import { For, Show, createSignal } from 'solid-js'
-import type { Layer, LayerStack } from '../paint/layers'
+import { For, Show, createSignal, type JSX } from 'solid-js'
+import type { Layer, LayerFolder, LayerStack } from '../paint/layers'
 import { BLEND_MODES, BLEND_MODE_LABELS, type BlendMode } from '../paint/blendShader'
 import {
   PlusIcon,
@@ -20,7 +20,11 @@ import {
   UnlinkIcon,
   CornerDownRightIcon,
   PopoutIcon,
-  CopyToPieceIcon
+  CopyToPieceIcon,
+  FolderIcon,
+  FolderOpenIcon,
+  ChevronRightIcon,
+  FolderMinusIcon
 } from './icons'
 import { IconButton, Label, Select, TextInput } from './ui'
 
@@ -132,6 +136,188 @@ export default function LayersTab(props: {
     setEditingId(null)
   }
 
+  const [editingFolderId, setEditingFolderId] = createSignal<number | null>(null)
+  const [editFolderName, setEditFolderName] = createSignal('')
+
+  function startEditingFolder(folder: LayerFolder, e: MouseEvent): void {
+    e.stopPropagation()
+    setEditingFolderId(folder.id)
+    setEditFolderName(folder.name)
+  }
+
+  /** Same contract as commitEditing: commits to the folder the edit started on. */
+  function commitEditingFolder(id: number): void {
+    if (editingFolderId() !== id) {
+      return
+    }
+    const name = editFolderName().trim()
+    const current = props.getStack()?.folders.find((f) => f.id === id)?.name
+    if (name && name !== current) {
+      run((s) => s.renameFolder(id, name))
+    }
+    setEditingFolderId(null)
+  }
+
+  function FolderHeader(p: { folder: LayerFolder }): JSX.Element {
+    // Undo/redo replaces folder objects, so always read the live one by id
+    // rather than holding on to the object this header was created with.
+    const id = p.folder.id
+    const folder = (): LayerFolder => props.getStack()?.folders.find((f) => f.id === id) ?? p.folder
+    const v =
+      <T,>(read: () => T) =>
+      (): T => {
+        void props.version
+        return read()
+      }
+    const visible = v(() => folder().visible)
+    const opacity = v(() => folder().opacity)
+    const collapsed = v(() => !!folder().collapsed)
+    const name = v(() => folder().name)
+    const memberCount = v(
+      () => props.getStack()?.layers.filter((l) => l.folderId === id).length ?? 0
+    )
+    const range = v(() => props.getStack()?.folderRange(id) ?? null)
+    const isTop = (): boolean => (range()?.end ?? 0) >= (props.getStack()?.layers.length ?? 0) - 1
+    const isBottom = (): boolean => (range()?.start ?? 0) === 0
+    const isWholeStack = (): boolean => memberCount() >= (props.getStack()?.layers.length ?? 0)
+    const actionClass =
+      'p-1 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer'
+
+    return (
+      <div
+        class={`flex flex-col px-1.5 py-1 rounded-[var(--ui-radius)] border border-[var(--border-color)] bg-[var(--bg-input)]/60 ${
+          !visible() ? 'opacity-50' : ''
+        }`}
+      >
+        <div class="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => run((s) => s.toggleFolderCollapsed(id))}
+            class="p-0.5 text-[var(--text-muted)] hover:text-[var(--text-main)] cursor-pointer"
+            title={collapsed() ? 'Expand folder' : 'Collapse folder'}
+          >
+            <ChevronRightIcon
+              size={13}
+              class={`transition-transform duration-150 ${collapsed() ? '' : 'rotate-90'}`}
+            />
+          </button>
+          <button
+            type="button"
+            onClick={() => run((s) => s.setFolderVisible(id, !folder().visible))}
+            class="p-1 rounded-[2px] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/10 transition-colors cursor-pointer"
+            title={visible() ? 'Hide folder' : 'Show folder'}
+          >
+            {visible() ? <EyeIcon size={13} /> : <EyeOffIcon size={13} class="opacity-50" />}
+          </button>
+          {collapsed() ? (
+            <FolderIcon size={13} class="text-amber-400 shrink-0" />
+          ) : (
+            <FolderOpenIcon size={13} class="text-amber-400 shrink-0" />
+          )}
+          <div class="flex-1 min-w-0">
+            <Show
+              when={editingFolderId() === id}
+              fallback={
+                <div
+                  class="flex items-center gap-1.5 truncate"
+                  onDblClick={(e) => startEditingFolder(folder(), e)}
+                  title="Double-click to rename"
+                >
+                  <span class="text-[11px] font-semibold text-[var(--text-main)] truncate">
+                    {name()}
+                  </span>
+                  <span class="text-[9px] font-mono text-[var(--text-muted)] shrink-0">
+                    {memberCount()}
+                  </span>
+                </div>
+              }
+            >
+              <div class="flex items-center gap-1">
+                <TextInput
+                  size="xs"
+                  value={editFolderName()}
+                  onInput={(val) => setEditFolderName(val)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      commitEditingFolder(id)
+                    }
+                    if (e.key === 'Escape') {
+                      setEditingFolderId(null)
+                    }
+                  }}
+                  onBlur={() => commitEditingFolder(id)}
+                  autofocus
+                  class="w-full"
+                />
+              </div>
+            </Show>
+          </div>
+          <button
+            type="button"
+            disabled={isTop()}
+            onClick={() => run((s) => s.moveFolder(id, 'up'))}
+            class={actionClass}
+            title="Move folder up"
+          >
+            <ArrowUpIcon size={12} />
+          </button>
+          <button
+            type="button"
+            disabled={isBottom()}
+            onClick={() => run((s) => s.moveFolder(id, 'down'))}
+            class={actionClass}
+            title="Move folder down"
+          >
+            <ArrowDownIcon size={12} />
+          </button>
+          <button
+            type="button"
+            onClick={() => run((s) => s.ungroupFolder(id))}
+            class={actionClass}
+            title="Ungroup — remove the folder, keep its layers"
+          >
+            <FolderMinusIcon size={12} />
+          </button>
+          <button
+            type="button"
+            disabled={isWholeStack()}
+            onClick={() => {
+              if (
+                window.confirm(
+                  `Delete folder "${folder().name}" and its ${memberCount()} layer(s)?`
+                )
+              ) {
+                run((s) => s.removeFolder(id))
+              }
+            }}
+            class="p-1 text-zinc-400 hover:text-red-400 hover:bg-red-950/40 rounded transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+            title="Delete folder and its layers"
+          >
+            <Trash2Icon size={12} />
+          </button>
+        </div>
+        <div class="flex items-center gap-2 mt-1 pl-6">
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={opacity()}
+            onPointerDown={() => run((s) => s.history.record())}
+            onInput={(e) =>
+              run((s) => s.setFolderOpacity(id, parseFloat(e.currentTarget.value), false))
+            }
+            class="flex-1 h-1 bg-black/40 rounded-[2px] appearance-none cursor-pointer accent-[var(--accent-color)]"
+            title="Folder opacity — scales every layer inside"
+          />
+          <span class="font-mono text-[9px] text-[var(--accent-color)] tabular-nums w-7 text-right">
+            {Math.round(opacity() * 100)}%
+          </span>
+        </div>
+      </div>
+    )
+  }
+
   const layerCount = () => {
     void props.version
     return props.getStack()?.layers.length ?? 0
@@ -180,6 +366,17 @@ export default function LayersTab(props: {
             const index = () => layers().findIndex((l) => l.id === layer.id)
             const isBottom = () => index() === 0
             const isTop = () => index() === layers().length - 1
+            const folder = (): LayerFolder | undefined => {
+              void props.version
+              return layer.folderId !== undefined
+                ? stack()?.folders.find((f) => f.id === layer.folderId)
+                : undefined
+            }
+            // The header is drawn above the folder's top member, which is the
+            // first one the reversed (top → bottom) list reaches.
+            const isFolderTop = (): boolean =>
+              !!folder() && layers()[index() + 1]?.folderId !== layer.folderId
+            const inFolder = (): boolean => !!folder()
             const isActive = () => {
               void props.version
               return stack()?.activeId === layer.id
@@ -237,398 +434,428 @@ export default function LayersTab(props: {
             const isClipped = () => !!maskOwner()
 
             return (
-              <div class={`relative flex flex-col ${isClipped() ? 'pl-4' : ''}`}>
-                {/* Visual Branch Line Connector for clipped layer */}
-                <Show when={isClipped()}>
-                  <div
-                    class="absolute -left-0.5 top-0 bottom-1/2 w-3.5 border-l-2 border-b-2 border-zinc-700/80 rounded-bl-md pointer-events-none"
-                    title={`Masked by ${maskOwner()?.name}`}
-                  />
+              <>
+                <Show when={isFolderTop()}>
+                  <FolderHeader folder={folder()!} />
                 </Show>
-
-                <div
-                  onClick={() => run((s) => (s.activeId = layer.id))}
-                  class={`flex flex-col p-2 rounded-[var(--ui-radius)] border transition-all cursor-pointer ${
-                    isActive()
-                      ? 'bg-[var(--bg-input)] border-[var(--accent-color)] shadow-xs ring-1 ring-[var(--accent-color)]/30'
-                      : 'bg-[var(--bg-panel)]/80 border-[var(--border-color)] hover:border-white/20 hover:bg-[var(--bg-panel)]'
-                  } ${!visible() ? 'opacity-50' : ''}`}
-                >
-                  <div class="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        run((s) => s.setVisible(layer.id, !layer.visible))
-                      }}
-                      class="p-1 rounded-[2px] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/10 transition-colors cursor-pointer"
-                      title={visible() ? 'Hide layer' : 'Show layer'}
-                    >
-                      {visible() ? (
-                        <EyeIcon size={13} />
-                      ) : (
-                        <EyeOffIcon size={13} class="text-[var(--text-muted)] opacity-50" />
-                      )}
-                    </button>
-
-                    {/* The thumbnail is the popout trigger: it is the thing
-                        whose full-size version the artist wants to see. */}
-                    <button
-                      type="button"
-                      class="relative w-7 h-7 rounded-[var(--ui-radius)] overflow-hidden checkerboard-bg border border-[var(--border-color)] shrink-0 group/thumb cursor-pointer hover:border-[var(--accent-color)] transition-colors"
-                      title={
-                        props.onInspectLayer
-                          ? `Inspect "${name()}" full size in its own window`
-                          : undefined
-                      }
-                      onClick={(e) => {
-                        if (!props.onInspectLayer) {
-                          return
-                        }
-                        e.stopPropagation()
-                        props.onInspectLayer(layer)
-                      }}
-                    >
-                      <img src={preview()} alt="" class="w-full h-full object-cover" />
-                      <Show when={props.onInspectLayer}>
-                        <span class="absolute inset-0 hidden group-hover/thumb:flex items-center justify-center bg-black/55 text-white">
-                          <PopoutIcon size={11} />
-                        </span>
-                      </Show>
-                      <Show when={isMaskFlag()}>
-                        <span
-                          class="absolute bottom-0 right-0 p-0.5 bg-[var(--accent-color)] text-[var(--accent-text)] rounded-tl text-[8px]"
-                          title="Mask Layer"
-                        >
-                          <DramaIcon size={8} />
-                        </span>
-                      </Show>
-                    </button>
-
-                    <div class="flex-1 min-w-0">
-                      <Show
-                        when={editingId() === layer.id}
-                        fallback={
-                          <div
-                            class="flex items-center gap-1.5 truncate"
-                            onDblClick={(e) => startEditing(layer, e)}
-                            title="Double-click to rename"
-                          >
-                            <Show when={isClipped()}>
-                              <CornerDownRightIcon
-                                size={11}
-                                class="text-[var(--text-muted)] shrink-0"
-                              />
-                            </Show>
-                            <span class="text-[11px] font-semibold text-[var(--text-main)] truncate">
-                              {name()}
-                            </span>
-                            <Show when={isMaskFlag()}>
-                              <span class="px-1 py-0 rounded-[2px] bg-[var(--accent-color)]/20 border border-[var(--accent-color)]/40 text-[9px] font-mono text-[var(--accent-color)]">
-                                MASK
-                              </span>
-                            </Show>
-                            <Show when={isBottom() && !isMaskFlag()}>
-                              <span class="px-1 py-0 rounded-[2px] bg-[var(--bg-input)] border border-[var(--border-color)] text-[9px] font-mono text-[var(--text-muted)]">
-                                BASE
-                              </span>
-                            </Show>
-                          </div>
-                        }
-                      >
-                        <div class="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                          <TextInput
-                            size="xs"
-                            value={editName()}
-                            onInput={(val) => setEditName(val)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                commitEditing(layer.id)
-                              }
-                              if (e.key === 'Escape') {
-                                setEditingId(null)
-                              }
-                            }}
-                            onBlur={() => commitEditing(layer.id)}
-                            autofocus
-                            class="w-full"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => commitEditing(layer.id)}
-                            class="p-1 text-emerald-400 hover:text-emerald-300 cursor-pointer"
-                            title="Confirm rename"
-                          >
-                            <CheckIcon size={12} />
-                          </button>
-                        </div>
-                      </Show>
-                    </div>
-
-                    <Show when={editingId() !== layer.id}>
-                      <button
-                        type="button"
-                        onClick={(e) => startEditing(layer, e)}
-                        class="p-1 text-[var(--text-muted)] hover:text-[var(--text-main)] rounded-[2px] hover:bg-white/10 transition-colors cursor-pointer"
-                        title="Rename layer"
-                      >
-                        <Edit2Icon size={11} />
-                      </button>
-                    </Show>
-                  </div>
-
+                <Show when={!folder()?.collapsed}>
                   <div
-                    class="flex items-center gap-2 mt-1.5 pt-1.5 border-t border-[var(--border-color)]"
-                    onClick={(e) => e.stopPropagation()}
+                    class={`relative flex flex-col ${isClipped() ? 'pl-4' : ''} ${
+                      inFolder() ? 'ml-2.5 pl-2 border-l-2 border-amber-500/30' : ''
+                    } ${folder() && !folder()!.visible ? 'opacity-50' : ''}`}
                   >
-                    <Show
-                      when={!isMaskFlag()}
-                      fallback={
-                        <span class="text-[9px] font-medium text-[var(--text-muted)] w-14">
-                          Strength
-                        </span>
-                      }
-                    >
-                      <Select
-                        size="xs"
-                        class="w-20 truncate"
-                        title="Blend mode"
-                        value={blendMode()}
-                        onChange={(val) => run((s) => s.setBlendMode(layer.id, val as BlendMode))}
-                      >
-                        <For each={BLEND_MODES}>
-                          {(mode) => <option value={mode}>{BLEND_MODE_LABELS[mode]}</option>}
-                        </For>
-                      </Select>
+                    {/* Visual Branch Line Connector for clipped layer */}
+                    <Show when={isClipped()}>
+                      <div
+                        class="absolute -left-0.5 top-0 bottom-1/2 w-3.5 border-l-2 border-b-2 border-zinc-700/80 rounded-bl-md pointer-events-none"
+                        title={`Masked by ${maskOwner()?.name}`}
+                      />
                     </Show>
 
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.01"
-                      value={opacity()}
-                      onPointerDown={() => run((s) => s.history.record())}
-                      onInput={(e) =>
-                        run((s) => s.setOpacity(layer.id, parseFloat(e.currentTarget.value), false))
-                      }
-                      class="flex-1 h-1 bg-black/40 rounded-[2px] appearance-none cursor-pointer accent-[var(--accent-color)]"
-                    />
-                    <span class="font-mono text-[9px] text-[var(--accent-color)] tabular-nums w-7 text-right">
-                      {Math.round(opacity() * 100)}%
-                    </span>
-                  </div>
-
-                  <Show when={isActive()}>
                     <div
-                      class="flex items-center justify-between gap-1 mt-1.5 pt-1.5 border-t border-[var(--border-color)]"
-                      onClick={(e) => e.stopPropagation()}
+                      onClick={() => run((s) => (s.activeId = layer.id))}
+                      class={`flex flex-col p-2 rounded-[var(--ui-radius)] border transition-all cursor-pointer ${
+                        isActive()
+                          ? 'bg-[var(--bg-input)] border-[var(--accent-color)] shadow-xs ring-1 ring-[var(--accent-color)]/30'
+                          : 'bg-[var(--bg-panel)]/80 border-[var(--border-color)] hover:border-white/20 hover:bg-[var(--bg-panel)]'
+                      } ${!visible() ? 'opacity-50' : ''}`}
                     >
-                      <button
-                        type="button"
-                        onClick={() =>
-                          run((s) =>
-                            layer.isMask ? s.unmaskLayer(layer.id) : s.convertToMask(layer.id)
-                          )
-                        }
-                        class={`p-1 rounded-[2px] transition-colors cursor-pointer text-[10px] ${
-                          isMaskFlag()
-                            ? 'bg-[var(--accent-color)]/20 text-[var(--accent-color)] border border-[var(--accent-color)]/40'
-                            : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/10'
-                        }`}
-                        title={isMaskFlag() ? 'Switch to Texture Layer' : 'Switch to Mask Layer'}
-                      >
-                        <DramaIcon size={13} />
-                      </button>
+                      <div class="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            run((s) => s.setVisible(layer.id, !layer.visible))
+                          }}
+                          class="p-1 rounded-[2px] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/10 transition-colors cursor-pointer"
+                          title={visible() ? 'Hide layer' : 'Show layer'}
+                        >
+                          {visible() ? (
+                            <EyeIcon size={13} />
+                          ) : (
+                            <EyeOffIcon size={13} class="text-[var(--text-muted)] opacity-50" />
+                          )}
+                        </button>
 
-                      {/* Mask-Specific Action Group */}
-                      <Show when={isMaskFlag()}>
+                        {/* The thumbnail is the popout trigger: it is the thing
+                        whose full-size version the artist wants to see. */}
                         <button
                           type="button"
-                          onClick={() => run((s) => s.addLayerBelow(layer.id))}
-                          class="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors cursor-pointer"
-                          title="Add paint layer below (clipped to this mask)"
+                          class="relative w-7 h-7 rounded-[var(--ui-radius)] overflow-hidden checkerboard-bg border border-[var(--border-color)] shrink-0 group/thumb cursor-pointer hover:border-[var(--accent-color)] transition-colors"
+                          title={
+                            props.onInspectLayer
+                              ? `Inspect "${name()}" full size in its own window`
+                              : undefined
+                          }
+                          onClick={(e) => {
+                            if (!props.onInspectLayer) {
+                              return
+                            }
+                            e.stopPropagation()
+                            props.onInspectLayer(layer)
+                          }}
                         >
-                          <CornerDownRightIcon size={13} />
+                          <img src={preview()} alt="" class="w-full h-full object-cover" />
+                          <Show when={props.onInspectLayer}>
+                            <span class="absolute inset-0 hidden group-hover/thumb:flex items-center justify-center bg-black/55 text-white">
+                              <PopoutIcon size={11} />
+                            </span>
+                          </Show>
+                          <Show when={isMaskFlag()}>
+                            <span
+                              class="absolute bottom-0 right-0 p-0.5 bg-[var(--accent-color)] text-[var(--accent-text)] rounded-tl text-[8px]"
+                              title="Mask Layer"
+                            >
+                              <DramaIcon size={8} />
+                            </span>
+                          </Show>
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => run((s) => s.invertMask(layer.id))}
-                          class="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors cursor-pointer"
-                          title="Invert mask"
-                        >
-                          <ContrastIcon size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => run((s) => s.fillMask(layer.id, true))}
-                          class="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors cursor-pointer"
-                          title="Reveal all (White)"
-                        >
-                          <SunIcon size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => run((s) => s.fillMask(layer.id, false))}
-                          class="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors cursor-pointer"
-                          title="Hide all (Black)"
-                        >
-                          <MoonIcon size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => run((s) => s.toggleMaskPreviewOnModel(layer.id))}
-                          class={`p-1.5 rounded transition-colors cursor-pointer ${
-                            previewOnModel()
-                              ? 'bg-amber-600/30 text-amber-300 border border-amber-500/50'
-                              : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
-                          }`}
-                          title="Inspect raw mask on 3D model"
-                        >
-                          <CubeIcon size={13} />
-                        </button>
-                      </Show>
 
-                      {/* Unclip button for clipped layers */}
-                      <Show when={!isMaskFlag() && isClipped()}>
-                        <button
-                          type="button"
-                          onClick={() => run((s) => s.setClipToMask(layer.id, 0))}
-                          class="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors cursor-pointer"
-                          title="Unclip from mask"
-                        >
-                          <UnlinkIcon size={13} />
-                        </button>
-                      </Show>
-
-                      <div class="h-4 w-px bg-zinc-800 my-auto" />
-
-                      {/* Reorder Buttons */}
-                      <button
-                        type="button"
-                        disabled={isTop()}
-                        onClick={() => run((s) => s.moveLayer(layer.id, 'up'))}
-                        class="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
-                        title="Move layer up"
-                      >
-                        <ArrowUpIcon size={13} />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isBottom() && !isClipped()}
-                        onClick={() => run((s) => s.moveLayer(layer.id, 'down'))}
-                        class="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
-                        title="Move layer down"
-                      >
-                        <ArrowDownIcon size={13} />
-                      </button>
-
-                      <div class="h-4 w-px bg-zinc-800 my-auto" />
-
-                      {/* Duplicate & Merge */}
-                      <button
-                        type="button"
-                        onClick={() => run((s) => s.duplicateLayer(layer.id))}
-                        class="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors cursor-pointer"
-                        title="Duplicate layer"
-                      >
-                        <CopyIcon size={13} />
-                      </button>
-                      <Show when={otherPieces().length > 0}>
-                        <button
-                          type="button"
-                          onClick={() => openCopy(layer.id)}
-                          class={`p-1.5 rounded transition-colors cursor-pointer ${
-                            copyingId() === layer.id
-                              ? 'text-blue-300 bg-blue-950/50'
-                              : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
-                          }`}
-                          title="Copy this layer onto another piece (same UV layout)"
-                        >
-                          <CopyToPieceIcon size={13} />
-                        </button>
-                      </Show>
-                      <Show when={!isMaskFlag()}>
-                        <button
-                          type="button"
-                          disabled={isBottom()}
-                          onClick={() => run((s) => s.mergeDown(layer.id))}
-                          class="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
-                          title="Merge onto layer below"
-                        >
-                          <ChevronDownIcon size={13} />
-                        </button>
-                      </Show>
-
-                      {/* Delete */}
-                      <button
-                        type="button"
-                        disabled={(stack()?.layers.length ?? 0) <= 1}
-                        onClick={() => run((s) => s.removeLayer(layer.id))}
-                        class="p-1.5 text-zinc-400 hover:text-red-400 hover:bg-red-950/40 rounded transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
-                        title="Delete layer"
-                      >
-                        <Trash2Icon size={13} />
-                      </button>
-                    </div>
-                    <Show when={copyingId() === layer.id}>
-                      <div class="mt-1.5 flex flex-col gap-1.5 p-2 rounded border border-blue-900/60 bg-blue-950/20">
-                        <div class="flex items-center gap-2">
-                          <span class="text-[10px] font-semibold uppercase tracking-wide text-zinc-400 shrink-0">
-                            Copy to
-                          </span>
-                          <select
-                            class="flex-1 min-w-0 bg-zinc-950 border border-zinc-700 rounded px-1.5 py-0.5 text-[11px] text-zinc-200 cursor-pointer"
-                            value={copyTarget()}
-                            onChange={(e) => setCopyTarget(Number(e.currentTarget.value))}
+                        <div class="flex-1 min-w-0">
+                          <Show
+                            when={editingId() === layer.id}
+                            fallback={
+                              <div
+                                class="flex items-center gap-1.5 truncate"
+                                onDblClick={(e) => startEditing(layer, e)}
+                                title="Double-click to rename"
+                              >
+                                <Show when={isClipped()}>
+                                  <CornerDownRightIcon
+                                    size={11}
+                                    class="text-[var(--text-muted)] shrink-0"
+                                  />
+                                </Show>
+                                <span class="text-[11px] font-semibold text-[var(--text-main)] truncate">
+                                  {name()}
+                                </span>
+                                <Show when={isMaskFlag()}>
+                                  <span class="px-1 py-0 rounded-[2px] bg-[var(--accent-color)]/20 border border-[var(--accent-color)]/40 text-[9px] font-mono text-[var(--accent-color)]">
+                                    MASK
+                                  </span>
+                                </Show>
+                                <Show when={isBottom() && !isMaskFlag()}>
+                                  <span class="px-1 py-0 rounded-[2px] bg-[var(--bg-input)] border border-[var(--border-color)] text-[9px] font-mono text-[var(--text-muted)]">
+                                    BASE
+                                  </span>
+                                </Show>
+                              </div>
+                            }
                           >
-                            <For each={otherPieces()}>
-                              {(p) => <option value={p.index}>{p.label}</option>}
+                            <div
+                              class="flex items-center gap-1"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <TextInput
+                                size="xs"
+                                value={editName()}
+                                onInput={(val) => setEditName(val)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    commitEditing(layer.id)
+                                  }
+                                  if (e.key === 'Escape') {
+                                    setEditingId(null)
+                                  }
+                                }}
+                                onBlur={() => commitEditing(layer.id)}
+                                autofocus
+                                class="w-full"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => commitEditing(layer.id)}
+                                class="p-1 text-emerald-400 hover:text-emerald-300 cursor-pointer"
+                                title="Confirm rename"
+                              >
+                                <CheckIcon size={12} />
+                              </button>
+                            </div>
+                          </Show>
+                        </div>
+
+                        <Show when={editingId() !== layer.id}>
+                          <button
+                            type="button"
+                            onClick={(e) => startEditing(layer, e)}
+                            class="p-1 text-[var(--text-muted)] hover:text-[var(--text-main)] rounded-[2px] hover:bg-white/10 transition-colors cursor-pointer"
+                            title="Rename layer"
+                          >
+                            <Edit2Icon size={11} />
+                          </button>
+                        </Show>
+                      </div>
+
+                      <div
+                        class="flex items-center gap-2 mt-1.5 pt-1.5 border-t border-[var(--border-color)]"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Show
+                          when={!isMaskFlag()}
+                          fallback={
+                            <span class="text-[9px] font-medium text-[var(--text-muted)] w-14">
+                              Strength
+                            </span>
+                          }
+                        >
+                          <Select
+                            size="xs"
+                            class="w-20 truncate"
+                            title="Blend mode"
+                            value={blendMode()}
+                            onChange={(val) =>
+                              run((s) => s.setBlendMode(layer.id, val as BlendMode))
+                            }
+                          >
+                            <For each={BLEND_MODES}>
+                              {(mode) => <option value={mode}>{BLEND_MODE_LABELS[mode]}</option>}
                             </For>
-                          </select>
-                        </div>
-                        <div class="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => setFlipU((v) => !v)}
-                            title="Mirror left-right in UV space (for a reflected UV island)"
-                            class={`flex-1 h-6 rounded text-[10px] font-medium border cursor-pointer ${
-                              flipU()
-                                ? 'bg-blue-600 border-blue-500 text-white'
-                                : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-zinc-200'
-                            }`}
-                          >
-                            Flip H
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setFlipV((v) => !v)}
-                            title="Mirror top-bottom in UV space"
-                            class={`flex-1 h-6 rounded text-[10px] font-medium border cursor-pointer ${
-                              flipV()
-                                ? 'bg-blue-600 border-blue-500 text-white'
-                                : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-zinc-200'
-                            }`}
-                          >
-                            Flip V
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => copyToPiece(layer)}
-                            class="flex-1 h-6 rounded text-[10px] font-semibold bg-blue-600 hover:bg-blue-500 text-white cursor-pointer"
-                          >
-                            Copy
-                          </button>
-                        </div>
-                        <span class="text-[10px] text-zinc-500 leading-snug">
-                          Copies pixels by UV position — lines up when both pieces share the same
-                          unwrap. Undo on the target piece removes it.
+                          </Select>
+                        </Show>
+
+                        <input
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.01"
+                          value={opacity()}
+                          onPointerDown={() => run((s) => s.history.record())}
+                          onInput={(e) =>
+                            run((s) =>
+                              s.setOpacity(layer.id, parseFloat(e.currentTarget.value), false)
+                            )
+                          }
+                          class="flex-1 h-1 bg-black/40 rounded-[2px] appearance-none cursor-pointer accent-[var(--accent-color)]"
+                        />
+                        <span class="font-mono text-[9px] text-[var(--accent-color)] tabular-nums w-7 text-right">
+                          {Math.round(opacity() * 100)}%
                         </span>
                       </div>
-                    </Show>
-                  </Show>
-                </div>
-              </div>
+
+                      <Show when={isActive()}>
+                        <div
+                          class="flex items-center justify-between gap-1 mt-1.5 pt-1.5 border-t border-[var(--border-color)]"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            onClick={() =>
+                              run((s) =>
+                                layer.isMask ? s.unmaskLayer(layer.id) : s.convertToMask(layer.id)
+                              )
+                            }
+                            class={`p-1 rounded-[2px] transition-colors cursor-pointer text-[10px] ${
+                              isMaskFlag()
+                                ? 'bg-[var(--accent-color)]/20 text-[var(--accent-color)] border border-[var(--accent-color)]/40'
+                                : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/10'
+                            }`}
+                            title={
+                              isMaskFlag() ? 'Switch to Texture Layer' : 'Switch to Mask Layer'
+                            }
+                          >
+                            <DramaIcon size={13} />
+                          </button>
+
+                          {/* Mask-Specific Action Group */}
+                          <Show when={isMaskFlag()}>
+                            <button
+                              type="button"
+                              onClick={() => run((s) => s.addLayerBelow(layer.id))}
+                              class="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors cursor-pointer"
+                              title="Add paint layer below (clipped to this mask)"
+                            >
+                              <CornerDownRightIcon size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => run((s) => s.invertMask(layer.id))}
+                              class="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors cursor-pointer"
+                              title="Invert mask"
+                            >
+                              <ContrastIcon size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => run((s) => s.fillMask(layer.id, true))}
+                              class="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors cursor-pointer"
+                              title="Reveal all (White)"
+                            >
+                              <SunIcon size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => run((s) => s.fillMask(layer.id, false))}
+                              class="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors cursor-pointer"
+                              title="Hide all (Black)"
+                            >
+                              <MoonIcon size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => run((s) => s.toggleMaskPreviewOnModel(layer.id))}
+                              class={`p-1.5 rounded transition-colors cursor-pointer ${
+                                previewOnModel()
+                                  ? 'bg-amber-600/30 text-amber-300 border border-amber-500/50'
+                                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
+                              }`}
+                              title="Inspect raw mask on 3D model"
+                            >
+                              <CubeIcon size={13} />
+                            </button>
+                          </Show>
+
+                          {/* Unclip button for clipped layers */}
+                          <Show when={!isMaskFlag() && isClipped()}>
+                            <button
+                              type="button"
+                              onClick={() => run((s) => s.setClipToMask(layer.id, 0))}
+                              class="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors cursor-pointer"
+                              title="Unclip from mask"
+                            >
+                              <UnlinkIcon size={13} />
+                            </button>
+                          </Show>
+
+                          <div class="h-4 w-px bg-zinc-800 my-auto" />
+
+                          {/* Reorder Buttons */}
+                          <button
+                            type="button"
+                            disabled={isTop() && !inFolder()}
+                            onClick={() => run((s) => s.moveLayer(layer.id, 'up'))}
+                            class="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+                            title="Move layer up"
+                          >
+                            <ArrowUpIcon size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isBottom() && !isClipped() && !inFolder()}
+                            onClick={() => run((s) => s.moveLayer(layer.id, 'down'))}
+                            class="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+                            title="Move layer down"
+                          >
+                            <ArrowDownIcon size={13} />
+                          </button>
+
+                          <div class="h-4 w-px bg-zinc-800 my-auto" />
+
+                          {/* Duplicate & Merge */}
+                          <button
+                            type="button"
+                            onClick={() => run((s) => s.duplicateLayer(layer.id))}
+                            class="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors cursor-pointer"
+                            title="Duplicate layer"
+                          >
+                            <CopyIcon size={13} />
+                          </button>
+                          <Show when={!inFolder()}>
+                            <button
+                              type="button"
+                              onClick={() => run((s) => s.groupIntoFolder(layer.id))}
+                              class="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors cursor-pointer"
+                              title="Group into a new folder (Ctrl+G)"
+                            >
+                              <FolderIcon size={13} />
+                            </button>
+                          </Show>
+                          <Show when={otherPieces().length > 0}>
+                            <button
+                              type="button"
+                              onClick={() => openCopy(layer.id)}
+                              class={`p-1.5 rounded transition-colors cursor-pointer ${
+                                copyingId() === layer.id
+                                  ? 'text-blue-300 bg-blue-950/50'
+                                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
+                              }`}
+                              title="Copy this layer onto another piece (same UV layout)"
+                            >
+                              <CopyToPieceIcon size={13} />
+                            </button>
+                          </Show>
+                          <Show when={!isMaskFlag()}>
+                            <button
+                              type="button"
+                              disabled={isBottom()}
+                              onClick={() => run((s) => s.mergeDown(layer.id))}
+                              class="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+                              title="Merge onto layer below"
+                            >
+                              <ChevronDownIcon size={13} />
+                            </button>
+                          </Show>
+
+                          {/* Delete */}
+                          <button
+                            type="button"
+                            disabled={(stack()?.layers.length ?? 0) <= 1}
+                            onClick={() => run((s) => s.removeLayer(layer.id))}
+                            class="p-1.5 text-zinc-400 hover:text-red-400 hover:bg-red-950/40 rounded transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+                            title="Delete layer"
+                          >
+                            <Trash2Icon size={13} />
+                          </button>
+                        </div>
+                        <Show when={copyingId() === layer.id}>
+                          <div class="mt-1.5 flex flex-col gap-1.5 p-2 rounded border border-blue-900/60 bg-blue-950/20">
+                            <div class="flex items-center gap-2">
+                              <span class="text-[10px] font-semibold uppercase tracking-wide text-zinc-400 shrink-0">
+                                Copy to
+                              </span>
+                              <select
+                                class="flex-1 min-w-0 bg-zinc-950 border border-zinc-700 rounded px-1.5 py-0.5 text-[11px] text-zinc-200 cursor-pointer"
+                                value={copyTarget()}
+                                onChange={(e) => setCopyTarget(Number(e.currentTarget.value))}
+                              >
+                                <For each={otherPieces()}>
+                                  {(p) => <option value={p.index}>{p.label}</option>}
+                                </For>
+                              </select>
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setFlipU((v) => !v)}
+                                title="Mirror left-right in UV space (for a reflected UV island)"
+                                class={`flex-1 h-6 rounded text-[10px] font-medium border cursor-pointer ${
+                                  flipU()
+                                    ? 'bg-blue-600 border-blue-500 text-white'
+                                    : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-zinc-200'
+                                }`}
+                              >
+                                Flip H
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setFlipV((v) => !v)}
+                                title="Mirror top-bottom in UV space"
+                                class={`flex-1 h-6 rounded text-[10px] font-medium border cursor-pointer ${
+                                  flipV()
+                                    ? 'bg-blue-600 border-blue-500 text-white'
+                                    : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-zinc-200'
+                                }`}
+                              >
+                                Flip V
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => copyToPiece(layer)}
+                                class="flex-1 h-6 rounded text-[10px] font-semibold bg-blue-600 hover:bg-blue-500 text-white cursor-pointer"
+                              >
+                                Copy
+                              </button>
+                            </div>
+                            <span class="text-[10px] text-zinc-500 leading-snug">
+                              Copies pixels by UV position — lines up when both pieces share the
+                              same unwrap. Undo on the target piece removes it.
+                            </span>
+                          </div>
+                        </Show>
+                      </Show>
+                    </div>
+                  </div>
+                </Show>
+              </>
             )
           }}
         </For>

@@ -6,6 +6,9 @@ import { toAssetUrl } from '../utils/assetUrl'
 import { unpackOrmDataUrl } from '../paint/exportTexture'
 import type { PaintPiece, InitialPbrTextures } from './viewportTypes'
 import type { ViewportRuntime } from './viewportRuntime'
+import { createLogger } from '../utils/logger'
+
+const logger = createLogger('pbr')
 
 /**
  * Bakes a set of loaded maps into a piece's background layer. Shared by the
@@ -154,7 +157,7 @@ export async function applyPbrTexturesToPiece(
         channelTextures.metalness = prepare(await asyncLoadTexture(unpacked.metalness), false)
       }
     } catch (e) {
-      console.error('Failed to unpack initial ORM map:', e)
+      logger.error('Failed to unpack initial ORM map:', e)
     }
   }
 

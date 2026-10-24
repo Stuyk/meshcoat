@@ -114,6 +114,11 @@ export interface ViewportHandle {
   getTotalFaces: () => number
   /** Projects the screen-space stencil onto the model as a one-shot decal. Returns false if it couldn't run. */
   stampStencil: () => boolean
+  /** Lasso pixel selection on the active piece (see pixelSelection.ts). */
+  clearPixelSelection: () => void
+  invertPixelSelection: () => void
+  hasPixelSelection: () => boolean
+  clearCloneSource: () => void
   previewEdgeWear: (
     options: EdgeWearParams,
     asNewLayer?: boolean,
@@ -206,4 +211,5 @@ export interface ViewportProps {
   onIsolatePieceChanged?: (isolate: boolean) => void
   /** Fires when the piece list or the active piece changes. */
   onPiecesChanged?: () => void
+  onToast?: (text: string, type?: 'info' | 'success' | 'warning' | 'error') => void
 }

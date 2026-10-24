@@ -17,6 +17,7 @@ import {
   type PaintChannel
 } from './channels'
 import { PaintSurface, createPaintTarget, poolTarget } from './gpuResources'
+import type { LassoBakeParams } from './pixelSelection'
 
 /**
  * Resolves a finished channel composite into something MeshStandardMaterial can
@@ -70,12 +71,29 @@ function createChannelFlattenMaterial(): THREE.ShaderMaterial {
  * already had, so both rendered as the active one. It also can't collide with
  * the ids restoreState() brings back from a saved project.
  */
-function nextLayerId(layers: readonly Layer[]): number {
+function nextLayerId(layers: readonly { id: number }[]): number {
   let highest = 0
   for (const layer of layers) {
     highest = Math.max(highest, layer.id)
   }
   return highest + 1
+}
+
+/**
+ * A pass-through layer folder: it groups a contiguous run of layers for
+ * organisation, and its visibility and opacity apply on top of each member's
+ * own. Members keep their own blend modes against everything below, exactly as
+ * if the folder weren't there — so a folder costs no render target. Folders
+ * live beside the layers rather than in the array, which keeps every place that
+ * walks `layers` and reads `layer.engine` unaware of them.
+ */
+export interface LayerFolder {
+  id: number
+  name: string
+  visible: boolean
+  opacity: number
+  /** UI-only: members hidden in the layers panel. Saved, but never an undo step. */
+  collapsed?: boolean
 }
 
 export interface LayerSnapshot {
@@ -86,6 +104,7 @@ export interface LayerSnapshot {
   isMask?: boolean
   clippedToMaskId?: number
   blendMode?: BlendMode
+  folderId?: number
   /** CPU-side pixel buffer (system RAM, not GPU/VRAM) — see PaintEngine.createCpuSnapshot(). */
   pixels: CpuPixelSnapshot
 }
@@ -93,6 +112,8 @@ export interface LayerSnapshot {
 export interface StackSnapshot {
   activeId: number
   layers: LayerSnapshot[]
+  /** Absent in snapshots from before folders existed. */
+  folders?: LayerFolder[]
 }
 
 export interface Layer {
@@ -107,6 +128,12 @@ export interface Layer {
   /** How this layer's color composites onto the layers below it. Ignored for
    * mask layers, which always modulate via their own grayscale coverage. */
   blendMode?: BlendMode
+  /**
+   * The folder this layer belongs to. A folder's members are always contiguous
+   * in `layers`, and a mask and the layers clipped to it are always in the same
+   * folder (or none) — every mutation below keeps both true.
+   */
+  folderId?: number
 }
 
 /**
@@ -116,6 +143,7 @@ export interface Layer {
  */
 export class LayerStack {
   layers: Layer[] = []
+  folders: LayerFolder[] = []
   activeId = 0
   readonly compositeTarget: THREE.WebGLRenderTarget
   private renderer: THREE.WebGLRenderer
@@ -131,6 +159,7 @@ export class LayerStack {
   private recompositePlainMaterial = new THREE.MeshBasicMaterial()
   private recompositeQuad: THREE.Mesh
   private maskMapScratch = new Map<number, Layer>()
+  private folderMapScratch = new Map<number, LayerFolder>()
   /** Per-layer blend-mode compositing (see blendShader.ts) needs to read the
    * accumulated backdrop *and* write the new one in the same pass, which a
    * single accumulating target can't do — so layers ping-pong through the two
@@ -249,6 +278,23 @@ export class LayerStack {
     return this.surface.coverageMask
   }
 
+  /** This piece's lasso selection (see pixelSelection.ts), or null for none. */
+  get pixelSelection(): THREE.Texture | null {
+    return this.surface.pixelSelection
+  }
+
+  applyLasso(params: LassoBakeParams): void {
+    this.surface.applyLasso(params)
+  }
+
+  invertPixelSelection(): void {
+    this.surface.invertPixelSelection()
+  }
+
+  clearPixelSelection(): void {
+    this.surface.clearPixelSelection()
+  }
+
   /** The render target behind channelTexture — what the exporters read back. */
   channelTarget(channel: PaintChannel): THREE.WebGLRenderTarget | null {
     if (channel === 'baseColor') {
@@ -333,6 +379,9 @@ export class LayerStack {
       isMask
     }
     const activeIndex = this.layers.findIndex((l) => l.id === this.activeId)
+    // Inserted directly above the active layer, so it joins the active layer's
+    // folder — anything else would split the folder in two.
+    layer.folderId = this.layers[activeIndex]?.folderId
     this.layers.splice(activeIndex + 1, 0, layer)
     this.activeId = layer.id
     this.recomposite()
@@ -408,7 +457,8 @@ export class LayerStack {
       visible: true,
       opacity: 1,
       engine,
-      clippedToMaskId: maskLayerId
+      clippedToMaskId: maskLayerId,
+      folderId: mask.folderId
     }
     this.layers.splice(index, 0, newLayer)
     this.activeId = newLayer.id
@@ -477,6 +527,7 @@ export class LayerStack {
     if (this.activeId === id) {
       this.activeId = this.layers[Math.max(0, index - 1)].id
     }
+    this.pruneFolders()
     this.recomposite()
   }
 
@@ -515,6 +566,7 @@ export class LayerStack {
     top.engine.dispose()
     this.layers.splice(index, 1)
     this.activeId = below.id
+    this.pruneFolders()
     this.recomposite()
   }
 
@@ -530,7 +582,8 @@ export class LayerStack {
         layer.isMask &&
         start > 0 &&
         !this.layers[start - 1].isMask &&
-        this.layers[start - 1].clippedToMaskId === layer.id
+        this.layers[start - 1].clippedToMaskId === layer.id &&
+        this.layers[start - 1].folderId === layer.folderId
       ) {
         start--
       }
@@ -542,7 +595,9 @@ export class LayerStack {
 
   /** Masks move together with their clipped layers. A clipped layer moves within
    * its group and leaves it past the top/bottom edge; a standalone layer moving
-   * into a group joins it at that edge. */
+   * into a group joins it at that edge. Folders work the same way one level up:
+   * a unit at a folder's edge steps out of it, and a unit beside a folder steps
+   * into it, before either actually changes position. */
   moveLayer(id: number, direction: 'up' | 'down'): void {
     const index = this.layers.findIndex((l) => l.id === id)
     if (index === -1) {
@@ -553,6 +608,27 @@ export class LayerStack {
     const unitIndex = units.findIndex((u) => index >= u.start && index <= u.end)
     const unit = units[unitIndex]
     const up = direction === 'up'
+
+    // A clipped member never crosses a folder edge directly — it leaves its
+    // mask group first, which is handled further down.
+    const isClippedMember = !layer.isMask && unit.end > index
+    if (!isClippedMember) {
+      const neighbor = units[unitIndex + (up ? 1 : -1)]
+      const neighborFolder = neighbor ? this.layers[neighbor.start].folderId : undefined
+      if (layer.folderId !== undefined && neighborFolder !== layer.folderId) {
+        this.history?.record()
+        this.setUnitFolder(unit, undefined)
+        this.pruneFolders()
+        this.recomposite()
+        return
+      }
+      if (layer.folderId === undefined && neighborFolder !== undefined) {
+        this.history?.record()
+        this.setUnitFolder(unit, neighborFolder)
+        this.recomposite()
+        return
+      }
+    }
 
     if (layer.isMask) {
       const neighbor = units[unitIndex + (up ? 1 : -1)]
@@ -611,6 +687,171 @@ export class LayerStack {
     this.recomposite()
   }
 
+  private setUnitFolder(unit: { start: number; end: number }, folderId: number | undefined): void {
+    for (let i = unit.start; i <= unit.end; i++) {
+      this.layers[i].folderId = folderId
+    }
+  }
+
+  /** Drops folders with no members left, and member links to folders that no longer exist. */
+  private pruneFolders(): void {
+    const used = new Set(this.layers.map((l) => l.folderId))
+    this.folders = this.folders.filter((f) => used.has(f.id))
+    const live = new Set(this.folders.map((f) => f.id))
+    for (const l of this.layers) {
+      if (l.folderId !== undefined && !live.has(l.folderId)) {
+        l.folderId = undefined
+      }
+    }
+  }
+
+  /** Index range of a folder's members in `layers`, or null if it has none. */
+  folderRange(folderId: number): { start: number; end: number } | null {
+    const start = this.layers.findIndex((l) => l.folderId === folderId)
+    if (start === -1) {
+      return null
+    }
+    let end = start
+    while (end + 1 < this.layers.length && this.layers[end + 1].folderId === folderId) {
+      end++
+    }
+    return { start, end }
+  }
+
+  /**
+   * Puts a layer — together with its mask group, so the group stays whole —
+   * into a new folder (spec: Group into Folder). Folders don't nest: a layer
+   * that is already in one returns that folder unchanged.
+   */
+  groupIntoFolder(layerId: number, name?: string): LayerFolder | undefined {
+    const index = this.layers.findIndex((l) => l.id === layerId)
+    if (index === -1) {
+      return undefined
+    }
+    const layer = this.layers[index]
+    if (layer.folderId !== undefined) {
+      return this.folders.find((f) => f.id === layer.folderId)
+    }
+    this.history?.record()
+    const unit = this.units().find((u) => index >= u.start && index <= u.end)!
+    const folder: LayerFolder = {
+      id: nextLayerId(this.folders),
+      name: name ?? `Folder ${this.folders.length + 1}`,
+      visible: true,
+      opacity: 1
+    }
+    this.folders.push(folder)
+    this.setUnitFolder(unit, folder.id)
+    this.recomposite()
+    return folder
+  }
+
+  /** Removes a folder but keeps its layers where they are. */
+  ungroupFolder(folderId: number): void {
+    if (!this.folders.some((f) => f.id === folderId)) {
+      return
+    }
+    this.history?.record()
+    for (const l of this.layers) {
+      if (l.folderId === folderId) {
+        l.folderId = undefined
+      }
+    }
+    this.pruneFolders()
+    this.recomposite()
+  }
+
+  /** Deletes a folder and every layer in it. Refused if that would leave the stack empty. */
+  removeFolder(folderId: number): void {
+    const range = this.folderRange(folderId)
+    if (!range || range.end - range.start + 1 >= this.layers.length) {
+      return
+    }
+    this.history?.record()
+    const removed = this.layers.splice(range.start, range.end - range.start + 1)
+    const removedIds = new Set(removed.map((l) => l.id))
+    for (const l of removed) {
+      l.engine.dispose()
+    }
+    for (const l of this.layers) {
+      if (l.clippedToMaskId !== undefined && removedIds.has(l.clippedToMaskId)) {
+        l.clippedToMaskId = undefined
+      }
+    }
+    if (removedIds.has(this.activeId)) {
+      this.activeId = this.layers[Math.max(0, range.start - 1)].id
+    }
+    this.pruneFolders()
+    this.recomposite()
+  }
+
+  /** Moves a whole folder past the neighboring unit or folder. */
+  moveFolder(folderId: number, direction: 'up' | 'down'): void {
+    const range = this.folderRange(folderId)
+    if (!range) {
+      return
+    }
+    const up = direction === 'up'
+    const edge = up ? range.end + 1 : range.start - 1
+    if (edge < 0 || edge >= this.layers.length) {
+      return
+    }
+    // The neighbor is a whole folder if it sits in one, otherwise the mask unit at that edge.
+    const neighborFolder = this.layers[edge].folderId
+    const neighbor =
+      neighborFolder !== undefined
+        ? this.folderRange(neighborFolder)!
+        : this.units().find((u) => edge >= u.start && edge <= u.end)!
+    this.history?.record()
+    const lower = up ? range : neighbor
+    const upper = up ? neighbor : range
+    const reordered = [
+      ...this.layers.slice(upper.start, upper.end + 1),
+      ...this.layers.slice(lower.start, lower.end + 1)
+    ]
+    this.layers.splice(lower.start, reordered.length, ...reordered)
+    this.recomposite()
+  }
+
+  private withFolder(
+    folderId: number,
+    mutate: (folder: LayerFolder) => void,
+    opts: { record?: boolean } = {}
+  ): void {
+    const folder = this.folders.find((f) => f.id === folderId)
+    if (!folder) {
+      return
+    }
+    if (opts.record !== false) {
+      this.history?.record()
+    }
+    mutate(folder)
+    this.recomposite()
+  }
+
+  setFolderVisible(folderId: number, visible: boolean): void {
+    this.withFolder(folderId, (f) => (f.visible = visible))
+  }
+
+  /** `record` as for setOpacity: false while a drag already recorded once at its start. */
+  setFolderOpacity(folderId: number, opacity: number, record = true): void {
+    this.withFolder(folderId, (f) => (f.opacity = opacity), { record })
+  }
+
+  renameFolder(folderId: number, name: string): void {
+    const folder = this.folders.find((f) => f.id === folderId)
+    if (folder && name.trim()) {
+      folder.name = name.trim()
+    }
+  }
+
+  toggleFolderCollapsed(folderId: number): void {
+    const folder = this.folders.find((f) => f.id === folderId)
+    if (folder) {
+      folder.collapsed = !folder.collapsed
+    }
+  }
+
   private swap(a: number, b: number): void {
     const tmp = this.layers[a]
     this.layers[a] = this.layers[b]
@@ -641,7 +882,8 @@ export class LayerStack {
       engine,
       isMask: source.isMask,
       clippedToMaskId: source.clippedToMaskId,
-      blendMode: source.blendMode
+      blendMode: source.blendMode,
+      folderId: source.folderId
     }
     this.layers.splice(index + 1, 0, layer)
     this.activeId = layer.id
@@ -735,11 +977,16 @@ export class LayerStack {
         maskMap.set(l.id, l)
       }
     }
+    const folderMap = this.folderMapScratch
+    folderMap.clear()
+    for (const f of this.folders) {
+      folderMap.set(f.id, f)
+    }
 
-    this.compositeChannel('baseColor', maskMap)
+    this.compositeChannel('baseColor', maskMap, folderMap)
     for (const channel of PBR_CHANNELS) {
       if (this.hasChannel(channel)) {
-        this.compositeChannel(channel, maskMap)
+        this.compositeChannel(channel, maskMap, folderMap)
       } else if (this.ormTarget && this.channelComponent(channel) !== null) {
         // The packed target outlives either half: a scalar channel no layer
         // carries any more (undone away) resolves back to its neutral default
@@ -760,7 +1007,11 @@ export class LayerStack {
    * roughness as to its color, and a mask hides all of a layer or none of it.
    * Only the buffers and the final resolve differ (see channels.ts).
    */
-  private compositeChannel(channel: PaintChannel, maskMap: Map<number, Layer>): void {
+  private compositeChannel(
+    channel: PaintChannel,
+    maskMap: Map<number, Layer>,
+    folderMap: Map<number, LayerFolder>
+  ): void {
     const isBaseColor = channel === 'baseColor'
     const colorSpace = CHANNEL_SPECS[channel].colorSpace
     const scratchA = poolTarget(this.renderer, this.textureSize, colorSpace, 'scratch')
@@ -822,9 +1073,12 @@ export class LayerStack {
 
     for (let i = 0; i < this.layers.length; i++) {
       const layer = this.layers[i]
-      if (!layer.visible) {
+      // Pass-through folder: it only gates and scales its members.
+      const folder = layer.folderId !== undefined ? folderMap.get(layer.folderId) : undefined
+      if (!layer.visible || (folder && !folder.visible)) {
         continue
       }
+      const opacity = layer.opacity * (folder ? folder.opacity : 1)
       // A layer that never painted this channel contributes nothing to it,
       // rather than contributing an empty sheet.
       const source = layer.engine.textureFor(channel)
@@ -838,7 +1092,7 @@ export class LayerStack {
         // they modulate the layer(s) below them — except when the user has
         // asked to inspect the raw mask buffer directly on the model.
         if (layer.previewMaskOnModel && isBaseColor) {
-          drawLayer(source, layer.opacity, 'normal')
+          drawLayer(source, opacity, 'normal')
         }
         continue
       }
@@ -852,7 +1106,7 @@ export class LayerStack {
 
       drawLayer(
         source,
-        layer.opacity,
+        opacity,
         layer.blendMode,
         maskLayer && maskLayer.visible ? maskLayer : undefined
       )
@@ -1094,8 +1348,10 @@ export class LayerStack {
         isMask: l.isMask,
         clippedToMaskId: l.clippedToMaskId,
         blendMode: l.blendMode,
+        folderId: l.folderId,
         pixels: l.engine.createCpuSnapshot()
-      }))
+      })),
+      folders: this.folders.map((f) => ({ ...f }))
     }
   }
 
@@ -1116,7 +1372,8 @@ export class LayerStack {
           engine: new PaintEngine(this.renderer, this.surface, null),
           isMask: snap.isMask,
           clippedToMaskId: snap.clippedToMaskId,
-          blendMode: snap.blendMode
+          blendMode: snap.blendMode,
+          folderId: snap.folderId
         }
       }
       layer.engine.restoreFromCpuSnapshot(snap.pixels)
@@ -1126,6 +1383,7 @@ export class LayerStack {
       layer.isMask = snap.isMask
       layer.clippedToMaskId = snap.clippedToMaskId
       layer.blendMode = snap.blendMode
+      layer.folderId = snap.folderId
       restored.push(layer)
     }
     // Anything left in `existing` was created after this snapshot and undone away.
@@ -1133,6 +1391,8 @@ export class LayerStack {
       leftover.engine.dispose()
     }
     this.layers = restored
+    this.folders = (state.folders ?? []).map((f) => ({ ...f }))
+    this.pruneFolders()
     this.activeId = state.activeId
     this.recomposite()
   }

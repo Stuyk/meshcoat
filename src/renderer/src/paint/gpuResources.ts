@@ -1,5 +1,9 @@
 import * as THREE from 'three'
 import { buildUvMesh } from './uvMesh'
+import { createLogger } from '../utils/logger'
+import { LASSO_MODE_INDEX, createLassoMaterial, type LassoBakeParams } from './pixelSelection'
+
+const logger = createLogger('gpu')
 
 /**
  * GPU resources that used to be allocated once per *layer* but only ever hold
@@ -162,6 +166,15 @@ export class PaintSurface {
   private mask: THREE.WebGLRenderTarget | null = null
   private _coverageUsable = true
   private disposed = false
+  /**
+   * Lasso pixel selection (see pixelSelection.ts), ping-ponged because adding
+   * to or subtracting from a selection reads the old one while writing the
+   * new. Allocated on the first lasso, never for a piece that doesn't use one.
+   */
+  private selectionTargets: [THREE.WebGLRenderTarget, THREE.WebGLRenderTarget] | null = null
+  private selectionIndex = 0
+  private _hasPixelSelection = false
+  private lassoMaterial: ReturnType<typeof createLassoMaterial> | null = null
 
   constructor(renderer: THREE.WebGLRenderer, mesh: THREE.Mesh, textureSize: number) {
     this.renderer = renderer
@@ -180,7 +193,7 @@ export class PaintSurface {
       this.rasterizeCoverage(this.mask)
       this._coverageUsable = this.measureCoverage()
       if (!this._coverageUsable) {
-        console.warn(
+        logger.warn(
           '[slip] UV coverage mask rasterized empty — masking and dilation are disabled for this ' +
             'mesh. Either its UVs are degenerate, or the mask pass is broken.'
         )
@@ -267,6 +280,94 @@ export class PaintSurface {
     return false
   }
 
+  /** The selected texels (R, 0-1), or null when nothing is lasso-selected. */
+  get pixelSelection(): THREE.Texture | null {
+    return this._hasPixelSelection && this.selectionTargets
+      ? this.selectionTargets[this.selectionIndex].texture
+      : null
+  }
+
+  /** Bakes a closed screen-space lasso into the selection (see pixelSelection.ts). */
+  applyLasso(params: LassoBakeParams): void {
+    const u = this.prepareSelectionPass()
+    u.uInvert.value = 0
+    u.uMode.value = LASSO_MODE_INDEX[params.mode]
+    u.uScreenMask.value = params.screenMask
+    const o = params.occlusion
+    u.uUseOcclusion.value = 1
+    u.uOcclusionDepthTex.value = o.depthTexture
+    u.uOcclusionTexel.value.copy(o.texelSize)
+    u.uCameraViewProjMatrix.value.copy(o.viewProjMatrix)
+    u.uCameraViewMatrix.value.copy(o.viewMatrix)
+    u.uCameraPosition.value.copy(o.cameraPosition)
+    u.uNormalSign.value = o.normalSign
+    u.uCameraNear.value = o.near
+    u.uCameraFar.value = o.far
+    // The visibility test's depth bias scales with the brush radius; a lasso
+    // has none, so pin it small like the stencil stamp does.
+    u.uBrushRadius.value = 0.01
+    this.runSelectionPass()
+    u.uScreenMask.value = null
+    u.uOcclusionDepthTex.value = null
+    // Subtracting everything leaves an empty selection, which still has to
+    // restrict painting to nothing rather than fall back to "no selection" —
+    // so the selection stays live until it is explicitly cleared.
+    this._hasPixelSelection = true
+  }
+
+  /** Selects exactly what wasn't selected. With no selection, selects everything. */
+  invertPixelSelection(): void {
+    const u = this.prepareSelectionPass()
+    u.uInvert.value = 1
+    this.runSelectionPass()
+    u.uInvert.value = 0
+    this._hasPixelSelection = true
+  }
+
+  clearPixelSelection(): void {
+    this._hasPixelSelection = false
+  }
+
+  private prepareSelectionPass(): ReturnType<typeof createLassoMaterial>['uniforms'] {
+    if (!this.selectionTargets) {
+      this.selectionTargets = [
+        createPaintTarget(this.textureSize, THREE.NoColorSpace, THREE.RedFormat),
+        createPaintTarget(this.textureSize, THREE.NoColorSpace, THREE.RedFormat)
+      ]
+    }
+    this.lassoMaterial ??= createLassoMaterial()
+    const u = this.lassoMaterial.uniforms
+    u.uPrevSelection.value = this._hasPixelSelection
+      ? this.selectionTargets[this.selectionIndex].texture
+      : null
+    u.uHasPrev.value = this._hasPixelSelection ? 1 : 0
+    return u
+  }
+
+  private runSelectionPass(): void {
+    const targets = this.selectionTargets!
+    const next = 1 - this.selectionIndex
+    const scene = new THREE.Scene()
+    const flat = new THREE.Mesh(this.geometry, this.lassoMaterial!)
+    flat.frustumCulled = false
+    scene.add(flat)
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
+    const prevTarget = this.renderer.getRenderTarget()
+    const prevClear = new THREE.Color()
+    this.renderer.getClearColor(prevClear)
+    const prevClearAlpha = this.renderer.getClearAlpha()
+    // Texels outside every UV island are never rasterized, so they must start
+    // unselected rather than inherit whatever the target last held.
+    this.renderer.setClearColor(0x000000, 1)
+    this.renderer.setRenderTarget(targets[next])
+    this.renderer.clear(true, false, false)
+    this.renderer.render(scene, camera)
+    this.renderer.setRenderTarget(prevTarget)
+    this.renderer.setClearColor(prevClear, prevClearAlpha)
+    this.lassoMaterial!.uniforms.uPrevSelection.value = null
+    this.selectionIndex = next
+  }
+
   dispose(): void {
     if (this.disposed) {
       return
@@ -275,6 +376,10 @@ export class PaintSurface {
     this.geometry.dispose()
     this.mask?.dispose()
     this.mask = null
+    this.selectionTargets?.[0].dispose()
+    this.selectionTargets?.[1].dispose()
+    this.selectionTargets = null
+    this.lassoMaterial?.dispose()
     releasePool(this.renderer, this.textureSize)
   }
 }

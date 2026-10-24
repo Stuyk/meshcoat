@@ -43,7 +43,6 @@ interface Preset {
   roughness: number
   amount: number
   contrast: number
-  color: string
   opacity: number
 }
 
@@ -59,7 +58,6 @@ const PRESETS: Preset[] = [
     roughness: 0.3,
     amount: 0.6,
     contrast: 0.3,
-    color: '#f3f4f6',
     opacity: 0.85
   },
   {
@@ -73,7 +71,6 @@ const PRESETS: Preset[] = [
     roughness: 0.7,
     amount: 0.75,
     contrast: 0.7,
-    color: '#9ca3af',
     opacity: 1.0
   },
   {
@@ -87,7 +84,6 @@ const PRESETS: Preset[] = [
     roughness: 0.85,
     amount: 0.85,
     contrast: 0.6,
-    color: '#4b5563',
     opacity: 1.0
   },
   {
@@ -101,7 +97,6 @@ const PRESETS: Preset[] = [
     roughness: 0.2,
     amount: 0.9,
     contrast: 0.95,
-    color: '#111827',
     opacity: 0.95
   },
   // --- Cavity / crevice presets: these target the concave edge population
@@ -118,8 +113,7 @@ const PRESETS: Preset[] = [
     roughness: 0.2,
     amount: 0.9,
     contrast: 0.2,
-    color: '#0b0f19',
-    opacity: 0.55
+    opacity: 0.7
   },
   {
     name: 'Crevice Dirt',
@@ -132,7 +126,6 @@ const PRESETS: Preset[] = [
     roughness: 0.6,
     amount: 0.8,
     contrast: 0.45,
-    color: '#3f2d1c',
     opacity: 0.85
   },
   {
@@ -146,7 +139,6 @@ const PRESETS: Preset[] = [
     roughness: 0.8,
     amount: 0.9,
     contrast: 0.55,
-    color: '#1c1917',
     opacity: 1.0
   },
   {
@@ -160,7 +152,6 @@ const PRESETS: Preset[] = [
     roughness: 0.2,
     amount: 0.9,
     contrast: 0.9,
-    color: '#312e81',
     opacity: 0.7
   }
 ]
@@ -313,7 +304,8 @@ export default function EdgeWearWizard(props: EdgeWearWizardProps) {
     setRoughness(p.roughness)
     setAmount(p.amount)
     setContrast(p.contrast)
-    setColor(p.color)
+    // Presets shape the mask only. The color (or texture) is the artist's
+    // choice and stays put when trying different presets.
     setOpacity(p.opacity)
     triggerPreview()
   }

@@ -19,6 +19,11 @@ import { DEFAULT_TEXTURE_SIZE, type TextureSize } from '../paint/paintEngine'
 import { parseChannelSuffix, type MaterialMapSlot } from '../paint/materialSets'
 import { loadModel } from '../viewport/modelLoader'
 import type { InitialPbrTextures, InitialTexturePayload } from '../viewport/Viewport'
+import { createLogger } from '../utils/logger'
+import { readFileBytes } from '../utils/fileIo'
+import { readProjectHeader } from '../utils/projectSerializer'
+
+const logger = createLogger('start')
 
 type RecentEntry = Awaited<ReturnType<typeof window.api.getRecentProjects>>[number]
 
@@ -146,7 +151,7 @@ export interface StartWizardModalProps {
     forceTextureSize?: boolean
   ) => Promise<void>
   onOpenProjectFile: (filePath: string) => Promise<void>
-  onRestoreRecovery: (recoveryData: string) => Promise<void>
+  onRestoreRecovery: (recoveryData: ArrayBuffer) => Promise<void>
 }
 
 export default function StartWizardModal(props: StartWizardModalProps) {
@@ -183,7 +188,7 @@ export default function StartWizardModal(props: StartWizardModalProps) {
   const [error, setError] = createSignal<string | null>(null)
   const [recents, setRecents] = createSignal<RecentEntry[]>([])
   const [recoveryData, setRecoveryData] = createSignal<{
-    data: string
+    path: string
     timestamp: number
     name?: string
     layers?: number
@@ -207,16 +212,20 @@ export default function StartWizardModal(props: StartWizardModalProps) {
   async function checkRecovery(): Promise<void> {
     try {
       const rec = await window.api.loadRecovery()
-      if (rec && rec.data) {
+      if (rec) {
         try {
-          const parsed = JSON.parse(rec.data)
+          const parsed = readProjectHeader(await readFileBytes(rec.path))
+          const layerCount = parsed.pieces?.length
+            ? parsed.pieces.reduce((n, p) => n + (p.layers?.length ?? 0), 0)
+            : parsed.layers?.length
           setRecoveryData({
-            data: rec.data,
+            path: rec.path,
             timestamp: rec.timestamp,
             name: parsed.name || parsed.modelName || 'Untitled Project',
-            layers: Array.isArray(parsed.layers) ? parsed.layers.length : undefined
+            layers: layerCount
           })
-        } catch {
+        } catch (err) {
+          logger.warn('Autosave found but unreadable:', rec.path, err)
           setRecoveryData(null)
         }
       } else {
@@ -381,7 +390,7 @@ export default function StartWizardModal(props: StartWizardModalProps) {
       })
       return names
     } catch (err) {
-      console.error('Failed to inspect model pieces:', err)
+      logger.error('Failed to inspect model pieces:', err)
       return []
     }
   }
@@ -420,7 +429,7 @@ export default function StartWizardModal(props: StartWizardModalProps) {
 
       applyDetectedSharedTextures(detected)
     } catch (err) {
-      console.error('Failed to scan model folder for sibling textures:', err)
+      logger.error('Failed to scan model folder for sibling textures:', err)
     }
   }
 
@@ -598,7 +607,7 @@ export default function StartWizardModal(props: StartWizardModalProps) {
     setIsLoading(true)
     setError(null)
     try {
-      await props.onRestoreRecovery(rec.data)
+      await props.onRestoreRecovery(await readFileBytes(rec.path))
       finishAndClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

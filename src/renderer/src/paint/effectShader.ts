@@ -70,6 +70,8 @@ ${BRUSH_MASK_UNIFORMS_GLSL}
   uniform vec2 uTexelSize;
   uniform float uBrushOpacity;
   uniform float uRestrictFace;
+  uniform sampler2D uPixelSelection;
+  uniform float uUsePixelSelection;
   uniform sampler2D uBrushTipTexture;
   uniform float uUseTipTexture;
 
@@ -108,6 +110,9 @@ ${BRUSH_MASK_GLSL}
     computeBrushMask(falloff, facingMask, visibility);
 
     float faceMask = mix(1.0, vSelected, uRestrictFace);
+    if (uUsePixelSelection > 0.5) {
+      faceMask *= texture2D(uPixelSelection, vUv).r;
+    }
     vec3 rel = vWorldPosition - uBrushWorldPos;
     vec2 stampUv = brushLocalXY(rel) * 0.5 + 0.5;
     float inStamp = step(0.0, stampUv.x) * step(stampUv.x, 1.0) * step(0.0, stampUv.y) * step(stampUv.y, 1.0);
@@ -163,6 +168,8 @@ export interface EffectUniforms extends BrushMaskUniforms {
   uTexelSize: THREE.IUniform<THREE.Vector2>
   uBrushOpacity: THREE.IUniform<number>
   uRestrictFace: THREE.IUniform<number>
+  uPixelSelection: THREE.IUniform<THREE.Texture | null>
+  uUsePixelSelection: THREE.IUniform<number>
   uBrushTipTexture: THREE.IUniform<THREE.Texture | null>
   uUseTipTexture: THREE.IUniform<number>
 }
@@ -181,6 +188,8 @@ export function createEffectMaterial(
     uTexelSize: { value: new THREE.Vector2(1 / textureSize, 1 / textureSize) },
     uBrushOpacity: { value: 1 },
     uRestrictFace: { value: 0 },
+    uPixelSelection: { value: null },
+    uUsePixelSelection: { value: 0 },
     uBrushTipTexture: { value: null },
     uUseTipTexture: { value: 0 }
   }

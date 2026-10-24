@@ -16,7 +16,9 @@ import {
   CompassIcon,
   TextIcon,
   XIcon, EyeIcon, EyeOffIcon,
-  GradientIcon
+  GradientIcon,
+  CloneIcon,
+  LassoIcon
 } from './icons'
 import { Kbd } from './ui'
 
@@ -42,7 +44,9 @@ const TOOL_CONFIG: Record<ToolMode, { label: string; key: string; num: string; I
   effect: { label: 'Effects', key: 'U', num: '7', Icon: DropletsIcon },
   faceProjector: { label: 'Face UV Projector', key: 'P', num: '8', Icon: CompassIcon },
   text: { label: 'Text', key: 'Y', num: '9', Icon: TextIcon },
-  gradient: { label: 'Gradient', key: 'D', num: 'D', Icon: GradientIcon }
+  gradient: { label: 'Gradient', key: 'D', num: 'D', Icon: GradientIcon },
+  lasso: { label: 'Lasso', key: 'Q', num: 'Q', Icon: LassoIcon },
+  clone: { label: 'Clone Stamp', key: 'K', num: 'K', Icon: CloneIcon }
 }
 
 export default function StatusBar(props: StatusBarProps): JSX.Element {
@@ -116,7 +120,8 @@ export default function StatusBar(props: StatusBarProps): JSX.Element {
             props.tool === 'brush' ||
             props.tool === 'stamp' ||
             props.tool === 'eraser' ||
-            props.tool === 'effect'
+            props.tool === 'effect' ||
+            props.tool === 'clone'
           }
         >
           <div
@@ -140,7 +145,8 @@ export default function StatusBar(props: StatusBarProps): JSX.Element {
               props.tool === 'brush' ||
               props.tool === 'stamp' ||
               props.tool === 'eraser' ||
-              props.tool === 'effect'
+              props.tool === 'effect' ||
+              props.tool === 'clone'
             }
           >
             <div
@@ -157,7 +163,8 @@ export default function StatusBar(props: StatusBarProps): JSX.Element {
               props.tool === 'brush' ||
               props.tool === 'stamp' ||
               props.tool === 'eraser' ||
-              props.tool === 'effect'
+              props.tool === 'effect' ||
+              props.tool === 'clone'
             }
           >
             <div

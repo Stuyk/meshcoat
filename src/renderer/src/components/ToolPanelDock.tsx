@@ -10,7 +10,11 @@ import TextHUD from './TextHUD'
 import EffectHUD from './EffectHUD'
 import StencilHUD from './StencilHUD'
 import GradientHUD from './GradientHUD'
+import LassoHUD from './LassoHUD'
+import CloneHUD from './CloneHUD'
 import { gradient } from '../paint/gradient'
+import { lasso } from '../paint/pixelSelection'
+import { clone } from '../paint/clone'
 import {
   ImagesIcon,
   CropIcon,
@@ -23,6 +27,8 @@ import {
   FocusIcon,
   TextIcon,
   GradientIcon,
+  LassoIcon,
+  CloneIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   PanelRightIcon
@@ -39,6 +45,9 @@ export interface ToolPanelDockProps {
   onStamp: () => boolean
   onToast?: (message: string, type?: 'info' | 'success' | 'warning' | 'error') => void
   onFillSelection?: () => void
+  onInvertPixelSelection?: () => void
+  onClearPixelSelection?: () => void
+  onClearCloneSource?: () => void
   stencilPanelOpen?: boolean
   collapsed?: boolean
   onToggleCollapse?: () => void
@@ -147,6 +156,26 @@ export default function ToolPanelDock(props: ToolPanelDockProps): JSX.Element {
       summary: () =>
         `${gradient.stops().length} stops · ${gradient.shape()} · ${gradient.ends()}`,
       render: () => <GradientHUD />
+    },
+    lasso: {
+      title: 'Lasso Selection',
+      icon: (p) => <LassoIcon {...p} />,
+      summary: () =>
+        `${lasso.shape()} · ${lasso.hasSelection() ? 'selection active' : 'nothing selected'}`,
+      render: () => (
+        <LassoHUD
+          onInvert={() => props.onInvertPixelSelection?.()}
+          onClear={() => props.onClearPixelSelection?.()}
+          onFill={() => props.onFillSelection?.()}
+        />
+      )
+    },
+    clone: {
+      title: 'Clone Stamp',
+      icon: (p) => <CloneIcon {...p} />,
+      summary: () =>
+        `${clone.sample() === 'all' ? 'all layers' : 'current layer'} · ${clone.hasSource() ? 'source set' : 'no source'}`,
+      render: () => <CloneHUD onClearSource={() => props.onClearCloneSource?.()} />
     },
     stencil: {
       title: 'Screen Stencil',
