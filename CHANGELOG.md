@@ -1,5 +1,15 @@
 # Changelog
 
+## v3.3.1
+
+### Fixed
+- **Merge Down Changed Colors** ([Closes #57](https://github.com/Stuyk/slip-texture-paint/issues/57)): Merging a layer that used a blend mode (Multiply, Luminosity, Overlay…) flattened it as Normal, so the model changed color the moment you merged. Merge Down now bakes the layer in with its blend mode, opacity and clipping mask exactly as they were displayed, across every channel.
+- **Merge Down Faded Merged Content**: The lower layer's opacity used to apply to everything merged onto it as well. Its opacity is now baked into its pixels first and the merged layer is set to 100%, so a layer at 50% no longer halves the strength of what lands on it.
+- **Merge Down Into Masks and Hidden Layers**: Merge Down is now disabled when either layer is hidden, when the layer below is a mask (which could receive color paint), and across a folder edge, where the folder's own opacity and visibility would be lost.
+
+### Known Limitations
+- If the lower layer uses a blend mode other than Normal, or is partly transparent where the upper layer has blend-mode paint, the merged result can still differ slightly from the unmerged view, since blend modes depend on every layer below. Merging onto an opaque Normal layer matches exactly.
+
 ## v3.3.0
 
 ### Added

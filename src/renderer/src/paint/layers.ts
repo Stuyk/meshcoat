@@ -553,16 +553,49 @@ export class LayerStack {
     }
   }
 
-  /** Merges the given layer onto the one below it in the stack (spec: Merge Down). */
-  mergeDown(id: number): void {
+  /**
+   * Whether mergeDown can bake this layer into the one below without changing
+   * what's on screen: both visible, neither a mask, and in the same folder (a
+   * folder's own opacity/visibility can't be baked into a layer outside it).
+   */
+  canMergeDown(id: number): boolean {
     const index = this.layers.findIndex((l) => l.id === id)
     if (index <= 0) {
+      return false
+    }
+    const top = this.layers[index]
+    const below = this.layers[index - 1]
+    return (
+      top.visible &&
+      below.visible &&
+      !top.isMask &&
+      !below.isMask &&
+      top.folderId === below.folderId
+    )
+  }
+
+  /** Merges the given layer onto the one below it in the stack (spec: Merge Down). */
+  mergeDown(id: number): void {
+    if (!this.canMergeDown(id)) {
       return
     }
+    const index = this.layers.findIndex((l) => l.id === id)
     this.history?.record()
     const top = this.layers[index]
     const below = this.layers[index - 1]
-    top.engine.mergeOnto(below.engine, top.opacity)
+    // A mask both layers share keeps applying to the merged layer; one that
+    // only clips the top layer has to be baked in, as the composite shows it.
+    const mask =
+      top.clippedToMaskId !== undefined && top.clippedToMaskId !== below.clippedToMaskId
+        ? this.layers.find((l) => l.id === top.clippedToMaskId)
+        : undefined
+    top.engine.mergeOnto(below.engine, {
+      opacity: top.opacity,
+      blendMode: top.blendMode,
+      mask: mask?.visible ? { texture: mask.engine.texture, opacity: mask.opacity } : undefined,
+      backdropOpacity: below.opacity
+    })
+    below.opacity = 1
     top.engine.dispose()
     this.layers.splice(index, 1)
     this.activeId = below.id

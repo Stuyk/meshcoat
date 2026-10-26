@@ -365,6 +365,10 @@ export default function LayersTab(props: {
             }
             const index = () => layers().findIndex((l) => l.id === layer.id)
             const isBottom = () => index() === 0
+            const canMergeDown = (): boolean => {
+              void props.version
+              return stack()?.canMergeDown(layer.id) ?? false
+            }
             const isTop = () => index() === layers().length - 1
             const folder = (): LayerFolder | undefined => {
               void props.version
@@ -776,7 +780,7 @@ export default function LayersTab(props: {
                           <Show when={!isMaskFlag()}>
                             <button
                               type="button"
-                              disabled={isBottom()}
+                              disabled={!canMergeDown()}
                               onClick={() => run((s) => s.mergeDown(layer.id))}
                               class="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
                               title="Merge onto layer below"

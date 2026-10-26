@@ -10,6 +10,7 @@ import {
 import { createPaintMaterial } from './paintShader'
 import { createEdgeWearMaterial } from './edgeWearShader'
 import { createEffectMaterial, EFFECT_MODE_INDEX, type EffectMode } from './effectShader'
+import { createBlendCompositeMaterial, blendModeIndex, type BlendMode } from './blendShader'
 import {
   CHANNEL_SPECS,
   PAINT_CHANNELS,
@@ -1297,21 +1298,37 @@ export class PaintEngine {
   }
 
   /**
-   * Composites this layer at `opacity` on top of `other`'s current content
-   * and writes the merged result into `other`'s buffers (spec: Merge Down —
-   * `other` becomes the combined layer, `this` is discarded by the caller).
+   * Composites this layer on top of `other`'s current content and writes the
+   * merged result into `other`'s buffers (spec: Merge Down — `other` becomes
+   * the combined layer, `this` is discarded by the caller). Uses the same
+   * blend shader as LayerStack's live composite, so the top layer's blend
+   * mode, opacity and clipping mask bake in exactly as they were displayed.
+   * `backdropOpacity` is the lower layer's own opacity, baked into its pixels
+   * first so it doesn't also fade the content merged on top of it — the
+   * caller resets that layer's opacity to 1 afterwards.
    */
-  mergeOnto(other: PaintEngine, opacity: number): void {
-    const drawQuad = (map: THREE.Texture, quadOpacity: number): void => {
-      const mat = new THREE.MeshBasicMaterial({ map })
-      configurePremultipliedSourceMaterial(mat, quadOpacity)
-      const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat)
-      const scene = new THREE.Scene()
-      scene.add(quad)
-      this.renderer.render(scene, this.orthoCamera)
-      mat.dispose()
-      quad.geometry.dispose()
+  mergeOnto(
+    other: PaintEngine,
+    options: {
+      opacity: number
+      blendMode?: BlendMode
+      mask?: { texture: THREE.Texture; opacity: number }
+      backdropOpacity?: number
     }
+  ): void {
+    const backdropOpacity = options.backdropOpacity ?? 1
+    const scene = new THREE.Scene()
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2))
+    scene.add(quad)
+    const fadeMat = new THREE.MeshBasicMaterial()
+    configurePremultipliedSourceMaterial(fadeMat, backdropOpacity)
+    const blendMat = createBlendCompositeMaterial()
+    const u = blendMat.uniforms
+    u.uOpacity.value = options.opacity
+    u.uBlendMode.value = blendModeIndex(options.blendMode)
+    u.uUseMask.value = options.mask ? 1 : 0
+    u.tMask.value = options.mask?.texture ?? null
+    u.uMaskOpacity.value = options.mask?.opacity ?? 1
 
     // Every channel either layer has, so merging down never silently drops the
     // roughness or normal work on the layer being merged.
@@ -1328,15 +1345,30 @@ export class PaintEngine {
     for (const channel of channels) {
       const mine = this.buf(channel)
       const theirs = other.buf(channel)
+      if (backdropOpacity < 1) {
+        fadeMat.map = theirs.read.texture
+        fadeMat.needsUpdate = true
+        quad.material = fadeMat
+        this.renderer.setRenderTarget(other.writeTarget(channel))
+        this.renderer.clear(true, true, true)
+        this.renderer.render(scene, this.orthoCamera)
+        other.swap(channel)
+      }
+      // The blend shader computes the full composite itself (NoBlending), so
+      // the target needs no clear.
+      u.tBackdrop.value = theirs.read.texture
+      u.tSource.value = mine.read.texture
+      quad.material = blendMat
       this.renderer.setRenderTarget(other.writeTarget(channel))
-      this.renderer.clear(true, true, true)
-      drawQuad(theirs.read.texture, 1)
-      drawQuad(mine.read.texture, opacity)
+      this.renderer.render(scene, this.orthoCamera)
       other.swap(channel)
     }
     this.renderer.setRenderTarget(prevTarget)
     this.renderer.setClearColor(prevMergeClear, prevMergeClearAlpha)
     this.renderer.autoClear = prevAutoClear
+    fadeMat.dispose()
+    blendMat.dispose()
+    quad.geometry.dispose()
     other._contentVersion++
   }
 

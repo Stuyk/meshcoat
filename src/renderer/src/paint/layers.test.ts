@@ -205,3 +205,74 @@ describe('LayerStack folders', () => {
     expect(s.folders).toEqual([])
   })
 })
+
+describe('LayerStack merge down', () => {
+  type MergeArgs = Parameters<Layer['engine']['mergeOnto']>
+  function withMergeSpy(s: LayerStack): Array<{ target: string; args: MergeArgs[1] }> {
+    const calls: Array<{ target: string; args: MergeArgs[1] }> = []
+    for (const l of s.layers) {
+      ;(l.engine as unknown as { texture: string }).texture = `${l.name}-tex`
+      ;(l.engine as unknown as { mergeOnto: (...a: MergeArgs) => void }).mergeOnto = (
+        other,
+        args
+      ) => {
+        const target = s.layers.find((x) => x.engine === other)!.name
+        calls.push({ target, args })
+      }
+    }
+    return calls
+  }
+
+  it('bakes blend mode and both opacities', () => {
+    const s = makeStack([{ name: 'Top' }, { name: 'Base' }])
+    const calls = withMergeSpy(s)
+    const top = s.layers.find((l) => l.name === 'Top')!
+    const base = s.layers.find((l) => l.name === 'Base')!
+    top.blendMode = 'luminosity'
+    top.opacity = 0.6
+    base.opacity = 0.5
+    s.mergeDown(top.id)
+    expect(calls).toEqual([
+      {
+        target: 'Base',
+        args: { opacity: 0.6, blendMode: 'luminosity', mask: undefined, backdropOpacity: 0.5 }
+      }
+    ])
+    expect(base.opacity).toBe(1)
+    expect(view(s)).toEqual(['Base'])
+  })
+
+  it('leaves a shared mask applied rather than baking it', () => {
+    const s = makeStack(group)
+    const calls = withMergeSpy(s)
+    s.mergeDown(id(s, 'A'))
+    expect(calls[0].args.mask).toBeUndefined()
+    expect(view(s)).toEqual(['Top', 'Mask', 'B>Mask', 'Base'])
+  })
+
+  it('bakes in a mask only the top layer is clipped to', () => {
+    const s = makeStack(group)
+    const calls = withMergeSpy(s)
+    s.mergeDown(id(s, 'B'))
+    expect(calls[0].target).toBe('Base')
+    expect(calls[0].args.mask).toEqual({ texture: 'Mask-tex', opacity: 1 })
+  })
+
+  it('refuses hidden layers, masks and folder boundaries', () => {
+    const s = makeStack([
+      { name: 'Top' },
+      { name: 'Mask', mask: true },
+      { name: 'A', clip: 'Mask' },
+      { name: 'F', folder: 'Folder' },
+      { name: 'Hidden' },
+      { name: 'Base' }
+    ])
+    s.layers.find((l) => l.name === 'Hidden')!.visible = false
+    expect(s.canMergeDown(id(s, 'Top'))).toBe(false)
+    expect(s.canMergeDown(id(s, 'Mask'))).toBe(false)
+    expect(s.canMergeDown(id(s, 'A'))).toBe(false)
+    expect(s.canMergeDown(id(s, 'F'))).toBe(false)
+    expect(s.canMergeDown(id(s, 'Hidden'))).toBe(false)
+    expect(s.canMergeDown(id(s, 'Base'))).toBe(false)
+  })
+})
