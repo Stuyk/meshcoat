@@ -1368,9 +1368,9 @@
             <h3>Layer Stack &amp; Masks</h3>
           </div>
           <p>
-            Non-destructive layers with Normal, Multiply, Screen, and Overlay blend modes, layer opacity control, and dedicated grayscale layer masks.
+            Non-destructive layers with Normal, Multiply, Screen, Overlay and more blend modes, opacity, grayscale masks, clipping, and folders (<kbd>Ctrl+G</kbd>). Merge Down bakes layers exactly as displayed.
           </p>
-          <div class="feature-tag">Blend Modes &middot; Grayscale Masks</div>
+          <div class="feature-tag">Blend Modes &middot; Masks &middot; Folders</div>
         </div>
 
         <!-- 10. Packed ORM Engine Export -->
@@ -1484,7 +1484,7 @@
         <div class="headline-sub">Workstation Tool Suite</div>
         <h2>Direct Single-Key Toolset</h2>
         <p>
-          11 dedicated primary painting tools and 2 modifier subsystems accessible via established 3D DCC muscle memory shortcuts.
+          13 dedicated painting and selection tools plus the screen stencil, all accessible via established 3D DCC muscle memory shortcuts.
         </p>
       </div>
 
@@ -1655,7 +1655,7 @@
           </div>
           <p>Surface masking engine. Restricts painting, stamping, and filling strictly to selected triangles.</p>
           <ul class="tool-param-bullets">
-            <li><code>Alt+Click</code> selects entire connected UV island</li>
+            <li>Double-click selects an entire connected UV island</li>
             <li>Save named selection groups into project file</li>
             <li>Hold <code>Ctrl+Drag</code> to select on any tool</li>
           </ul>
@@ -1718,6 +1718,44 @@
           </ul>
         </div>
 
+        <!-- Modifier 13: Clone Stamp -->
+        <div class="tool-flat-card">
+          <div class="tool-flat-header">
+            <div class="tool-title-group">
+              <span class="tool-flat-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="14" height="14" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+              </span>
+              <h3>Clone Stamp</h3>
+            </div>
+            <span class="tool-badge-key">K</span>
+          </div>
+          <p>Alt+click the model to pick a source, then paint to copy it. Works in screen space, so it reaches across UV seams and between islands.</p>
+          <ul class="tool-param-bullets">
+            <li>Copy from all visible layers or the current one</li>
+            <li>Aligned mode keeps one continuous source patch</li>
+            <li>Uses the brush size, hardness, opacity and tip</li>
+          </ul>
+        </div>
+
+        <!-- Modifier 14: Lasso Selection -->
+        <div class="tool-flat-card">
+          <div class="tool-flat-header">
+            <div class="tool-title-group">
+              <span class="tool-flat-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 22a5 5 0 0 1-2-4"/><path d="M3.3 14A6.8 6.8 0 0 1 2 10c0-4.4 4.5-8 10-8s10 3.6 10 8-4.5 8-10 8a12 12 0 0 1-5-1"/><circle cx="5" cy="16" r="2"/></svg>
+              </span>
+              <h3>Lasso Selection</h3>
+            </div>
+            <span class="tool-badge-key">Q</span>
+          </div>
+          <p>Draw a freehand or polygon shape to select any part of the model, cutting across faces. The selection stays put while you orbit.</p>
+          <ul class="tool-param-bullets">
+            <li><code>Shift</code> adds, <code>Ctrl</code> subtracts</li>
+            <li>Every paint, fill and effect tool stays inside it</li>
+            <li><code>Ctrl+I</code> inverts, <code>Ctrl+D</code> clears</li>
+          </ul>
+        </div>
+
       </div>
     </div>
   </section>
@@ -1739,33 +1777,33 @@
         <!-- Shot 1: 3D Material Brush (Large) -->
         <div class="gallery-item col-span-7">
           <div class="gallery-thumb-wrap">
-            <img src="screenshots/image2.png" alt="3D Material Brush in Showcase Lighting" loading="lazy" />
+            <img src="screenshots/image2.png" alt="Gold Plates material set painted over a red brick sphere" loading="lazy" />
           </div>
           <div class="gallery-caption">
             <strong>3D Material Brush &amp; Viewport Lighting</strong>
-            <span>Single-stroke gold material deposition on a 3D sphere with RoomEnvironment IBL reflections and cast shadow.</span>
+            <span>Gold Plates material set brushed over a red brick fill: color, roughness, metalness and normal relief land in one stroke, on its own layer.</span>
           </div>
         </div>
 
         <!-- Shot 2: Bottom Texture Shelf Drawer -->
         <div class="gallery-item col-span-5">
           <div class="gallery-thumb-wrap">
-            <img src="screenshots/image1.png" alt="PBR Material Shelf Drawer" loading="lazy" />
+            <img src="screenshots/image1.png" alt="Cube filled with a red brick material set, texture shelf below" loading="lazy" />
           </div>
           <div class="gallery-caption">
             <strong>PBR Texture Shelf Drawer</strong>
-            <span>Folder auto-discovery groups loose BaseColor, Roughness, and Normal files into unified material cards.</span>
+            <span>Load a folder and loose BaseColor, Roughness, Metallic and Normal files group into material cards, ready to fill or paint.</span>
           </div>
         </div>
 
         <!-- Shot 3: Viewport Screen Stencil -->
         <div class="gallery-item col-span-4">
           <div class="gallery-thumb-wrap">
-            <img src="screenshots/image3.png" alt="Screen Stencil HUD" loading="lazy" />
+            <img src="screenshots/image3.png" alt="Screen Stencil stamping a rust image onto a tiled cube" loading="lazy" />
           </div>
           <div class="gallery-caption">
             <strong>Screen-Space Stencil HUD</strong>
-            <span>Floating viewport decal projection with real-time translation, rotation, and brightness-mask painting.</span>
+            <span>Pin an image to the camera, then paint through it or stamp it straight onto the model.</span>
           </div>
         </div>
 
@@ -1776,18 +1814,40 @@
           </div>
           <div class="gallery-caption">
             <strong>Photoshop .ABR Brush Library</strong>
-            <span>Direct ingestion of Photoshop brush packs with sample decoding, tip previewing, and normal generation.</span>
+            <span>Import Photoshop brush packs, browse tips by pack, and build brush groups that swap tips per stroke or per dab.</span>
           </div>
         </div>
 
         <!-- Shot 5: Unified Export Wizard -->
         <div class="gallery-item col-span-4">
           <div class="gallery-thumb-wrap">
-            <img src="screenshots/image5.png" alt="Unified Export Wizard" loading="lazy" />
+            <img src="screenshots/image5.png" alt="Export wizard with Base Color, packed ORM and Normal maps selected" loading="lazy" />
           </div>
           <div class="gallery-caption">
             <strong>Unified Export Wizard (Ctrl+E)</strong>
-            <span>Instant packed ORM export, multi-piece batch passes, and live file checklist for Unreal, Unity, and Godot.</span>
+            <span>PBR + ORM, color-only or unpacked presets, every piece in one pass, and a live list of the files it will write.</span>
+          </div>
+        </div>
+
+        <!-- Shot 6: 2D Paint Panel -->
+        <div class="gallery-item col-span-5">
+          <div class="gallery-thumb-wrap">
+            <img src="screenshots/image6.png" alt="2D Paint panel showing the flattened UV texture beside the 3D viewport" loading="lazy" />
+          </div>
+          <div class="gallery-caption">
+            <strong>2D Paint Panel</strong>
+            <span>The active texture laid flat with a UV wireframe. Paint pixel-exact dabs, fill or sample right on the sheet.</span>
+          </div>
+        </div>
+
+        <!-- Shot 7: Edge Wear Wizard -->
+        <div class="gallery-item col-span-7">
+          <div class="gallery-thumb-wrap">
+            <img src="screenshots/image7.png" alt="Edge Wear wizard previewing rust along the edges of a tiled cube" loading="lazy" />
+          </div>
+          <div class="gallery-caption">
+            <strong>Edge Wear &amp; Crevice Dirt Wizard</strong>
+            <span>Curvature analysis finds the ridges and folds; pick a style and color and watch the wear preview live before applying.</span>
           </div>
         </div>
       </div>
@@ -1916,7 +1976,7 @@
         <div class="hotkey-category-box">
           <div class="hotkey-category-header">
             Painting &amp; Tool Selection
-            <span>11 Shortcuts</span>
+            <span>13 Shortcuts</span>
           </div>
           <table class="hotkeys-table">
             <tbody>
@@ -1930,6 +1990,8 @@
               <tr><td><kbd>5 / I</kbd></td><td>Activate Eyedropper (sample color &amp; material from surface)</td></tr>
               <tr><td><kbd>P / 8</kbd></td><td>Activate Face UV Projector (trim-sheet placement)</td></tr>
               <tr><td><kbd>Y</kbd></td><td>Activate Text Tool (render typography decal onto faces)</td></tr>
+              <tr><td><kbd>K</kbd></td><td>Activate Clone Stamp (Alt+click a source, then paint)</td></tr>
+              <tr><td><kbd>Q</kbd></td><td>Activate Lasso Selection (freehand or polygon)</td></tr>
               <tr><td><kbd>S</kbd></td><td>Toggle Screen-Space Stencil HUD</td></tr>
             </tbody>
           </table>
@@ -1963,9 +2025,9 @@
           </div>
           <table class="hotkeys-table">
             <tbody>
-              <tr><td style="width: 150px;"><kbd>Alt + LMB</kbd></td><td>Orbit 3D camera around pivot</td></tr>
-              <tr><td><kbd>Alt + MMB</kbd></td><td>Pan 3D camera in view plane</td></tr>
-              <tr><td><kbd>Alt + RMB / Wheel</kbd></td><td>Smooth zoom camera in / out</td></tr>
+              <tr><td style="width: 150px;"><kbd>MMB / Alt + LMB</kbd></td><td>Orbit 3D camera around pivot</td></tr>
+              <tr><td><kbd>Shift + MMB</kbd></td><td>Pan 3D camera in view plane</td></tr>
+              <tr><td><kbd>Wheel</kbd></td><td>Smooth zoom camera in / out</td></tr>
               <tr><td><kbd>F</kbd></td><td>Frame model in view (or frame active face selection)</td></tr>
               <tr><td><kbd>W</kbd></td><td>Toggle topology wireframe overlay in 3D viewport</td></tr>
               <tr><td><kbd>Tab / Shift + Tab</kbd></td><td>Switch to next / previous mesh piece (multi-piece models)</td></tr>
@@ -1978,16 +2040,18 @@
         <div class="hotkey-category-box">
           <div class="hotkey-category-header">
             Selection &amp; Project
-            <span>9 Shortcuts</span>
+            <span>11 Shortcuts</span>
           </div>
           <table class="hotkeys-table">
             <tbody>
               <tr><td style="width: 150px;"><kbd>6 / V</kbd></td><td>Activate Face Selection mask tool</td></tr>
               <tr><td><kbd>Ctrl + Click / Drag</kbd></td><td>Select / isolate faces on any active tool</td></tr>
               <tr><td><kbd>Ctrl + Shift + Drag</kbd></td><td>Deselect faces on any active tool</td></tr>
-              <tr><td><kbd>Alt + Click</kbd></td><td>Select connected UV island (shared-edge topology)</td></tr>
+              <tr><td><kbd>Double Click</kbd></td><td>Select connected UV island (in Face Selection tool)</td></tr>
+              <tr><td><kbd>Ctrl + I</kbd></td><td>Invert face selection (lasso selection while Lasso is active)</td></tr>
               <tr><td><kbd>Ctrl + A</kbd></td><td>Select all faces of the active mesh piece</td></tr>
-              <tr><td><kbd>Ctrl + D / Esc</kbd></td><td>Clear active face selection mask</td></tr>
+              <tr><td><kbd>Ctrl + D / Esc</kbd></td><td>Clear face and lasso selection</td></tr>
+              <tr><td><kbd>Ctrl + G / Ctrl + Shift + G</kbd></td><td>Group layer into a folder / ungroup</td></tr>
               <tr><td><kbd>Ctrl + S</kbd></td><td>Save MeshCoat project (.meshcoat with rolling backups)</td></tr>
               <tr><td><kbd>Ctrl + E</kbd></td><td>Open Unified Texture Export Wizard (packed ORM)</td></tr>
               <tr><td><kbd>Ctrl + Z / Ctrl + Y</kbd></td><td>Undo / Redo (100-step non-destructive history)</td></tr>

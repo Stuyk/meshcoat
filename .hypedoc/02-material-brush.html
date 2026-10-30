@@ -1,0 +1,92 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>One stroke writes four PBR channels</title>
+<meta name="hypedoc:width" content="960">
+<meta name="hypedoc:selector" content="#card">
+<style>
+  :root {
+    --bg: #ffffff; --fg: #0b0d12; --muted: #566072; --line: #e2e6ee; --tile: #f4f6fa;
+    --blue: #0073e6; --orange: #e06f00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141416; --fg: #e8e8ea; --muted: #9a9aa6; --line: #2e2e32; --tile: #1c1c1e;
+      --blue: #3399ff; --orange: #ff9a3c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, Roboto, sans-serif; }
+  #card { padding: 20px; }
+  .card { background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 22px; padding: 44px 48px 48px; }
+  .eyebrow { font-size: 14px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--orange); margin-bottom: 10px; }
+  h2 { margin: 0 0 10px; font-size: 34px; letter-spacing: -0.02em; line-height: 1.15; }
+  .lead { margin: 0 0 32px; font-size: 18px; color: var(--muted); line-height: 1.5; max-width: 700px; }
+  .row { display: grid; grid-template-columns: 210px 40px 1fr; align-items: center; gap: 14px; }
+  .brush { background: var(--tile); border: 1px solid var(--line); border-radius: 16px; padding: 20px; text-align: center; }
+  .brush svg { width: 150px; height: 110px; display: block; margin: 0 auto 10px; }
+  .brush .t { font-size: 20px; font-weight: 750; }
+  .brush .s { font-size: 15px; color: var(--muted); margin-top: 4px; }
+  .arrow { color: var(--muted); }
+  .arrow svg { width: 40px; height: 40px; }
+  .chans { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .ch { background: var(--tile); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+  .sw { height: 92px; border-radius: 10px; margin-bottom: 12px; }
+  .ch .n { font-size: 16px; font-weight: 700; }
+  .ch .v { white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 15px; color: var(--muted); margin-top: 3px; }
+  .base { background: linear-gradient(135deg, #fff1b8, #f2c14e 40%, #b47a12 80%); }
+  .rough { background: #1a1a1a; }
+  .metal { background: #ffffff; border: 1px solid var(--line); }
+  .norm { background:
+      radial-gradient(circle at 30% 35%, #a6a0ff 0 14%, transparent 15%),
+      radial-gradient(circle at 70% 65%, #6f86ff 0 16%, transparent 17%),
+      radial-gradient(circle at 72% 28%, #9a8cff 0 10%, transparent 11%),
+      #8080ff; }
+  .foot { margin-top: 26px; display: flex; gap: 22px; flex-wrap: wrap; font-size: 16px; color: var(--muted); }
+  .foot b { color: var(--fg); }
+</style>
+</head>
+<body>
+<div id="card">
+  <div class="card">
+    <div class="eyebrow">The material brush</div>
+    <h2>Gold is one brush, not three passes.</h2>
+    <p class="lead">Every dab writes Base Color, Roughness, Metalness and tangent-space Normal relief together, projected through the camera with depth testing, so paint never bleeds through ears, fingers or thin armor plates.</p>
+    <div class="row">
+      <div class="brush">
+        <svg viewBox="0 0 150 110" aria-hidden="true">
+          <defs>
+            <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#fff1b8" />
+              <stop offset="0.4" stop-color="#f2c14e" />
+              <stop offset="0.8" stop-color="#b47a12" />
+              <stop offset="1" stop-color="#ffe08a" />
+            </linearGradient>
+          </defs>
+          <path d="M14 78 C 40 20, 80 100, 136 34" fill="none" stroke="url(#g)" stroke-width="26" stroke-linecap="round" />
+          <path d="M16 70 C 42 14, 80 92, 134 28" fill="none" stroke="#fff" stroke-opacity="0.5" stroke-width="4" stroke-linecap="round" />
+        </svg>
+        <div class="t">One stroke</div>
+        <div class="s">Gold preset</div>
+      </div>
+      <div class="arrow">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+      </div>
+      <div class="chans">
+        <div class="ch"><div class="sw base"></div><div class="n">Base Color</div><div class="v">#F2C14E</div></div>
+        <div class="ch"><div class="sw rough"></div><div class="n">Roughness</div><div class="v">0.10</div></div>
+        <div class="ch"><div class="sw metal"></div><div class="n">Metalness</div><div class="v">1.00</div></div>
+        <div class="ch"><div class="sw norm"></div><div class="n">Normal</div><div class="v">from brush tip</div></div>
+      </div>
+    </div>
+    <div class="foot">
+      <span><b>Stylus pressure</b> → radius, opacity, hardness</span>
+      <span><b>Symmetry</b> on X / Y / Z</span>
+      <span><b>Photoshop .abr</b> tips &amp; brush groups</span>
+      <span><b>Jitter</b> for angle, size, hue, opacity</span>
+    </div>
+  </div>
+</div>
+</body>
+</html>

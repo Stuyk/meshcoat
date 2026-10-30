@@ -1,0 +1,115 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>MeshCoat — fast, local-first 3D texture painter</title>
+<meta name="hypedoc:width" content="960">
+<meta name="hypedoc:selector" content="#card">
+<style>
+  :root {
+    --bg: #ffffff; --bg2: #f4f6fa; --fg: #0b0d12; --muted: #566072; --line: #e2e6ee;
+    --blue: #0073e6; --orange: #e06f00; --chip: #eef3fb; --chipfg: #20406e;
+    --floor: #dfe4ec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141416; --bg2: #1c1c1e; --fg: #e8e8ea; --muted: #9a9aa6; --line: #2e2e32;
+      --blue: #3399ff; --orange: #ff9a3c; --chip: #1f2a3a; --chipfg: #b8d6ff;
+      --floor: #232327;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, Roboto, sans-serif; }
+  #card {
+    margin: 0; padding: 20px;
+  }
+  .card {
+    display: grid; grid-template-columns: 1.15fr 1fr; gap: 24px; align-items: center;
+    background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 22px;
+    padding: 48px 44px 48px 52px; overflow: hidden; position: relative;
+  }
+  .brand { display: flex; align-items: center; gap: 16px; margin-bottom: 22px; }
+  .brand svg { width: 64px; height: 64px; flex: none; }
+  .brand .name { font-size: 46px; font-weight: 800; letter-spacing: -0.035em; line-height: 1; }
+  h1 { margin: 0 0 16px; font-size: 32px; line-height: 1.18; letter-spacing: -0.02em; font-weight: 750; }
+  h1 em { font-style: normal; color: var(--blue); }
+  p { margin: 0 0 26px; font-size: 18px; line-height: 1.55; color: var(--muted); max-width: 470px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    font-size: 15px; font-weight: 600; padding: 7px 12px; border-radius: 999px;
+    background: var(--chip); color: var(--chipfg);
+  }
+  .chip.o { background: color-mix(in srgb, var(--orange) 16%, transparent); color: var(--orange); }
+  .art { position: relative; }
+  .art svg { width: 100%; height: auto; display: block; }
+</style>
+</head>
+<body>
+<div id="card">
+  <div class="card">
+    <div>
+      <div class="brand">
+        <svg viewBox="0 0 128 128" aria-hidden="true">
+          <rect width="128" height="128" rx="28" fill="#1e2430" />
+          <g transform="translate(18, 18) scale(1.64)">
+            <path fill="#3b82f6" d="m28 26.64l22.078-12.538c-.352-.352-.774-.633-1.289-.915l-16.523-9.42C30.813 2.946 29.406 2.5 28 2.5s-2.812.445-4.266 1.266L7.211 13.188c-.516.28-.937.562-1.29.914ZM26.406 53.5V29.453L4.4 16.891a7.8 7.8 0 0 0-.188 1.78V36.93c0 3.398 1.195 4.664 3.375 5.906l18.352 10.453c.164.094.304.164.468.211m3.188 0c.164-.047.304-.117.469-.21l18.351-10.454c2.18-1.242 3.375-2.508 3.375-5.906V18.672c0-.703-.07-1.266-.187-1.781L29.594 29.453Z" />
+          </g>
+          <g transform="translate(68, 68) scale(4.4)">
+            <path fill="none" stroke="#161a24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M2 7a1 1 0 0 0 1 1h1v1.5c0 .827.673 1.5 1.5 1.5S7 10.327 7 9.5V8h1a1 1 0 0 0 1-1V6H2zm6.5-6H8v2a.5.5 0 0 1-1 0V1H6v1.5a.5.5 0 0 1-1 0V1H2.5a.5.5 0 0 0-.5.5V5h7V1.5a.5.5 0 0 0-.5-.5" />
+            <path fill="#f57c00" d="M2 7a1 1 0 0 0 1 1h1v1.5c0 .827.673 1.5 1.5 1.5S7 10.327 7 9.5V8h1a1 1 0 0 0 1-1V6H2zm6.5-6H8v2a.5.5 0 0 1-1 0V1H6v1.5a.5.5 0 0 1-1 0V1H2.5a.5.5 0 0 0-.5.5V5h7V1.5a.5.5 0 0 0-.5-.5" />
+          </g>
+        </svg>
+        <div class="name">MeshCoat</div>
+      </div>
+      <h1>Paint PBR textures straight onto your mesh. <em>No subscription, no cloud.</em></h1>
+      <p>Load a <b>.glb</b>, <b>.obj</b> or <b>.blend</b>, pick a canvas size, and paint color, roughness, metalness and normal relief in one stroke. Then export engine-ready maps.</p>
+      <div class="chips">
+        <span class="chip">Windows · Linux · macOS</span>
+        <span class="chip">100% offline</span>
+        <span class="chip">Zero telemetry</span>
+        <span class="chip o">Free · GPL-3.0</span>
+      </div>
+    </div>
+    <div class="art">
+      <svg viewBox="0 0 380 380" role="img" aria-label="Sphere with a painted gold stroke">
+        <defs>
+          <radialGradient id="ball" cx="38%" cy="32%" r="75%">
+            <stop offset="0" stop-color="#d9dde5" />
+            <stop offset="0.45" stop-color="#8e96a5" />
+            <stop offset="1" stop-color="#2c313b" />
+          </radialGradient>
+          <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#fff1b8" />
+            <stop offset="0.35" stop-color="#f2c14e" />
+            <stop offset="0.75" stop-color="#b47a12" />
+            <stop offset="1" stop-color="#ffe08a" />
+          </linearGradient>
+          <linearGradient id="blue" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#0084ff" />
+            <stop offset="1" stop-color="#48a8ff" />
+          </linearGradient>
+          <clipPath id="sph"><circle cx="190" cy="180" r="138" /></clipPath>
+        </defs>
+        <ellipse cx="190" cy="340" rx="130" ry="18" fill="var(--floor)" />
+        <circle cx="190" cy="180" r="138" fill="url(#ball)" />
+        <g clip-path="url(#sph)" fill="none" stroke="#ffffff" stroke-opacity="0.18" stroke-width="1.5">
+          <ellipse cx="190" cy="180" rx="138" ry="46" />
+          <ellipse cx="190" cy="180" rx="138" ry="98" />
+          <ellipse cx="190" cy="180" rx="46" ry="138" />
+          <ellipse cx="190" cy="180" rx="98" ry="138" />
+        </g>
+        <g clip-path="url(#sph)" stroke-linecap="round" fill="none">
+          <path d="M92 214 C 140 268, 240 270, 290 206" stroke="url(#gold)" stroke-width="30" />
+          <path d="M92 214 C 140 268, 240 270, 290 206" stroke="#fff" stroke-opacity="0.45" stroke-width="5" transform="translate(-2,-8)" />
+          <path d="M146 112 L 146 150" stroke="#2b8fff" stroke-width="28" />
+          <path d="M232 112 L 232 150" stroke="#2b8fff" stroke-width="28" />
+        </g>
+        <ellipse cx="150" cy="110" rx="40" ry="22" fill="#fff" fill-opacity="0.18" transform="rotate(-25 150 110)" />
+        <circle cx="306" cy="200" r="24" fill="none" stroke="var(--orange)" stroke-width="3" stroke-dasharray="5 5" />
+        <circle cx="306" cy="200" r="3" fill="var(--orange)" />
+      </svg>
+    </div>
+  </div>
+</div>
+</body>
+</html>

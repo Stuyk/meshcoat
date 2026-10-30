@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>From model file to game engine: import, paint, export packed ORM</title>
+<meta name="hypedoc:width" content="960">
+<meta name="hypedoc:selector" content="#card">
+<style>
+  :root {
+    --bg: #ffffff; --fg: #0b0d12; --muted: #566072; --line: #e2e6ee; --tile: #f4f6fa;
+    --blue: #0073e6; --orange: #e06f00; --tag: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141416; --fg: #e8e8ea; --muted: #9a9aa6; --line: #2e2e32; --tile: #1c1c1e;
+      --blue: #3399ff; --orange: #ff9a3c; --tag: #28282b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, Roboto, sans-serif; }
+  #card { padding: 20px; }
+  .card { background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 22px; padding: 44px 48px 48px; }
+  .eyebrow { font-size: 14px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--blue); margin-bottom: 10px; }
+  h2 { margin: 0 0 28px; font-size: 34px; letter-spacing: -0.02em; }
+  .flow { display: grid; grid-template-columns: 1fr 28px 1fr 28px 1fr; align-items: stretch; }
+  .step { background: var(--tile); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
+  .num { font-size: 14px; font-weight: 800; color: var(--orange); letter-spacing: 0.1em; }
+  .st { font-size: 22px; font-weight: 750; margin: 4px 0 12px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .tag { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; padding: 3px 8px; border-radius: 6px; background: var(--tag); border: 1px solid var(--line); }
+  ul { margin: 0; padding-left: 18px; font-size: 15px; color: var(--muted); line-height: 1.55; }
+  .arr { display: grid; place-items: center; color: var(--muted); }
+  .arr svg { width: 22px; height: 22px; }
+  .orm { margin-top: 22px; display: grid; grid-template-columns: 160px 1fr; gap: 20px; align-items: center; }
+  .ormlabel { font-size: 20px; font-weight: 800; line-height: 1.2; }
+  .ormlabel small { display: block; font-size: 15px; font-weight: 500; color: var(--muted); margin-top: 4px; }
+  .bars { display: grid; grid-template-columns: repeat(3, 1fr); border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+  .bar { padding: 14px 16px; color: #fff; }
+  .bar b { display: block; font-size: 17px; }
+  .bar span { font-size: 14px; opacity: 0.9; }
+  .r { background: #c63c3c; } .g { background: #2f9a52; } .b { background: #2f6fd6; }
+  .engines { margin-top: 18px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; font-size: 16px; color: var(--muted); }
+  .eng { font-weight: 700; color: var(--fg); padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--tile); }
+</style>
+</head>
+<body>
+<div id="card">
+  <div class="card">
+    <div class="eyebrow">Workflow</div>
+    <h2>Model file in, engine-ready maps out.</h2>
+    <div class="flow">
+      <div class="step">
+        <div class="num">01</div>
+        <div class="st">Import</div>
+        <div class="tags"><span class="tag">.glb</span><span class="tag">.gltf</span><span class="tag">.obj</span><span class="tag">.blend</span></div>
+        <ul>
+          <li>Blender bridge converts .blend headlessly</li>
+          <li>Existing PBR maps load as layers</li>
+          <li>Multi-piece models, one texture set each</li>
+        </ul>
+      </div>
+      <div class="arr"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg></div>
+      <div class="step">
+        <div class="num">02</div>
+        <div class="st">Paint</div>
+        <div class="tags"><span class="tag">layers</span><span class="tag">folders</span><span class="tag">masks</span></div>
+        <ul>
+          <li>3D viewport or flat 2D UV panel</li>
+          <li>Blend modes, clipping, 100-step undo</li>
+          <li>Autosave and crash recovery</li>
+        </ul>
+      </div>
+      <div class="arr"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg></div>
+      <div class="step">
+        <div class="num">03</div>
+        <div class="st">Export</div>
+        <div class="tags"><span class="tag">_BaseColor</span><span class="tag">_Normal</span><span class="tag">_ORM</span></div>
+        <ul>
+          <li>PBR + ORM, color-only or unpacked</li>
+          <li>Native, 1024, 2048 or 4096 px</li>
+          <li>Every piece in one pass</li>
+        </ul>
+      </div>
+    </div>
+    <div class="orm">
+      <div class="ormlabel">Packed ORM<small>one texture, three masks</small></div>
+      <div class="bars">
+        <div class="bar r"><b>R · Occlusion</b><span>cavity / AO</span></div>
+        <div class="bar g"><b>G · Roughness</b><span>linear scalar</span></div>
+        <div class="bar b"><b>B · Metallic</b><span>linear mask</span></div>
+      </div>
+    </div>
+    <div class="engines">Drops into <span class="eng">Unreal Engine 5</span><span class="eng">Unity URP / HDRP</span><span class="eng">Godot 4</span><span class="eng">Blender</span><span class="eng">glTF</span></div>
+  </div>
+</div>
+</body>
+</html>
